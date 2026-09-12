@@ -37,6 +37,7 @@ export type ContestInput = components["schemas"]["ContestInput"];
 export type MonthlyTargets = components["schemas"]["MonthlyTargets"];
 export type BloodTest = components["schemas"]["BloodTest"];
 export type BloodTestInput = components["schemas"]["BloodTestInput"];
+export type BloodTestItem = components["schemas"]["BloodTestItem"];
 export type BodyPhoto = components["schemas"]["BodyPhoto"];
 export type VolumeRange = components["schemas"]["VolumeRange"];
 export type NutritionSettings = components["schemas"]["NutritionSettings"];

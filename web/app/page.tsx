@@ -47,6 +47,7 @@ export default async function Home() {
         <NavLink href="/meals">食事</NavLink>
         <NavLink href="/body">体組成</NavLink>
         <NavLink href="/plan">計画</NavLink>
+        <NavLink href="/blood">血液検査</NavLink>
         <NavLink href="/settings">設定</NavLink>
       </nav>
 
