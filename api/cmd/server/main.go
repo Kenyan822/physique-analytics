@@ -16,6 +16,7 @@ import (
 	"github.com/Kenyan822/physique-analytics/api/internal/config"
 	"github.com/Kenyan822/physique-analytics/api/internal/database"
 	"github.com/Kenyan822/physique-analytics/api/internal/handler"
+	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 )
 
 func main() {
@@ -49,7 +50,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:    net.JoinHostPort("", strconv.Itoa(cfg.Port)),
-		Handler: handler.NewRouter(handler.New(pool)),
+		Handler: handler.NewRouter(handler.New(pool, repository.NewExercise(pool.DB()))),
 		// ヘッダを送り切らない接続にワーカーを占有させない
 		ReadHeaderTimeout: 10 * time.Second,
 	}

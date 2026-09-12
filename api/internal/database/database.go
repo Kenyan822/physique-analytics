@@ -58,5 +58,8 @@ func Open(ctx context.Context, cfg Config) (*Pool, error) {
 // Ping は疎通を確認する。handler.Pinger を満たす。
 func (p *Pool) Ping(ctx context.Context) error { return p.pool.Ping(ctx) }
 
+// DB は repository に渡す接続。repository.DBTX を満たす。
+func (p *Pool) DB() *pgxpool.Pool { return p.pool }
+
 // Close は接続プールを閉じる。
 func (p *Pool) Close() { p.pool.Close() }

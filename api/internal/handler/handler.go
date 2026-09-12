@@ -8,7 +8,10 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
+	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 )
 
 // Pinger は疎通確認できるデータストア。ヘルスチェックのテストで実 DB を立てないために挟んでいる。
@@ -16,17 +19,25 @@ type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
+// ExerciseRepository は種目マスタへのアクセス。
+// ハンドラが必要とする操作だけを並べている（実装は internal/repository）。
+type ExerciseRepository interface {
+	List(ctx context.Context, f repository.ExerciseFilter) ([]openapi.Exercise, error)
+	Get(ctx context.Context, id uuid.UUID) (openapi.Exercise, error)
+}
+
 // Server は openapi.StrictServerInterface の実装。
 // 未実装の操作は埋め込んだ Unimplemented が 501 で受ける。
 type Server struct {
 	Unimplemented
 
-	db Pinger
+	db        Pinger
+	exercises ExerciseRepository
 }
 
 // New は Server を作る。
-func New(db Pinger) *Server {
-	return &Server{db: db}
+func New(db Pinger, exercises ExerciseRepository) *Server {
+	return &Server{db: db, exercises: exercises}
 }
 
 // 埋め込みだけでは満たせていない場合にコンパイルで落とす
