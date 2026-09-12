@@ -33,6 +33,13 @@ export default async function Home() {
         <h1 className="text-lg font-semibold md:text-xl">{formatJstDate(date)}</h1>
         <div className="flex shrink-0 items-center gap-2">
           <Link
+            href="/settings"
+            aria-label="設定"
+            className="pressable rounded-full border border-line px-3 py-2 text-sm text-muted"
+          >
+            設定
+          </Link>
+          <Link
             href="/meals"
             className="pressable rounded-full border border-line px-3 py-2 text-sm text-muted"
           >

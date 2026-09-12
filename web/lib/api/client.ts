@@ -25,6 +25,9 @@ export type MealSuggestion = components["schemas"]["MealSuggestion"];
 export type DailyTargets = components["schemas"]["DailyTargets"];
 export type Plan = components["schemas"]["Plan"];
 export type PlanInput = components["schemas"]["PlanInput"];
+export type PlanPhase = components["schemas"]["PlanPhase"];
+export type VolumeRange = components["schemas"]["VolumeRange"];
+export type NutritionSettings = components["schemas"]["NutritionSettings"];
 export type Problem = components["schemas"]["Problem"];
 
 type ListExercisesQuery = NonNullable<paths["/v1/exercises"]["get"]["parameters"]["query"]>;
