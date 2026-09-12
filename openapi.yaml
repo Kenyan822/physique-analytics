@@ -93,7 +93,9 @@ paths:
       operationId: createExercise
       tags: [exercises]
       summary: 種目を追加
-      description: 種目マスタ58種目はマイグレーションで投入済み。ここでは独自種目を追加する。
+      description: |
+        種目マスタ（49種目）はマイグレーションで投入済み。ここでは独自種目を追加する。
+        既存の種目と同じものを別表記で追加しない。時系列が分断される。
       requestBody:
         required: true
         content:
