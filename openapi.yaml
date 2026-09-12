@@ -637,6 +637,50 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/meals/estimate:
+    post:
+      operationId: estimateMeal
+      tags: [nutrition]
+      summary: 写真から PFC を推定する
+      description: |
+        要件 N-06。**食品マスタを持たない設計の弱点は「初めて食べるものの入力」**で、
+        そこを Vision 対応の LLM で埋める。
+
+        **推定結果は保存しない。** 編集可能な下書きとして返し、
+        確認してから `POST /v1/meals` で記録する（その際 `source` は
+        `ai_estimated` にする）。
+
+        テキスト補足は任意だが、「鶏むね200g、白米150g」のように**量を添えると
+        精度が大きく上がる**（写真だけでは食器のサイズが分からない）。
+
+        推定が未設定のときは 503 を返す。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: jpeg / png / webp / gif
+                note:
+                  type: string
+                  maxLength: 500
+                  description: 量などの補足。精度が大きく上がる
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MealEstimate" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
   /v1/meals/suggestions:
     get:
       operationId: listMealSuggestions
@@ -2007,6 +2051,30 @@ components:
           minItems: 1
           maxItems: 200
           items: { $ref: "#/components/schemas/BloodTestItem" }
+
+    MealEstimate:
+      type: object
+      required: [name, source]
+      description: |
+        写真からの推定結果。**そのまま保存されていない。**
+        編集してから POST /v1/meals で記録する。
+      properties:
+        name: { type: string }
+        qty: { type: [string, "null"] }
+        kcal: { type: [integer, "null"] }
+        proteinG: { type: [number, "null"] }
+        fatG: { type: [number, "null"] }
+        carbG: { type: [number, "null"] }
+        confidence:
+          type: [string, "null"]
+          description: low / medium / high。量が分からないときは low
+        note:
+          type: [string, "null"]
+          description: 推定の根拠。直すときの手がかりになる
+        source:
+          allOf:
+            - $ref: "#/components/schemas/MealSource"
+          description: 常に ai_estimated。記録するときもこれを保つ
 
     Problem:
       type: object

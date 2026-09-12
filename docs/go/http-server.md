@@ -80,3 +80,40 @@ slog.ErrorContext(ctx, "DB への疎通に失敗", slog.Any("error", err))
 
 Go 1.21 から標準。zap / zerolog を入れなくてよい。
 Cloud Logging は stdout の JSON を構造化ログとして取り込むので、JSONHandler をそのまま使う。
+
+## 外部 API のクライアントは宛先を差し替えられるようにする
+
+```go
+type Config struct {
+	APIKey   string
+	Model    string
+	Endpoint string  // 空なら本番の既定
+}
+```
+
+**課金が発生する経路を、課金なしで通せるようにするため。**
+偽のサーバを立てて `VISION_ENDPOINT` を向ければ、リクエストの中身
+（モデル名・画像のバイト数・補足テキストが入っているか・API キーが
+付いているか）まで手元で確かめられる。
+
+```
+MODEL: claude-haiku-4-5-20251001
+IMAGE_BYTES: 18
+HAS_NOTE: True
+API_KEY_SENT: True
+```
+
+`httptest.Server` でも同じことはできるが、**プロセスをまたいだ確認**には
+環境変数で差し替えられる方が要る。ユニットテストは `http.Client` の
+`Transport` を差し替えれば足りるので、両方を用意している。
+
+## 「使えない」は 503 で、理由と代替手段を返す
+
+```go
+return problem(503, "写真からの推定が未設定",
+	"ANTHROPIC_API_KEY と VISION_MODEL を設定すると使える。手で入力することもできる")
+```
+
+機能が無効なのはリクエストのせいではないので 4xx にしない。
+**直し方と、今すぐ進む方法の両方を書く。** 「使えません」だけだと、
+利用者はそこで止まる。

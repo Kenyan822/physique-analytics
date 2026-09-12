@@ -15,6 +15,7 @@ import (
 	"github.com/Kenyan822/physique-analytics/api/internal/analytics"
 	"github.com/Kenyan822/physique-analytics/api/internal/csvio"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
+	"github.com/Kenyan822/physique-analytics/api/internal/vision"
 )
 
 // Pinger は疎通確認できるデータストア。ヘルスチェックのテストで実 DB を立てないために挟んでいる。
@@ -130,6 +131,15 @@ type BloodTestRepository interface {
 	SoftDelete(ctx context.Context, id uuid.UUID) error
 }
 
+// FoodEstimator は写真から PFC を推定する（要件 N-06）。
+//
+// インターフェースにしてあるのは、**テストで実 API を叩かないため**。
+// 課金が発生する経路をテストが通ることはない。
+type FoodEstimator interface {
+	Enabled() bool
+	Estimate(ctx context.Context, req vision.Request) (vision.Estimate, error)
+}
+
 // Server は openapi.StrictServerInterface の実装。
 //
 // **openapi.yaml の全操作を実装している。** 仕様に操作を足すと
@@ -150,6 +160,8 @@ type Server struct {
 	mealSets  MealSetRepository
 	contests  ContestRepository
 	blood     BloodTestRepository
+	// estimator は nil でもよい。未設定なら推定だけが使えない
+	estimator FoodEstimator
 }
 
 // New は Server を作る。
@@ -167,12 +179,13 @@ func New(
 	mealSets MealSetRepository,
 	contests ContestRepository,
 	blood BloodTestRepository,
+	estimator FoodEstimator,
 ) *Server {
 	return &Server{
 		db: db, exercises: exercises, workouts: workouts,
 		templates: templates, sync: sync, transfer: transfer,
 		body: body, meals: meals, plan: plan, series: series,
-		mealSets: mealSets, contests: contests, blood: blood,
+		mealSets: mealSets, contests: contests, blood: blood, estimator: estimator,
 	}
 }
 

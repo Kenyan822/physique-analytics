@@ -18,6 +18,7 @@ import (
 	"github.com/Kenyan822/physique-analytics/api/internal/database"
 	"github.com/Kenyan822/physique-analytics/api/internal/handler"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
+	"github.com/Kenyan822/physique-analytics/api/internal/vision"
 )
 
 func main() {
@@ -64,6 +65,12 @@ func run() error {
 		repository.NewMealSet(pool.DB()),
 		repository.NewContest(pool.DB()),
 		repository.NewBloodTest(pool.DB()),
+		// 推定は任意。API キーが無ければ 503 を返すだけで、課金は発生しない
+		vision.NewClient(vision.Config{
+			APIKey:   cfg.VisionAPIKey,
+			Model:    cfg.VisionModel,
+			Endpoint: cfg.VisionEndpoint,
+		}, nil),
 	))
 
 	if cfg.AuthDisabled {

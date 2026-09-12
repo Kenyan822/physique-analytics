@@ -120,3 +120,24 @@ func TestLoad_AUTH_DISABLEDはtrueだけを受け付ける(t *testing.T) {
 		}
 	}
 }
+
+func TestLoad_推定は任意(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load(lookup(map[string]string{
+		"DATABASE_URL":      "postgres://x",
+		"SUPABASE_JWKS_URL": "https://x/jwks.json",
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// **未設定でも起動する。** 推定だけが使えない状態になる
+	if cfg.VisionAPIKey != "" {
+		t.Errorf("VisionAPIKey = %q, want 空", cfg.VisionAPIKey)
+	}
+	// 既定モデルは要件のコスト試算に合わせる
+	if cfg.VisionModel == "" {
+		t.Error("VisionModel が空。既定を持たせる")
+	}
+}

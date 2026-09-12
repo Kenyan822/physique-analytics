@@ -56,7 +56,7 @@ func (s *stubMealSets) Apply(_ context.Context, id uuid.UUID, date openapi_types
 func mealSetServer(ms *stubMealSets) http.Handler {
 	return handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{},
 		&stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{},
-		&stubPlan{}, &stubSeries{}, ms, &stubContests{}, &stubBlood{}))
+		&stubPlan{}, &stubSeries{}, ms, &stubContests{}, &stubBlood{}, &stubEstimator{}))
 }
 
 func validSet() map[string]any {

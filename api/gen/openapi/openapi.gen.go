@@ -569,6 +569,26 @@ type Meal struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// MealEstimate 写真からの推定結果。**そのまま保存されていない。**
+// 編集してから POST /v1/meals で記録する。
+type MealEstimate struct {
+	CarbG *float32 `json:"carbG,omitempty"`
+
+	// Confidence low / medium / high。量が分からないときは low
+	Confidence *string  `json:"confidence,omitempty"`
+	FatG       *float32 `json:"fatG,omitempty"`
+	Kcal       *int     `json:"kcal,omitempty"`
+	Name       string   `json:"name"`
+
+	// Note 推定の根拠。直すときの手がかりになる
+	Note     *string  `json:"note,omitempty"`
+	ProteinG *float32 `json:"proteinG,omitempty"`
+	Qty      *string  `json:"qty,omitempty"`
+
+	// Source 常に ai_estimated。記録するときもこれを保つ
+	Source MealSource `json:"source"`
+}
+
 // MealInput defines model for MealInput.
 type MealInput struct {
 	CarbG *float32           `json:"carbG,omitempty"`
@@ -1005,6 +1025,15 @@ type CopyMealsJSONBody struct {
 	ToDate   openapi_types.Date `json:"toDate"`
 }
 
+// EstimateMealMultipartBody defines parameters for EstimateMeal.
+type EstimateMealMultipartBody struct {
+	// Image jpeg / png / webp / gif
+	Image openapi_types.File `json:"image"`
+
+	// Note 量などの補足。精度が大きく上がる
+	Note *string `json:"note,omitempty"`
+}
+
 // ListMealSuggestionsParams defines parameters for ListMealSuggestions.
 type ListMealSuggestionsParams struct {
 	// Q 名前の部分一致で絞る
@@ -1103,6 +1132,9 @@ type CreateMealJSONRequestBody = MealInput
 
 // CopyMealsJSONRequestBody defines body for CopyMeals for application/json ContentType.
 type CopyMealsJSONRequestBody CopyMealsJSONBody
+
+// EstimateMealMultipartRequestBody defines body for EstimateMeal for multipart/form-data ContentType.
+type EstimateMealMultipartRequestBody EstimateMealMultipartBody
 
 // UpdateMealJSONRequestBody defines body for UpdateMeal for application/json ContentType.
 type UpdateMealJSONRequestBody = MealInput
@@ -1226,6 +1258,9 @@ type ServerInterface interface {
 	// CopyMeals 別の日の食事を複製する
 	// (POST /v1/meals/copy)
 	CopyMeals(w http.ResponseWriter, r *http.Request)
+	// EstimateMeal 写真から PFC を推定する
+	// (POST /v1/meals/estimate)
+	EstimateMeal(w http.ResponseWriter, r *http.Request)
 	// ListMealSuggestions 過去の記録から候補を出す
 	// (GET /v1/meals/suggestions)
 	ListMealSuggestions(w http.ResponseWriter, r *http.Request, params ListMealSuggestionsParams)
@@ -2012,6 +2047,20 @@ func (siw *ServerInterfaceWrapper) CopyMeals(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CopyMeals(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EstimateMeal operation middleware
+func (siw *ServerInterfaceWrapper) EstimateMeal(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EstimateMeal(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2854,6 +2903,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/meals", wrapper.CreateMeal)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/meals/{mealId}", wrapper.DeleteMeal)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/meals/{mealId}", wrapper.UpdateMeal)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/meals/estimate", wrapper.EstimateMeal)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/meals/suggestions", wrapper.ListMealSuggestions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/meals/copy", wrapper.CopyMeals)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/meal-sets", wrapper.ListMealSets)
@@ -4469,6 +4519,92 @@ func (response CopyMeals401ApplicationProblemPlusJSONResponse) VisitCopyMealsRes
 	return err
 }
 
+type EstimateMealRequestObject struct {
+	Body *multipart.Reader
+}
+
+type EstimateMealResponseObject interface {
+	VisitEstimateMealResponse(w http.ResponseWriter) error
+}
+
+type EstimateMeal200JSONResponse MealEstimate
+
+func (response EstimateMeal200JSONResponse) VisitEstimateMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EstimateMeal400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response EstimateMeal400ApplicationProblemPlusJSONResponse) VisitEstimateMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EstimateMeal401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response EstimateMeal401ApplicationProblemPlusJSONResponse) VisitEstimateMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EstimateMeal422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response EstimateMeal422ApplicationProblemPlusJSONResponse) VisitEstimateMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type EstimateMeal503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response EstimateMeal503ApplicationProblemPlusJSONResponse) VisitEstimateMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListMealSuggestionsRequestObject struct {
 	Params ListMealSuggestionsParams
 }
@@ -5895,6 +6031,9 @@ type StrictServerInterface interface {
 	// CopyMeals 別の日の食事を複製する
 	// (POST /v1/meals/copy)
 	CopyMeals(ctx context.Context, request CopyMealsRequestObject) (CopyMealsResponseObject, error)
+	// EstimateMeal 写真から PFC を推定する
+	// (POST /v1/meals/estimate)
+	EstimateMeal(ctx context.Context, request EstimateMealRequestObject) (EstimateMealResponseObject, error)
 	// ListMealSuggestions 過去の記録から候補を出す
 	// (GET /v1/meals/suggestions)
 	ListMealSuggestions(ctx context.Context, request ListMealSuggestionsRequestObject) (ListMealSuggestionsResponseObject, error)
@@ -6831,6 +6970,37 @@ func (sh *strictHandler) CopyMeals(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(CopyMealsResponseObject); ok {
 		if err := validResponse.VisitCopyMealsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// EstimateMeal operation middleware
+func (sh *strictHandler) EstimateMeal(w http.ResponseWriter, r *http.Request) {
+	var request EstimateMealRequestObject
+
+	if reader, err := r.MultipartReader(); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+		return
+	} else {
+		request.Body = reader
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.EstimateMeal(ctx, request.(EstimateMealRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "EstimateMeal")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(EstimateMealResponseObject); ok {
+		if err := validResponse.VisitEstimateMealResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

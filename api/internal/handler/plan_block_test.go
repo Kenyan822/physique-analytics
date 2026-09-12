@@ -16,7 +16,7 @@ import (
 func monthlyServer(p *stubPlan, s *stubSeries) http.Handler {
 	return handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{},
 		&stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{},
-		p, s, &stubMealSets{}, &stubContests{}, &stubBlood{}))
+		p, s, &stubMealSets{}, &stubContests{}, &stubBlood{}, &stubEstimator{}))
 }
 
 func planWithBaseline() openapi.Plan {
