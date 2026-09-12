@@ -95,8 +95,8 @@ def main() -> None:
                 rows.append({
                     "date": d.strftime("%Y-%m-%d"), "exercise": ex, "set_no": s,
                     "weight_kg": round(base_w * (1 + drift / 100), 1) if base_w else 0,
-                    "reps": int(reps + rng.integers(-1, 2)),
-                    "rir": int(max(0, rir + rng.integers(-1, 2))),
+                    "reps": int(reps) + int(rng.integers(-1, 2)),
+                    "rir": max(0, int(rir) + int(rng.integers(-1, 2))),
                 })
         cycle_day += 1
     pd.DataFrame(rows).to_csv(OUT / "workouts.csv", index=False)

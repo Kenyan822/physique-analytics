@@ -4,17 +4,32 @@ updates:
     directory: /reference/analysis
     schedule:
       interval: weekly
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 2
     commit-message:
       prefix: "chore(deps)"
+    # まとめて1つの PR にする。個別に立つと週に何本も来て確実に見なくなる
+    groups:
+      python:
+        patterns: ["*"]
 
   # Go は Phase 1a で追加する
   # - package-ecosystem: gomod
   #   directory: /api
+  #   groups:
+  #     go:
+  #       update-types: ["minor", "patch"]
+
+  # Web は Phase 1a で追加する（pnpm も package-ecosystem は npm）
+  # - package-ecosystem: npm
+  #   directory: /web
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 2
     commit-message:
       prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]
