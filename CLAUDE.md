@@ -238,7 +238,7 @@ gh pr merge --squash --delete-branch
 型は `openapi.yaml` が唯一の正（[ADR-0007](docs/adr/0007-openapi-schema-driven.md)）。**Go / TypeScript / Swift の型を手で書かない。**
 
 1. `openapi.yaml` を編集
-2. コード生成を実行（Go は `cd api && go generate ./...`。TypeScript / Swift は各 Phase で追加）
+2. コード生成を実行（Go: `cd api && go generate ./...` / TS: `cd web && pnpm gen`。Swift は Phase 2）
 3. 生成物をコミット（CI が最新性を検証する）
 4. DB スキーマが変わるなら `api/migrations/` にマイグレーションを追加
 
@@ -256,9 +256,12 @@ docker compose down
 cd infra && terraform plan
 cd infra && terraform apply      # 手動実行。CI では plan のみ
 
-# Web（Phase 1a 以降）
+# Web（Next.js）
 cd web && pnpm install
 cd web && pnpm dev
+cd web && pnpm gen          # openapi.yaml → lib/api/schema.gen.ts
+cd web && pnpm test
+cd web && pnpm typecheck
 
 # API（Go）
 cd api && go generate ./...                    # openapi.yaml → gen/openapi/

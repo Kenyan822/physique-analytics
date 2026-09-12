@@ -209,6 +209,60 @@ jobs:
             --asof 2026-10-31 \
             --no-write
 
-  # iOS / Web は Phase 2 / Phase 1a で追加する。
+  web:
+    name: web (Next.js)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      # バージョンは web/package.json の packageManager が決める。
+      # この action は既定でリポジトリルートの package.json を見るので、
+      # monorepo では package_json_file の指定が要る
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: web/.nvmrc
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      # --frozen-lockfile: lockfile と package.json がずれていたら失敗させる。
+      # 手元で入れ忘れた依存が CI で黙って入るのを防ぐ
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # openapi.yaml が型の唯一の正（ADR-0007）。
+      # spec を変えたのに生成し直していない状態をここで落とす
+      - name: 生成物が最新か検証
+        run: |
+          pnpm gen
+          git diff --exit-code -- lib/api/schema.gen.ts \
+            || { echo '::error::openapi.yaml と生成物がずれている。web/ で pnpm gen を実行してコミットすること'; exit 1; }
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Build
+        env:
+          # ビルド時に API を叩かない（すべて動的レンダリング）が、
+          # 設定が無いと serverApi() が落ちる
+          API_BASE_URL: http://localhost:8080
+        run: pnpm build
+
+      # 依存の既知脆弱性。pnpm audit は lockfile を見る
+      - name: pnpm audit
+        run: pnpm audit --audit-level high
+
+  # iOS は Phase 2 で追加する。
   # ios:  runs-on: macos-latest / SwiftLint + xcodebuild test
-  # web:  runs-on: ubuntu-latest / ESLint + tsc + vitest + next build
