@@ -2,7 +2,7 @@
 
 import { useCallback, useState, useTransition } from "react";
 
-import type { Meal, MealSlot, MealSuggestion } from "@/lib/api/client";
+import type { DailyTargets, Meal, MealSlot, MealSuggestion } from "@/lib/api/client";
 
 import { MealPicker } from "./MealPicker";
 import type { CopyResult, MealResult } from "./actions";
@@ -13,6 +13,8 @@ type Props = {
   /** 前日の日付。1操作で写せるようにする（要件 N-04） */
   yesterday: string;
   recorded: Meal[];
+  /** その日の摂取目標（要件 N-05）。TDEE を推定できないときは target が無い */
+  targets: DailyTargets;
   loadSuggestions: (q: string) => Promise<MealSuggestion[]>;
   createMeal: (input: {
     date: string;
@@ -43,6 +45,7 @@ export function MealForm({
   date,
   yesterday,
   recorded,
+  targets,
   loadSuggestions,
   createMeal,
   deleteMeal,
@@ -126,11 +129,21 @@ export function MealForm({
     <div className="px-4 pb-12 lg:grid lg:grid-cols-[28rem_minmax(0,1fr)] lg:items-start lg:gap-8 lg:px-6">
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-4 gap-2">
-          <Total label="kcal" value={totals.kcal} />
-          <Total label="P" value={totals.proteinG} unit="g" />
-          <Total label="F" value={totals.fatG} unit="g" />
-          <Total label="C" value={totals.carbG} unit="g" />
+          <Total label="kcal" value={totals.kcal} target={targets.target?.kcal} />
+          <Total label="P" value={totals.proteinG} unit="g" target={targets.target?.proteinG} />
+          <Total label="F" value={totals.fatG} unit="g" target={targets.target?.fatG} />
+          <Total label="C" value={totals.carbG} unit="g" target={targets.target?.carbG} />
         </div>
+        {targets.target == null && targets.note && (
+          <p className="rounded-xl border border-line bg-surface px-3 py-2 text-xs text-muted">
+            {targets.note}
+          </p>
+        )}
+        {targets.intakeFloorHit && (
+          <p className="rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+            摂取が下限に達している。これ以上削らず、歩数で赤字を作る
+          </p>
+        )}
         {unknown > 0 && (
           <p className="rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
             PFC が未入力の記録が {unknown} 件ある。合計はその分少なく出ている
@@ -298,13 +311,38 @@ function num(v: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function Total({ label, value, unit }: { label: string; value: number; unit?: string }) {
+/**
+ * 実績と、目標があれば残量を出す（要件 N-05）。
+ *
+ * **残量を主役にする。** 知りたいのは「今日あと何を食べられるか」で、
+ * 合計値そのものは途中経過にすぎない。
+ */
+function Total({
+  label,
+  value,
+  unit,
+  target,
+}: {
+  label: string;
+  value: number;
+  unit?: string;
+  target?: number;
+}) {
+  const remaining = target == null ? null : Math.round((target - value) * 10) / 10;
+
   return (
     <div className="rounded-2xl border border-line bg-surface px-2 py-3 text-center">
       <div className="text-[11px] text-muted">{label}</div>
-      <div className="tnum text-xl font-semibold leading-tight">
-        {Math.round(value * 10) / 10}
+      <div
+        className={`tnum text-xl font-semibold leading-tight ${
+          remaining != null && remaining < 0 ? "text-warn" : ""
+        }`}
+      >
+        {remaining ?? Math.round(value * 10) / 10}
         {unit && <span className="ml-0.5 text-xs font-normal text-muted">{unit}</span>}
+      </div>
+      <div className="tnum text-[10px] text-muted">
+        {target == null ? "実績" : `${Math.round(value)} / ${Math.round(target)}${unit ?? ""}`}
       </div>
     </div>
   );

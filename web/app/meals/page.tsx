@@ -11,7 +11,11 @@ export const metadata = { title: "食事 | physique" };
 export default async function MealsPage() {
   const date = todayJst();
   const yesterday = shiftDays(date, -1);
-  const { items } = await serverApi().listMeals({ from: date, to: date });
+  const api = serverApi();
+  const [{ items }, targets] = await Promise.all([
+    api.listMeals({ from: date, to: date }),
+    api.dailyTargets(date),
+  ]);
 
   return (
     <main className="mx-auto w-full max-w-md lg:max-w-5xl">
@@ -30,6 +34,7 @@ export default async function MealsPage() {
           date={date}
           yesterday={yesterday}
           recorded={items}
+          targets={targets}
           loadSuggestions={loadSuggestions}
           createMeal={createMeal}
           deleteMeal={deleteMeal}
