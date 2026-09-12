@@ -25,7 +25,7 @@ docker compose run --rm migrate up        # マイグレーション適用
 
 cd api
 DATABASE_URL='postgres://physique:dev@localhost:5432/physique?sslmode=disable' go run ./cmd/server
-curl -s localhost:8080/healthz
+curl -s localhost:8080/health
 ```
 
 本番と同じイメージで確認するなら `docker compose --profile full up api`。
@@ -48,6 +48,6 @@ go generate ./...
 
 ## 実装状況
 
-`/healthz` のみ実装済み。他の操作は `internal/handler/unimplemented.go` が 501 を返す。
+`/health` のみ実装済み。他の操作は `internal/handler/unimplemented.go` が 501 を返す。
 `openapi.yaml` に操作を足すと `Server` がインターフェースを満たさなくなりビルドが落ちるので、
 仕様と実装のずれはコンパイル時に分かる。

@@ -45,7 +45,9 @@ tags:
     description: CSV インポート / エクスポート
 
 paths:
-  /healthz:
+  # パスは /healthz にしない。Cloud Run の Google Frontend が
+  # このパスちょうど1つだけを終端し、コンテナまで届かない（issue #32）。
+  /health:
     get:
       operationId: getHealth
       tags: [health]

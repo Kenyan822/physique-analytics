@@ -13,7 +13,7 @@ package handler_test   // package handler ではない
 ## `t.Context()`（Go 1.24〜）
 
 ```go
-req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
+req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/health", nil)
 ```
 
 テストの終了時に自動で cancel される context が取れる。
