@@ -74,6 +74,10 @@ const sessionColumns = `id, date, template_id, note, created_at, updated_at, del
 const setColumns = `id, session_id, exercise_id, set_no, weight_kg, reps, rir,
 	created_at, updated_at, deleted_at`
 
+// join するクエリでは列名が衝突するので別名を付けたものを使う
+const setColumnsPrefixed = `s.id, s.session_id, s.exercise_id, s.set_no, s.weight_kg, s.reps, s.rir,
+	s.created_at, s.updated_at, s.deleted_at`
+
 // defaultSessionLimit は limit 未指定時の件数。
 const defaultSessionLimit = 50
 
@@ -410,4 +414,65 @@ func dateOrNil(d *openapi_types.Date) *time.Time {
 	}
 
 	return &d.Time
+}
+
+// LastPerformanceResult は前回の実施内容。
+type LastPerformanceResult struct {
+	// Date は前回実施日。一度も実施していなければ nil
+	Date *openapi_types.Date
+	Sets []openapi.WorkoutSet
+}
+
+// LastPerformance は種目の前回実施内容を返す（要件 T-02）。
+//
+// 入力速度を決める最重要機能なので、1クエリで取る。
+// 論理削除されたセッション・セットは対象外。
+func (r *Workout) LastPerformance(ctx context.Context, exerciseID uuid.UUID) (LastPerformanceResult, error) {
+	// 直近の実施日を先に決めてから、その日のセットを引く。
+	// 「最新のセット N 件」にすると、日をまたいだセットが混ざる
+	const q = `
+		with last as (
+			select ws.id, ws.date
+			from workout_sessions ws
+			join workout_sets s on s.session_id = ws.id and s.deleted_at is null
+			where s.exercise_id = $1 and ws.deleted_at is null
+			order by ws.date desc, ws.created_at desc
+			limit 1
+		)
+		select last.date, ` + setColumnsPrefixed + `
+		from last
+		join workout_sets s on s.session_id = last.id
+		where s.exercise_id = $1 and s.deleted_at is null
+		order by s.set_no`
+
+	rows, err := r.db.Query(ctx, q, exerciseID)
+	if err != nil {
+		return LastPerformanceResult{}, fmt.Errorf("前回値を引けない: %w", err)
+	}
+	defer rows.Close()
+
+	out := LastPerformanceResult{Sets: []openapi.WorkoutSet{}}
+	for rows.Next() {
+		var (
+			date time.Time
+			s    openapi.WorkoutSet
+		)
+		err := rows.Scan(&date, &s.Id, &s.SessionId, &s.ExerciseId, &s.SetNo, &s.WeightKg, &s.Reps, &s.Rir,
+			&s.CreatedAt, &s.UpdatedAt, &s.DeletedAt)
+		if err != nil {
+			return LastPerformanceResult{}, fmt.Errorf("前回値を読めない: %w", err)
+		}
+
+		if out.Date == nil {
+			out.Date = &openapi_types.Date{Time: date}
+		}
+		s.CreatedAt = s.CreatedAt.In(timeutil.JST)
+		s.UpdatedAt = s.UpdatedAt.In(timeutil.JST)
+		out.Sets = append(out.Sets, s)
+	}
+	if err := rows.Err(); err != nil {
+		return LastPerformanceResult{}, fmt.Errorf("前回値を読めない: %w", err)
+	}
+
+	return out, nil
 }

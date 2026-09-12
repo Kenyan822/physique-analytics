@@ -20,6 +20,7 @@ type stubWorkouts struct {
 	sessions []openapi.WorkoutSession
 	session  openapi.WorkoutSession
 	set      openapi.WorkoutSet
+	last     repository.LastPerformanceResult
 
 	gotFilter   *repository.SessionFilter
 	gotInput    *repository.SessionInput
@@ -286,4 +287,15 @@ func TestDeleteWorkoutSet_204(t *testing.T) {
 	}
 }
 
-var _ = openapi_types.Date{}
+func (s *stubWorkouts) LastPerformance(_ context.Context, _ uuid.UUID) (repository.LastPerformanceResult, error) {
+	return s.last, s.listErr
+}
+
+func jstDateHandler(s string) openapi_types.Date {
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		panic(err)
+	}
+
+	return openapi_types.Date{Time: t}
+}

@@ -39,6 +39,7 @@ type WorkoutRepository interface {
 	CreateSet(ctx context.Context, sessionID uuid.UUID, in repository.SetInput) (openapi.WorkoutSet, error)
 	UpdateSet(ctx context.Context, id uuid.UUID, in repository.SetInput) (openapi.WorkoutSet, error)
 	DeleteSet(ctx context.Context, id uuid.UUID) error
+	LastPerformance(ctx context.Context, exerciseID uuid.UUID) (repository.LastPerformanceResult, error)
 }
 
 // Server は openapi.StrictServerInterface の実装。

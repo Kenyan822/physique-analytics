@@ -1,8 +1,11 @@
 package repository_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -100,28 +103,44 @@ func TestWorkoutList_日付で絞れる(t *testing.T) {
 	ex := repository.NewExercise(tx)
 
 	bench := firstExercise(t, ex, openapi.Chest)
+
+	// 件数で検証しない。トランザクションで隔離していても、コミット済みの
+	// 実データ（手で叩いた記録など）は見えるため。作った id が入るかを見る
+	made := map[string]uuid.UUID{}
 	for _, d := range []int{10, 11, 12} {
-		if _, err := repo.CreateSession(ctx, repository.SessionInput{
-			Date: jstDate(2026, 9, d),
+		s, err := repo.CreateSession(ctx, repository.SessionInput{
+			Date: jstDate(2031, 9, d),
 			Sets: []repository.SetInput{{ExerciseID: bench.Id, SetNo: 1, WeightKg: 80, Reps: 8}},
-		}); err != nil {
+		})
+		if err != nil {
 			t.Fatalf("CreateSession: %v", err)
 		}
+		made[fmt.Sprintf("2031-09-%02d", d)] = s.Id
 	}
 
-	from := jstDate(2026, 9, 11)
-	to := jstDate(2026, 9, 12)
+	from := jstDate(2031, 9, 11)
+	to := jstDate(2031, 9, 12)
 	got, err := repo.ListSessions(ctx, repository.SessionFilter{From: &from, To: &to, Limit: 50})
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
 
-	if len(got) != 2 {
-		t.Fatalf("件数 = %d, want 2", len(got))
+	found := map[uuid.UUID]bool{}
+	for _, s := range got {
+		found[s.Id] = true
 	}
+	if !found[made["2031-09-11"]] || !found[made["2031-09-12"]] {
+		t.Error("範囲内のセッションが返っていない")
+	}
+	if found[made["2031-09-10"]] {
+		t.Error("範囲外のセッションが返っている")
+	}
+
 	// 新しい順
-	if !got[0].Date.After(got[1].Date.Time) {
-		t.Errorf("降順になっていない: %v, %v", got[0].Date, got[1].Date)
+	for i := 1; i < len(got); i++ {
+		if got[i-1].Date.Before(got[i].Date.Time) {
+			t.Errorf("降順になっていない: %v の後に %v", got[i-1].Date, got[i].Date)
+		}
 	}
 }
 
