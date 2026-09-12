@@ -22,6 +22,30 @@ type stubExercises struct {
 	gotFilter  *repository.ExerciseFilter
 	getErr     error
 	getReturns openapi.Exercise
+
+	gotInput      *repository.ExerciseInput
+	gotID         uuid.UUID
+	createReturns openapi.Exercise
+	createErr     error
+	updateReturns openapi.Exercise
+	updateErr     error
+	deleteErr     error
+}
+
+func (s *stubExercises) Create(_ context.Context, in repository.ExerciseInput) (openapi.Exercise, error) {
+	s.gotInput = &in
+	return s.createReturns, s.createErr
+}
+
+func (s *stubExercises) Update(_ context.Context, id uuid.UUID, in repository.ExerciseInput) (openapi.Exercise, error) {
+	s.gotID = id
+	s.gotInput = &in
+	return s.updateReturns, s.updateErr
+}
+
+func (s *stubExercises) SoftDelete(_ context.Context, id uuid.UUID) error {
+	s.gotID = id
+	return s.deleteErr
 }
 
 func (s *stubExercises) List(_ context.Context, f repository.ExerciseFilter) ([]openapi.Exercise, error) {

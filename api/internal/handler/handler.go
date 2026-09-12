@@ -24,6 +24,9 @@ type Pinger interface {
 type ExerciseRepository interface {
 	List(ctx context.Context, f repository.ExerciseFilter) ([]openapi.Exercise, error)
 	Get(ctx context.Context, id uuid.UUID) (openapi.Exercise, error)
+	Create(ctx context.Context, in repository.ExerciseInput) (openapi.Exercise, error)
+	Update(ctx context.Context, id uuid.UUID, in repository.ExerciseInput) (openapi.Exercise, error)
+	SoftDelete(ctx context.Context, id uuid.UUID) error
 }
 
 // Server は openapi.StrictServerInterface の実装。
@@ -78,8 +81,8 @@ func handleResponseError(w http.ResponseWriter, r *http.Request, err error) {
 	writeProblem(w, http.StatusInternalServerError, "サーバ内部エラー", "")
 }
 
-// writeProblem は RFC 7807 の形式でエラーを返す。
-func writeProblem(w http.ResponseWriter, status int, title, detail string) {
+// problem は RFC 7807 の Problem を組み立てる。
+func problem(status int, title, detail string) openapi.Problem {
 	p := openapi.Problem{
 		Type:   "about:blank",
 		Title:  title,
@@ -88,6 +91,13 @@ func writeProblem(w http.ResponseWriter, status int, title, detail string) {
 	if detail != "" {
 		p.Detail = &detail
 	}
+
+	return p
+}
+
+// writeProblem は RFC 7807 の形式でエラーを返す。
+func writeProblem(w http.ResponseWriter, status int, title, detail string) {
+	p := problem(status, title, detail)
 
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)

@@ -1609,6 +1609,22 @@ func (response UpdateExercise200JSONResponse) VisitUpdateExerciseResponse(w http
 	return err
 }
 
+type UpdateExercise400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateExercise400ApplicationProblemPlusJSONResponse) VisitUpdateExerciseResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type UpdateExercise404ApplicationProblemPlusJSONResponse struct {
 	NotFoundApplicationProblemPlusJSONResponse
 }
