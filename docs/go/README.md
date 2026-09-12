@@ -52,7 +52,7 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 | [http-server.md](http-server.md) | `ServeMux`、タイムアウト、グレースフルシャットダウン、`log/slog` |
 | [testing.md](testing.md) | `_test` パッケージ、`t.Context()`、インターフェースを使ったスタブ |
 | [tdd.md](tdd.md) | **TDD の実際の流れ**。Red の見方、層ごとのテスト方針、詰まったときの切り分け |
-| [database.md](database.md) | pgx、トランザクションでのテスト隔離、`DBTX` インターフェース |
+| [database.md](database.md) | pgx、トランザクションでのテスト隔離、`DBTX` インターフェース、部分インデックスへの upsert |
 | [mcp.md](mcp.md) | MCP サーバ。ツールの説明文の書き方、読み取り専用 SQL の守り方 |
 
 ## 想定しているトピック

@@ -57,6 +57,7 @@ func run() error {
 		repository.NewTemplate(pool.DB()),
 		repository.NewSync(pool.DB()),
 		repository.NewTransfer(pool.DB()),
+		repository.NewBody(pool.DB()),
 	))
 
 	if cfg.AuthDisabled {

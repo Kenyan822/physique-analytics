@@ -64,7 +64,7 @@ func (s *stubSync) Push(_ context.Context, in repository.PushInput) (repository.
 }
 
 func fullServer(tpl *stubTemplates, sy *stubSync) http.Handler {
-	return handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{}, tpl, sy, &stubTransfer{}))
+	return handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{}, tpl, sy, &stubTransfer{}, &stubBody{}))
 }
 
 func validTemplateBody() map[string]any {

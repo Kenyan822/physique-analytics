@@ -164,6 +164,90 @@ func (e ImportCsvMultipartBodyResource) Valid() bool {
 	}
 }
 
+// BodyMeasurement defines model for BodyMeasurement.
+type BodyMeasurement struct {
+	ArmRCm    *float32           `json:"armRCm,omitempty"`
+	CalfRCm   *float32           `json:"calfRCm,omitempty"`
+	ChestCm   *float32           `json:"chestCm,omitempty"`
+	CreatedAt time.Time          `json:"createdAt"`
+	Date      openapi_types.Date `json:"date"`
+
+	// DeletedAt 論理削除。物理削除しない（ADR-0014）
+	DeletedAt  *time.Time         `json:"deletedAt,omitempty"`
+	HipCm      *float32           `json:"hipCm,omitempty"`
+	Id         openapi_types.UUID `json:"id"`
+	NeckCm     *float32           `json:"neckCm,omitempty"`
+	ShoulderCm *float32           `json:"shoulderCm,omitempty"`
+	ThighRCm   *float32           `json:"thighRCm,omitempty"`
+
+	// UpdatedAt 競合解決に使う（ADR-0014）
+	UpdatedAt    time.Time `json:"updatedAt"`
+	WaistNavelCm *float32  `json:"waistNavelCm,omitempty"`
+}
+
+// BodyMeasurementInput defines model for BodyMeasurementInput.
+type BodyMeasurementInput struct {
+	ArmRCm       *float32           `json:"armRCm,omitempty"`
+	CalfRCm      *float32           `json:"calfRCm,omitempty"`
+	ChestCm      *float32           `json:"chestCm,omitempty"`
+	Date         openapi_types.Date `json:"date"`
+	HipCm        *float32           `json:"hipCm,omitempty"`
+	NeckCm       *float32           `json:"neckCm,omitempty"`
+	ShoulderCm   *float32           `json:"shoulderCm,omitempty"`
+	ThighRCm     *float32           `json:"thighRCm,omitempty"`
+	UpdatedAt    *time.Time         `json:"updatedAt,omitempty"`
+	WaistNavelCm *float32           `json:"waistNavelCm,omitempty"`
+}
+
+// DailyMetrics defines model for DailyMetrics.
+type DailyMetrics struct {
+	BodyfatPct *float32  `json:"bodyfatPct,omitempty"`
+	CarbG      *int      `json:"carbG,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
+
+	// Date JST の日付（ADR-0013）。1日1行
+	Date         openapi_types.Date `json:"date"`
+	DeepSleepMin *int               `json:"deepSleepMin,omitempty"`
+
+	// DeletedAt 論理削除。物理削除しない（ADR-0014）
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+	FatG      *int       `json:"fatG,omitempty"`
+
+	// Fatigue 主観的な疲労度（要件 B-06）
+	Fatigue   *int               `json:"fatigue,omitempty"`
+	HrvMs     *int               `json:"hrvMs,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+	Kcal      *int               `json:"kcal,omitempty"`
+	Note      *string            `json:"note,omitempty"`
+	ProteinG  *int               `json:"proteinG,omitempty"`
+	RestingHr *int               `json:"restingHr,omitempty"`
+	SleepH    *float32           `json:"sleepH,omitempty"`
+	Steps     *int               `json:"steps,omitempty"`
+
+	// UpdatedAt 競合解決に使う（ADR-0014）
+	UpdatedAt time.Time `json:"updatedAt"`
+	WeightKg  *float32  `json:"weightKg,omitempty"`
+}
+
+// DailyMetricsInput defines model for DailyMetricsInput.
+type DailyMetricsInput struct {
+	BodyfatPct   *float32           `json:"bodyfatPct,omitempty"`
+	CarbG        *int               `json:"carbG,omitempty"`
+	Date         openapi_types.Date `json:"date"`
+	DeepSleepMin *int               `json:"deepSleepMin,omitempty"`
+	FatG         *int               `json:"fatG,omitempty"`
+	Fatigue      *int               `json:"fatigue,omitempty"`
+	HrvMs        *int               `json:"hrvMs,omitempty"`
+	Kcal         *int               `json:"kcal,omitempty"`
+	Note         *string            `json:"note,omitempty"`
+	ProteinG     *int               `json:"proteinG,omitempty"`
+	RestingHr    *int               `json:"restingHr,omitempty"`
+	SleepH       *float32           `json:"sleepH,omitempty"`
+	Steps        *int               `json:"steps,omitempty"`
+	UpdatedAt    *time.Time         `json:"updatedAt,omitempty"`
+	WeightKg     *float32           `json:"weightKg,omitempty"`
+}
+
 // Exercise defines model for Exercise.
 type Exercise struct {
 	CreatedAt      time.Time `json:"createdAt"`
@@ -394,6 +478,13 @@ type ValidationFailed = Problem
 // GetHealth200JSONResponseBodyStatus defines parameters for GetHealth.
 type GetHealth200JSONResponseBodyStatus string
 
+// ListDailyMetricsParams defines parameters for ListDailyMetrics.
+type ListDailyMetricsParams struct {
+	// From JST の日付（ADR-0013）
+	From *DateFrom `form:"from,omitempty" json:"from,omitempty"`
+	To   *DateTo   `form:"to,omitempty" json:"to,omitempty"`
+}
+
 // ListExercisesParams defines parameters for ListExercises.
 type ListExercisesParams struct {
 	MuscleGroup *MuscleGroup `form:"muscleGroup,omitempty" json:"muscleGroup,omitempty"`
@@ -429,6 +520,13 @@ type ImportCsvMultipartBodyOnDuplicate string
 // ImportCsvMultipartBodyResource defines parameters for ImportCsv.
 type ImportCsvMultipartBodyResource string
 
+// ListMeasurementsParams defines parameters for ListMeasurements.
+type ListMeasurementsParams struct {
+	// From JST の日付（ADR-0013）
+	From *DateFrom `form:"from,omitempty" json:"from,omitempty"`
+	To   *DateTo   `form:"to,omitempty" json:"to,omitempty"`
+}
+
 // PullSyncParams defines parameters for PullSync.
 type PullSyncParams struct {
 	// UpdatedSince 前回同期時にサーバが返した `serverTime` を渡す
@@ -461,6 +559,9 @@ type UpdateWorkoutSessionJSONBody struct {
 	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
 }
 
+// PutDailyMetricsJSONRequestBody defines body for PutDailyMetrics for application/json ContentType.
+type PutDailyMetricsJSONRequestBody = DailyMetricsInput
+
 // CreateExerciseJSONRequestBody defines body for CreateExercise for application/json ContentType.
 type CreateExerciseJSONRequestBody = ExerciseInput
 
@@ -469,6 +570,9 @@ type UpdateExerciseJSONRequestBody = ExerciseInput
 
 // ImportCsvMultipartRequestBody defines body for ImportCsv for multipart/form-data ContentType.
 type ImportCsvMultipartRequestBody ImportCsvMultipartBody
+
+// PutMeasurementJSONRequestBody defines body for PutMeasurement for application/json ContentType.
+type PutMeasurementJSONRequestBody = BodyMeasurementInput
 
 // PushSyncJSONRequestBody defines body for PushSync for application/json ContentType.
 type PushSyncJSONRequestBody PushSyncJSONBody
@@ -496,6 +600,18 @@ type ServerInterface interface {
 	// GetHealth ヘルスチェック
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// ListDailyMetrics 日次記録の一覧
+	// (GET /v1/daily)
+	ListDailyMetrics(w http.ResponseWriter, r *http.Request, params ListDailyMetricsParams)
+	// PutDailyMetrics 日次記録の登録・更新
+	// (PUT /v1/daily)
+	PutDailyMetrics(w http.ResponseWriter, r *http.Request)
+	// DeleteDailyMetrics 日次記録の削除（論理削除）
+	// (DELETE /v1/daily/{date})
+	DeleteDailyMetrics(w http.ResponseWriter, r *http.Request, date openapi_types.Date)
+	// GetDailyMetrics 日次記録の取得
+	// (GET /v1/daily/{date})
+	GetDailyMetrics(w http.ResponseWriter, r *http.Request, date openapi_types.Date)
 	// ListExercises 種目の一覧
 	// (GET /v1/exercises)
 	ListExercises(w http.ResponseWriter, r *http.Request, params ListExercisesParams)
@@ -520,6 +636,15 @@ type ServerInterface interface {
 	// ImportCsv CSV インポート
 	// (POST /v1/import/csv)
 	ImportCsv(w http.ResponseWriter, r *http.Request)
+	// ListMeasurements 周囲長の一覧
+	// (GET /v1/measurements)
+	ListMeasurements(w http.ResponseWriter, r *http.Request, params ListMeasurementsParams)
+	// PutMeasurement 周囲長の登録・更新
+	// (PUT /v1/measurements)
+	PutMeasurement(w http.ResponseWriter, r *http.Request)
+	// GetLatestMeasurement 直近の周囲長
+	// (GET /v1/measurements/latest)
+	GetLatestMeasurement(w http.ResponseWriter, r *http.Request)
 	// PullSync 差分の取得
 	// (GET /v1/sync)
 	PullSync(w http.ResponseWriter, r *http.Request, params PullSyncParams)
@@ -581,6 +706,118 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDailyMetrics operation middleware
+func (siw *ServerInterfaceWrapper) ListDailyMetrics(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDailyMetricsParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDailyMetrics(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutDailyMetrics operation middleware
+func (siw *ServerInterfaceWrapper) PutDailyMetrics(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutDailyMetrics(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteDailyMetrics operation middleware
+func (siw *ServerInterfaceWrapper) DeleteDailyMetrics(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "date" -------------
+	var date openapi_types.Date
+
+	err = runtime.BindStyledParameterWithOptions("simple", "date", r.PathValue("date"), &date, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "date", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "date", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteDailyMetrics(w, r, date)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDailyMetrics operation middleware
+func (siw *ServerInterfaceWrapper) GetDailyMetrics(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "date" -------------
+	var date openapi_types.Date
+
+	err = runtime.BindStyledParameterWithOptions("simple", "date", r.PathValue("date"), &date, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "date", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "date", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDailyMetrics(w, r, date)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -818,6 +1055,80 @@ func (siw *ServerInterfaceWrapper) ImportCsv(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ImportCsv(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMeasurements operation middleware
+func (siw *ServerInterfaceWrapper) ListMeasurements(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMeasurementsParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMeasurements(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutMeasurement operation middleware
+func (siw *ServerInterfaceWrapper) PutMeasurement(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutMeasurement(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetLatestMeasurement operation middleware
+func (siw *ServerInterfaceWrapper) GetLatestMeasurement(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLatestMeasurement(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1362,6 +1673,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/templates/{templateId}", wrapper.DeleteTemplate)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/templates/{templateId}", wrapper.GetTemplate)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/templates/{templateId}", wrapper.UpdateTemplate)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/daily", wrapper.ListDailyMetrics)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/daily", wrapper.PutDailyMetrics)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/daily/{date}", wrapper.DeleteDailyMetrics)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/daily/{date}", wrapper.GetDailyMetrics)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/measurements", wrapper.ListMeasurements)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/measurements", wrapper.PutMeasurement)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/measurements/latest", wrapper.GetLatestMeasurement)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/sync", wrapper.PullSync)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/sync", wrapper.PushSync)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/export/csv", wrapper.ExportCsv)
@@ -1418,6 +1736,202 @@ func (response GetHealth503ApplicationProblemPlusJSONResponse) VisitGetHealthRes
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDailyMetricsRequestObject struct {
+	Params ListDailyMetricsParams
+}
+
+type ListDailyMetricsResponseObject interface {
+	VisitListDailyMetricsResponse(w http.ResponseWriter) error
+}
+
+type ListDailyMetrics200JSONResponse struct {
+	Items []DailyMetrics `json:"items"`
+}
+
+func (response ListDailyMetrics200JSONResponse) VisitListDailyMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDailyMetrics401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListDailyMetrics401ApplicationProblemPlusJSONResponse) VisitListDailyMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutDailyMetricsRequestObject struct {
+	Body *PutDailyMetricsJSONRequestBody
+}
+
+type PutDailyMetricsResponseObject interface {
+	VisitPutDailyMetricsResponse(w http.ResponseWriter) error
+}
+
+type PutDailyMetrics200JSONResponse DailyMetrics
+
+func (response PutDailyMetrics200JSONResponse) VisitPutDailyMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutDailyMetrics400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response PutDailyMetrics400ApplicationProblemPlusJSONResponse) VisitPutDailyMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutDailyMetrics401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response PutDailyMetrics401ApplicationProblemPlusJSONResponse) VisitPutDailyMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutDailyMetrics422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response PutDailyMetrics422ApplicationProblemPlusJSONResponse) VisitPutDailyMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteDailyMetricsRequestObject struct {
+	Date openapi_types.Date `json:"date"`
+}
+
+type DeleteDailyMetricsResponseObject interface {
+	VisitDeleteDailyMetricsResponse(w http.ResponseWriter) error
+}
+
+type DeleteDailyMetrics204Response struct {
+}
+
+func (response DeleteDailyMetrics204Response) VisitDeleteDailyMetricsResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteDailyMetrics401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteDailyMetrics401ApplicationProblemPlusJSONResponse) VisitDeleteDailyMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteDailyMetrics404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteDailyMetrics404ApplicationProblemPlusJSONResponse) VisitDeleteDailyMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDailyMetricsRequestObject struct {
+	Date openapi_types.Date `json:"date"`
+}
+
+type GetDailyMetricsResponseObject interface {
+	VisitGetDailyMetricsResponse(w http.ResponseWriter) error
+}
+
+type GetDailyMetrics200JSONResponse DailyMetrics
+
+func (response GetDailyMetrics200JSONResponse) VisitGetDailyMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDailyMetrics404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response GetDailyMetrics404ApplicationProblemPlusJSONResponse) VisitGetDailyMetricsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -1817,6 +2331,155 @@ func (response ImportCsv422ApplicationProblemPlusJSONResponse) VisitImportCsvRes
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMeasurementsRequestObject struct {
+	Params ListMeasurementsParams
+}
+
+type ListMeasurementsResponseObject interface {
+	VisitListMeasurementsResponse(w http.ResponseWriter) error
+}
+
+type ListMeasurements200JSONResponse struct {
+	Items []BodyMeasurement `json:"items"`
+}
+
+func (response ListMeasurements200JSONResponse) VisitListMeasurementsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMeasurements401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListMeasurements401ApplicationProblemPlusJSONResponse) VisitListMeasurementsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutMeasurementRequestObject struct {
+	Body *PutMeasurementJSONRequestBody
+}
+
+type PutMeasurementResponseObject interface {
+	VisitPutMeasurementResponse(w http.ResponseWriter) error
+}
+
+type PutMeasurement200JSONResponse BodyMeasurement
+
+func (response PutMeasurement200JSONResponse) VisitPutMeasurementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutMeasurement400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response PutMeasurement400ApplicationProblemPlusJSONResponse) VisitPutMeasurementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutMeasurement401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response PutMeasurement401ApplicationProblemPlusJSONResponse) VisitPutMeasurementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutMeasurement422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response PutMeasurement422ApplicationProblemPlusJSONResponse) VisitPutMeasurementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetLatestMeasurementRequestObject struct {
+}
+
+type GetLatestMeasurementResponseObject interface {
+	VisitGetLatestMeasurementResponse(w http.ResponseWriter) error
+}
+
+type GetLatestMeasurement200JSONResponse struct {
+	Measurement *BodyMeasurement `json:"measurement,omitempty"`
+}
+
+func (response GetLatestMeasurement200JSONResponse) VisitGetLatestMeasurementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetLatestMeasurement401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetLatestMeasurement401ApplicationProblemPlusJSONResponse) VisitGetLatestMeasurementResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -2529,6 +3192,18 @@ type StrictServerInterface interface {
 	// GetHealth ヘルスチェック
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// ListDailyMetrics 日次記録の一覧
+	// (GET /v1/daily)
+	ListDailyMetrics(ctx context.Context, request ListDailyMetricsRequestObject) (ListDailyMetricsResponseObject, error)
+	// PutDailyMetrics 日次記録の登録・更新
+	// (PUT /v1/daily)
+	PutDailyMetrics(ctx context.Context, request PutDailyMetricsRequestObject) (PutDailyMetricsResponseObject, error)
+	// DeleteDailyMetrics 日次記録の削除（論理削除）
+	// (DELETE /v1/daily/{date})
+	DeleteDailyMetrics(ctx context.Context, request DeleteDailyMetricsRequestObject) (DeleteDailyMetricsResponseObject, error)
+	// GetDailyMetrics 日次記録の取得
+	// (GET /v1/daily/{date})
+	GetDailyMetrics(ctx context.Context, request GetDailyMetricsRequestObject) (GetDailyMetricsResponseObject, error)
 	// ListExercises 種目の一覧
 	// (GET /v1/exercises)
 	ListExercises(ctx context.Context, request ListExercisesRequestObject) (ListExercisesResponseObject, error)
@@ -2553,6 +3228,15 @@ type StrictServerInterface interface {
 	// ImportCsv CSV インポート
 	// (POST /v1/import/csv)
 	ImportCsv(ctx context.Context, request ImportCsvRequestObject) (ImportCsvResponseObject, error)
+	// ListMeasurements 周囲長の一覧
+	// (GET /v1/measurements)
+	ListMeasurements(ctx context.Context, request ListMeasurementsRequestObject) (ListMeasurementsResponseObject, error)
+	// PutMeasurement 周囲長の登録・更新
+	// (PUT /v1/measurements)
+	PutMeasurement(ctx context.Context, request PutMeasurementRequestObject) (PutMeasurementResponseObject, error)
+	// GetLatestMeasurement 直近の周囲長
+	// (GET /v1/measurements/latest)
+	GetLatestMeasurement(ctx context.Context, request GetLatestMeasurementRequestObject) (GetLatestMeasurementResponseObject, error)
 	// PullSync 差分の取得
 	// (GET /v1/sync)
 	PullSync(ctx context.Context, request PullSyncRequestObject) (PullSyncResponseObject, error)
@@ -2656,6 +3340,115 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetHealthResponseObject); ok {
 		if err := validResponse.VisitGetHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListDailyMetrics operation middleware
+func (sh *strictHandler) ListDailyMetrics(w http.ResponseWriter, r *http.Request, params ListDailyMetricsParams) {
+	var request ListDailyMetricsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListDailyMetrics(ctx, request.(ListDailyMetricsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListDailyMetrics")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListDailyMetricsResponseObject); ok {
+		if err := validResponse.VisitListDailyMetricsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutDailyMetrics operation middleware
+func (sh *strictHandler) PutDailyMetrics(w http.ResponseWriter, r *http.Request) {
+	var request PutDailyMetricsRequestObject
+
+	var body PutDailyMetricsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutDailyMetrics(ctx, request.(PutDailyMetricsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutDailyMetrics")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutDailyMetricsResponseObject); ok {
+		if err := validResponse.VisitPutDailyMetricsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteDailyMetrics operation middleware
+func (sh *strictHandler) DeleteDailyMetrics(w http.ResponseWriter, r *http.Request, date openapi_types.Date) {
+	var request DeleteDailyMetricsRequestObject
+
+	request.Date = date
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteDailyMetrics(ctx, request.(DeleteDailyMetricsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteDailyMetrics")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteDailyMetricsResponseObject); ok {
+		if err := validResponse.VisitDeleteDailyMetricsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetDailyMetrics operation middleware
+func (sh *strictHandler) GetDailyMetrics(w http.ResponseWriter, r *http.Request, date openapi_types.Date) {
+	var request GetDailyMetricsRequestObject
+
+	request.Date = date
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDailyMetrics(ctx, request.(GetDailyMetricsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDailyMetrics")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDailyMetricsResponseObject); ok {
+		if err := validResponse.VisitGetDailyMetricsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -2881,6 +3674,87 @@ func (sh *strictHandler) ImportCsv(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ImportCsvResponseObject); ok {
 		if err := validResponse.VisitImportCsvResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMeasurements operation middleware
+func (sh *strictHandler) ListMeasurements(w http.ResponseWriter, r *http.Request, params ListMeasurementsParams) {
+	var request ListMeasurementsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMeasurements(ctx, request.(ListMeasurementsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMeasurements")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMeasurementsResponseObject); ok {
+		if err := validResponse.VisitListMeasurementsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutMeasurement operation middleware
+func (sh *strictHandler) PutMeasurement(w http.ResponseWriter, r *http.Request) {
+	var request PutMeasurementRequestObject
+
+	var body PutMeasurementJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutMeasurement(ctx, request.(PutMeasurementRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutMeasurement")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutMeasurementResponseObject); ok {
+		if err := validResponse.VisitPutMeasurementResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetLatestMeasurement operation middleware
+func (sh *strictHandler) GetLatestMeasurement(w http.ResponseWriter, r *http.Request) {
+	var request GetLatestMeasurementRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetLatestMeasurement(ctx, request.(GetLatestMeasurementRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetLatestMeasurement")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetLatestMeasurementResponseObject); ok {
+		if err := validResponse.VisitGetLatestMeasurementResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

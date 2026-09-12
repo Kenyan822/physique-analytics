@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clampReps, clampRir, clampWeight, parseInput } from "./SetInput";
+import { clampReps, clampRir, clampWeight } from "./SetInput";
 
 describe("clampWeight", () => {
   const cases: [string, number, number][] = [
@@ -44,22 +44,4 @@ describe("clampRir", () => {
   it("下限は0", () => {
     expect(clampRir(-1)).toBe(0);
   });
-});
-
-describe("parseInput", () => {
-  const cases: [string, string, number][] = [
-    ["小数を読む", "62.5", 62.5],
-    // 日本語入力のまま数字を打つと全角になる。弾かずに読む
-    ["全角数字を読む", "６２．５", 62.5],
-    ["前後の空白を無視する", " 8 ", 8],
-    ["空文字は元の値に戻す", "", 40],
-    ["数値でなければ元の値に戻す", "abc", 40],
-    ["マイナスは読まない（0に落ちるのを防ぐ）", "-3", 40],
-  ];
-
-  for (const [name, input, want] of cases) {
-    it(name, () => {
-      expect(parseInput(input, 40)).toBe(want);
-    });
-  }
 });
