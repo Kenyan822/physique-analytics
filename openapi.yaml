@@ -702,6 +702,119 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /v1/meal-sets:
+    get:
+      operationId: listMealSets
+      tags: [nutrition]
+      summary: 食事セットの一覧
+      description: |
+        要件 N-03。「朝食セット」のように毎回同じ組み合わせで食べるものを
+        保存しておき、ワンタップで記録できるようにする。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/MealSet" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createMealSet
+      tags: [nutrition]
+      summary: 食事セットの作成
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MealSetInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MealSet" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/meal-sets/{mealSetId}:
+    parameters:
+      - name: mealSetId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: updateMealSet
+      tags: [nutrition]
+      summary: 食事セットの更新
+      description: 項目は全入れ替え。差分更新にすると順序の付け替えが扱いにくい。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MealSetInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MealSet" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      operationId: deleteMealSet
+      tags: [nutrition]
+      summary: 食事セットの削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/meal-sets/{mealSetId}/apply:
+    parameters:
+      - name: mealSetId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: applyMealSet
+      tags: [nutrition]
+      summary: 食事セットをその日の記録に展開する
+      description: |
+        要件 N-03。**セットの内容を meals に写す。** 写した後は個別に
+        編集・削除できる（実際に食べた量は日によって変わる）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date]
+              properties:
+                date: { type: string, format: date }
+                slot: { $ref: "#/components/schemas/MealSlot" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Meal" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/targets/{date}:
     parameters:
       - name: date
@@ -1437,6 +1550,42 @@ components:
           type: boolean
           description: 炭水化物の目標が下限を割っているか（要件 A-03）
         note: { type: [string, "null"] }
+
+    MealSetItem:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        qty: { type: [string, "null"], maxLength: 50 }
+        kcal: { type: [integer, "null"], minimum: 0, maximum: 10000 }
+        proteinG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+        fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+        carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
+
+    MealSet:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, name, items]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string, examples: [朝食セット] }
+            slot: { $ref: "#/components/schemas/MealSlot" }
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/MealSetItem" }
+
+    MealSetInput:
+      type: object
+      required: [name, items]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        slot: { $ref: "#/components/schemas/MealSlot" }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items: { $ref: "#/components/schemas/MealSetItem" }
 
     Problem:
       type: object

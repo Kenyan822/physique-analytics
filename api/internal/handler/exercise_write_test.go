@@ -35,7 +35,7 @@ func TestCreateExercise_201と作成した種目を返す(t *testing.T) {
 
 	created := openapi.Exercise{Id: uuid.New(), Name: "自作種目", MuscleGroup: openapi.Chest}
 	stub := &stubExercises{createReturns: created}
-	srv := handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}))
+	srv := handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}))
 
 	rec := postJSON(t, srv, http.MethodPost, "/v1/exercises", openapi.ExerciseInput{
 		Name: "自作種目", MuscleGroup: openapi.Chest,
@@ -56,7 +56,7 @@ func TestCreateExercise_201と作成した種目を返す(t *testing.T) {
 func TestCreateExercise_名前が空なら400(t *testing.T) {
 	t.Parallel()
 
-	srv := handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}))
+	srv := handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}))
 	rec := postJSON(t, srv, http.MethodPost, "/v1/exercises", map[string]any{
 		"name": "", "muscleGroup": "胸",
 	})
@@ -72,7 +72,7 @@ func TestCreateExercise_名前が空なら400(t *testing.T) {
 func TestCreateExercise_未知の部位なら400(t *testing.T) {
 	t.Parallel()
 
-	srv := handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}))
+	srv := handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}))
 	rec := postJSON(t, srv, http.MethodPost, "/v1/exercises", map[string]any{
 		"name": "自作種目", "muscleGroup": "存在しない部位",
 	})
@@ -87,7 +87,7 @@ func TestCreateExercise_名前が重複したら400(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubExercises{createErr: repository.ErrConflict}
-	srv := handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}))
+	srv := handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}))
 
 	rec := postJSON(t, srv, http.MethodPost, "/v1/exercises", openapi.ExerciseInput{
 		Name: "ベンチプレス", MuscleGroup: openapi.Chest,
@@ -111,7 +111,7 @@ func TestUpdateExercise_200を返す(t *testing.T) {
 
 	id := uuid.New()
 	stub := &stubExercises{updateReturns: openapi.Exercise{Id: id, Name: "更新後", MuscleGroup: openapi.Abs}}
-	srv := handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}))
+	srv := handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}))
 
 	rec := postJSON(t, srv, http.MethodPatch, "/v1/exercises/"+id.String(), openapi.ExerciseInput{
 		Name: "更新後", MuscleGroup: openapi.Abs,
@@ -129,7 +129,7 @@ func TestUpdateExercise_存在しなければ404(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubExercises{updateErr: repository.ErrNotFound}
-	srv := handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}))
+	srv := handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}))
 
 	rec := postJSON(t, srv, http.MethodPatch, "/v1/exercises/"+uuid.New().String(),
 		openapi.ExerciseInput{Name: "無い", MuscleGroup: openapi.Abs})
@@ -144,7 +144,7 @@ func TestUpdateExercise_名前が重複したら409(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubExercises{updateErr: repository.ErrConflict}
-	srv := handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}))
+	srv := handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}))
 
 	rec := postJSON(t, srv, http.MethodPatch, "/v1/exercises/"+uuid.New().String(),
 		openapi.ExerciseInput{Name: "ベンチプレス", MuscleGroup: openapi.Chest})
@@ -157,7 +157,7 @@ func TestUpdateExercise_名前が重複したら409(t *testing.T) {
 func TestDeleteExercise_204でボディを返さない(t *testing.T) {
 	t.Parallel()
 
-	srv := handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}))
+	srv := handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}))
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodDelete,
 		"/v1/exercises/"+uuid.New().String(), nil))
@@ -174,7 +174,7 @@ func TestDeleteExercise_存在しなければ404(t *testing.T) {
 	t.Parallel()
 
 	stub := &stubExercises{deleteErr: repository.ErrNotFound}
-	srv := handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}))
+	srv := handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}))
 
 	rec := httptest.NewRecorder()
 	srv.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodDelete,

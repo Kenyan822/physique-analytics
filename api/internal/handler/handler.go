@@ -102,6 +102,15 @@ type SeriesRepository interface {
 	DailySeries(ctx context.Context, from, to openapi_types.Date) ([]analytics.DailyPoint, error)
 }
 
+// MealSetRepository は食事セットへのアクセス（要件 N-03）。
+type MealSetRepository interface {
+	List(ctx context.Context) ([]openapi.MealSet, error)
+	Create(ctx context.Context, in openapi.MealSetInput) (openapi.MealSet, error)
+	Update(ctx context.Context, id uuid.UUID, in openapi.MealSetInput) (openapi.MealSet, error)
+	SoftDelete(ctx context.Context, id uuid.UUID) error
+	Apply(ctx context.Context, id uuid.UUID, date openapi_types.Date, slot *openapi.MealSlot) ([]openapi.Meal, error)
+}
+
 // Server は openapi.StrictServerInterface の実装。
 //
 // **openapi.yaml の全操作を実装している。** 仕様に操作を足すと
@@ -119,6 +128,7 @@ type Server struct {
 	meals     MealRepository
 	plan      PlanRepository
 	series    SeriesRepository
+	mealSets  MealSetRepository
 }
 
 // New は Server を作る。
@@ -133,11 +143,12 @@ func New(
 	meals MealRepository,
 	plan PlanRepository,
 	series SeriesRepository,
+	mealSets MealSetRepository,
 ) *Server {
 	return &Server{
 		db: db, exercises: exercises, workouts: workouts,
 		templates: templates, sync: sync, transfer: transfer,
-		body: body, meals: meals, plan: plan, series: series,
+		body: body, meals: meals, plan: plan, series: series, mealSets: mealSets,
 	}
 }
 

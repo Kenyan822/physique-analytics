@@ -66,7 +66,7 @@ func (s *stubMeals) Copy(_ context.Context, from, to openapi_types.Date, slot *o
 
 func mealServer(m *stubMeals) http.Handler {
 	return handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{},
-		&stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, m, &stubPlan{}, &stubSeries{}))
+		&stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, m, &stubPlan{}, &stubSeries{}, &stubMealSets{}))
 }
 
 func TestCreateMeal_入力を渡して201(t *testing.T) {

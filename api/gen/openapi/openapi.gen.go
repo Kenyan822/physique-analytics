@@ -420,6 +420,40 @@ type MealInput struct {
 	UpdatedAt *time.Time  `json:"updatedAt,omitempty"`
 }
 
+// MealSet defines model for MealSet.
+type MealSet struct {
+	CreatedAt time.Time `json:"createdAt"`
+
+	// DeletedAt 論理削除。物理削除しない（ADR-0014）
+	DeletedAt *time.Time         `json:"deletedAt,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+	Items     []MealSetItem      `json:"items"`
+
+	// Name Examples: 朝食セット
+	Name string    `json:"name"`
+	Slot *MealSlot `json:"slot,omitempty"`
+
+	// UpdatedAt 競合解決に使う（ADR-0014）
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// MealSetInput defines model for MealSetInput.
+type MealSetInput struct {
+	Items []MealSetItem `json:"items"`
+	Name  string        `json:"name"`
+	Slot  *MealSlot     `json:"slot,omitempty"`
+}
+
+// MealSetItem defines model for MealSetItem.
+type MealSetItem struct {
+	CarbG    *float32 `json:"carbG,omitempty"`
+	FatG     *float32 `json:"fatG,omitempty"`
+	Kcal     *int     `json:"kcal,omitempty"`
+	Name     string   `json:"name"`
+	ProteinG *float32 `json:"proteinG,omitempty"`
+	Qty      *string  `json:"qty,omitempty"`
+}
+
 // MealSlot defines model for MealSlot.
 type MealSlot string
 
@@ -724,6 +758,12 @@ type ImportCsvMultipartBodyOnDuplicate string
 // ImportCsvMultipartBodyResource defines parameters for ImportCsv.
 type ImportCsvMultipartBodyResource string
 
+// ApplyMealSetJSONBody defines parameters for ApplyMealSet.
+type ApplyMealSetJSONBody struct {
+	Date openapi_types.Date `json:"date"`
+	Slot *MealSlot          `json:"slot,omitempty"`
+}
+
 // ListMealsParams defines parameters for ListMeals.
 type ListMealsParams struct {
 	// From JST の日付（ADR-0013）
@@ -795,6 +835,15 @@ type UpdateExerciseJSONRequestBody = ExerciseInput
 
 // ImportCsvMultipartRequestBody defines body for ImportCsv for multipart/form-data ContentType.
 type ImportCsvMultipartRequestBody ImportCsvMultipartBody
+
+// CreateMealSetJSONRequestBody defines body for CreateMealSet for application/json ContentType.
+type CreateMealSetJSONRequestBody = MealSetInput
+
+// UpdateMealSetJSONRequestBody defines body for UpdateMealSet for application/json ContentType.
+type UpdateMealSetJSONRequestBody = MealSetInput
+
+// ApplyMealSetJSONRequestBody defines body for ApplyMealSet for application/json ContentType.
+type ApplyMealSetJSONRequestBody ApplyMealSetJSONBody
 
 // CreateMealJSONRequestBody defines body for CreateMeal for application/json ContentType.
 type CreateMealJSONRequestBody = MealInput
@@ -873,6 +922,21 @@ type ServerInterface interface {
 	// ImportCsv CSV インポート
 	// (POST /v1/import/csv)
 	ImportCsv(w http.ResponseWriter, r *http.Request)
+	// ListMealSets 食事セットの一覧
+	// (GET /v1/meal-sets)
+	ListMealSets(w http.ResponseWriter, r *http.Request)
+	// CreateMealSet 食事セットの作成
+	// (POST /v1/meal-sets)
+	CreateMealSet(w http.ResponseWriter, r *http.Request)
+	// DeleteMealSet 食事セットの削除（論理削除）
+	// (DELETE /v1/meal-sets/{mealSetId})
+	DeleteMealSet(w http.ResponseWriter, r *http.Request, mealSetId openapi_types.UUID)
+	// UpdateMealSet 食事セットの更新
+	// (PUT /v1/meal-sets/{mealSetId})
+	UpdateMealSet(w http.ResponseWriter, r *http.Request, mealSetId openapi_types.UUID)
+	// ApplyMealSet 食事セットをその日の記録に展開する
+	// (POST /v1/meal-sets/{mealSetId}/apply)
+	ApplyMealSet(w http.ResponseWriter, r *http.Request, mealSetId openapi_types.UUID)
 	// ListMeals 食事の一覧
 	// (GET /v1/meals)
 	ListMeals(w http.ResponseWriter, r *http.Request, params ListMealsParams)
@@ -1319,6 +1383,112 @@ func (siw *ServerInterfaceWrapper) ImportCsv(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ImportCsv(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMealSets operation middleware
+func (siw *ServerInterfaceWrapper) ListMealSets(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMealSets(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateMealSet operation middleware
+func (siw *ServerInterfaceWrapper) CreateMealSet(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateMealSet(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMealSet operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMealSet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "mealSetId" -------------
+	var mealSetId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "mealSetId", r.PathValue("mealSetId"), &mealSetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mealSetId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMealSet(w, r, mealSetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMealSet operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMealSet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "mealSetId" -------------
+	var mealSetId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "mealSetId", r.PathValue("mealSetId"), &mealSetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mealSetId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMealSet(w, r, mealSetId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApplyMealSet operation middleware
+func (siw *ServerInterfaceWrapper) ApplyMealSet(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "mealSetId" -------------
+	var mealSetId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "mealSetId", r.PathValue("mealSetId"), &mealSetId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mealSetId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApplyMealSet(w, r, mealSetId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2176,6 +2346,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/meals/{mealId}", wrapper.UpdateMeal)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/meals/suggestions", wrapper.ListMealSuggestions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/meals/copy", wrapper.CopyMeals)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/meal-sets", wrapper.ListMealSets)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/meal-sets", wrapper.CreateMealSet)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/meal-sets/{mealSetId}", wrapper.DeleteMealSet)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/meal-sets/{mealSetId}", wrapper.UpdateMealSet)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/meal-sets/{mealSetId}/apply", wrapper.ApplyMealSet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/targets/{date}", wrapper.GetDailyTargets)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/plan", wrapper.GetPlan)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/plan", wrapper.PutPlan)
@@ -2830,6 +3005,307 @@ func (response ImportCsv422ApplicationProblemPlusJSONResponse) VisitImportCsvRes
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMealSetsRequestObject struct {
+}
+
+type ListMealSetsResponseObject interface {
+	VisitListMealSetsResponse(w http.ResponseWriter) error
+}
+
+type ListMealSets200JSONResponse struct {
+	Items []MealSet `json:"items"`
+}
+
+func (response ListMealSets200JSONResponse) VisitListMealSetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMealSets401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListMealSets401ApplicationProblemPlusJSONResponse) VisitListMealSetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMealSetRequestObject struct {
+	Body *CreateMealSetJSONRequestBody
+}
+
+type CreateMealSetResponseObject interface {
+	VisitCreateMealSetResponse(w http.ResponseWriter) error
+}
+
+type CreateMealSet201JSONResponse MealSet
+
+func (response CreateMealSet201JSONResponse) VisitCreateMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMealSet400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMealSet400ApplicationProblemPlusJSONResponse) VisitCreateMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMealSet401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMealSet401ApplicationProblemPlusJSONResponse) VisitCreateMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMealSet409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMealSet409ApplicationProblemPlusJSONResponse) VisitCreateMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMealSet422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMealSet422ApplicationProblemPlusJSONResponse) VisitCreateMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMealSetRequestObject struct {
+	MealSetId openapi_types.UUID `json:"mealSetId"`
+}
+
+type DeleteMealSetResponseObject interface {
+	VisitDeleteMealSetResponse(w http.ResponseWriter) error
+}
+
+type DeleteMealSet204Response struct {
+}
+
+func (response DeleteMealSet204Response) VisitDeleteMealSetResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteMealSet401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteMealSet401ApplicationProblemPlusJSONResponse) VisitDeleteMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMealSet404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteMealSet404ApplicationProblemPlusJSONResponse) VisitDeleteMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMealSetRequestObject struct {
+	MealSetId openapi_types.UUID `json:"mealSetId"`
+	Body      *UpdateMealSetJSONRequestBody
+}
+
+type UpdateMealSetResponseObject interface {
+	VisitUpdateMealSetResponse(w http.ResponseWriter) error
+}
+
+type UpdateMealSet200JSONResponse MealSet
+
+func (response UpdateMealSet200JSONResponse) VisitUpdateMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMealSet401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateMealSet401ApplicationProblemPlusJSONResponse) VisitUpdateMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMealSet404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateMealSet404ApplicationProblemPlusJSONResponse) VisitUpdateMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMealSet422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateMealSet422ApplicationProblemPlusJSONResponse) VisitUpdateMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyMealSetRequestObject struct {
+	MealSetId openapi_types.UUID `json:"mealSetId"`
+	Body      *ApplyMealSetJSONRequestBody
+}
+
+type ApplyMealSetResponseObject interface {
+	VisitApplyMealSetResponse(w http.ResponseWriter) error
+}
+
+type ApplyMealSet201JSONResponse struct {
+	Items []Meal `json:"items"`
+}
+
+func (response ApplyMealSet201JSONResponse) VisitApplyMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyMealSet401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ApplyMealSet401ApplicationProblemPlusJSONResponse) VisitApplyMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyMealSet404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ApplyMealSet404ApplicationProblemPlusJSONResponse) VisitApplyMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -4213,6 +4689,21 @@ type StrictServerInterface interface {
 	// ImportCsv CSV インポート
 	// (POST /v1/import/csv)
 	ImportCsv(ctx context.Context, request ImportCsvRequestObject) (ImportCsvResponseObject, error)
+	// ListMealSets 食事セットの一覧
+	// (GET /v1/meal-sets)
+	ListMealSets(ctx context.Context, request ListMealSetsRequestObject) (ListMealSetsResponseObject, error)
+	// CreateMealSet 食事セットの作成
+	// (POST /v1/meal-sets)
+	CreateMealSet(ctx context.Context, request CreateMealSetRequestObject) (CreateMealSetResponseObject, error)
+	// DeleteMealSet 食事セットの削除（論理削除）
+	// (DELETE /v1/meal-sets/{mealSetId})
+	DeleteMealSet(ctx context.Context, request DeleteMealSetRequestObject) (DeleteMealSetResponseObject, error)
+	// UpdateMealSet 食事セットの更新
+	// (PUT /v1/meal-sets/{mealSetId})
+	UpdateMealSet(ctx context.Context, request UpdateMealSetRequestObject) (UpdateMealSetResponseObject, error)
+	// ApplyMealSet 食事セットをその日の記録に展開する
+	// (POST /v1/meal-sets/{mealSetId}/apply)
+	ApplyMealSet(ctx context.Context, request ApplyMealSetRequestObject) (ApplyMealSetResponseObject, error)
 	// ListMeals 食事の一覧
 	// (GET /v1/meals)
 	ListMeals(ctx context.Context, request ListMealsRequestObject) (ListMealsResponseObject, error)
@@ -4686,6 +5177,153 @@ func (sh *strictHandler) ImportCsv(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ImportCsvResponseObject); ok {
 		if err := validResponse.VisitImportCsvResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMealSets operation middleware
+func (sh *strictHandler) ListMealSets(w http.ResponseWriter, r *http.Request) {
+	var request ListMealSetsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMealSets(ctx, request.(ListMealSetsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMealSets")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMealSetsResponseObject); ok {
+		if err := validResponse.VisitListMealSetsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateMealSet operation middleware
+func (sh *strictHandler) CreateMealSet(w http.ResponseWriter, r *http.Request) {
+	var request CreateMealSetRequestObject
+
+	var body CreateMealSetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateMealSet(ctx, request.(CreateMealSetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateMealSet")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateMealSetResponseObject); ok {
+		if err := validResponse.VisitCreateMealSetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteMealSet operation middleware
+func (sh *strictHandler) DeleteMealSet(w http.ResponseWriter, r *http.Request, mealSetId openapi_types.UUID) {
+	var request DeleteMealSetRequestObject
+
+	request.MealSetId = mealSetId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteMealSet(ctx, request.(DeleteMealSetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteMealSet")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteMealSetResponseObject); ok {
+		if err := validResponse.VisitDeleteMealSetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateMealSet operation middleware
+func (sh *strictHandler) UpdateMealSet(w http.ResponseWriter, r *http.Request, mealSetId openapi_types.UUID) {
+	var request UpdateMealSetRequestObject
+
+	request.MealSetId = mealSetId
+
+	var body UpdateMealSetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateMealSet(ctx, request.(UpdateMealSetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateMealSet")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateMealSetResponseObject); ok {
+		if err := validResponse.VisitUpdateMealSetResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApplyMealSet operation middleware
+func (sh *strictHandler) ApplyMealSet(w http.ResponseWriter, r *http.Request, mealSetId openapi_types.UUID) {
+	var request ApplyMealSetRequestObject
+
+	request.MealSetId = mealSetId
+
+	var body ApplyMealSetJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApplyMealSet(ctx, request.(ApplyMealSetRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApplyMealSet")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApplyMealSetResponseObject); ok {
+		if err := validResponse.VisitApplyMealSetResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

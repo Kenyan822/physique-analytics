@@ -59,7 +59,7 @@ func (s *stubTransfer) ImportMeasures(_ context.Context, rows []csvio.MeasureRow
 
 func transferServer(tr *stubTransfer) http.Handler {
 	return handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{},
-		&stubTemplates{}, &stubSync{}, tr, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}))
+		&stubTemplates{}, &stubSync{}, tr, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}))
 }
 
 func TestExportCsv_workoutsをCSVで返す(t *testing.T) {

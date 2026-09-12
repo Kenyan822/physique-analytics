@@ -4,7 +4,14 @@ import { serverApi } from "@/lib/api/server";
 import { formatJstDate, todayJst } from "@/lib/jst";
 
 import { MealForm } from "./MealForm";
-import { copyMeals, createMeal, deleteMeal, loadSuggestions } from "./actions";
+import {
+  applyMealSet,
+  copyMeals,
+  createMeal,
+  createMealSetFrom,
+  deleteMeal,
+  loadSuggestions,
+} from "./actions";
 
 export const metadata = { title: "食事 | physique" };
 
@@ -12,9 +19,10 @@ export default async function MealsPage() {
   const date = todayJst();
   const yesterday = shiftDays(date, -1);
   const api = serverApi();
-  const [{ items }, targets] = await Promise.all([
+  const [{ items }, targets, { items: mealSets }] = await Promise.all([
     api.listMeals({ from: date, to: date }),
     api.dailyTargets(date),
+    api.listMealSets(),
   ]);
 
   return (
@@ -35,10 +43,13 @@ export default async function MealsPage() {
           yesterday={yesterday}
           recorded={items}
           targets={targets}
+          mealSets={mealSets}
           loadSuggestions={loadSuggestions}
           createMeal={createMeal}
           deleteMeal={deleteMeal}
           copyMeals={copyMeals}
+          applyMealSet={applyMealSet}
+          createMealSetFrom={createMealSetFrom}
         />
       </div>
     </main>

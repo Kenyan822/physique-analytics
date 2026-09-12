@@ -2,7 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 
-import { ApiError, type Meal, type MealInput, type MealSlot } from "@/lib/api/client";
+import {
+  ApiError,
+  type Meal,
+  type MealInput,
+  type MealSetInput,
+  type MealSlot,
+} from "@/lib/api/client";
 import { serverApi } from "@/lib/api/server";
 
 export type MealResult = { ok: true; meal: Meal } | { ok: false; message: string };
@@ -62,4 +68,45 @@ function reason(e: unknown, fallback: string): string {
   }
 
   return e instanceof Error ? e.message : fallback;
+}
+
+/** 食事セットをその日に展開する（要件 N-03）。 */
+export async function applyMealSet(id: string, date: string, slot?: MealSlot): Promise<CopyResult> {
+  try {
+    const { items } = await serverApi().applyMealSet(id, { date, slot });
+    revalidatePath("/meals");
+
+    return { ok: true, count: items.length };
+  } catch (e) {
+    return { ok: false, message: reason(e, "展開できなかった") };
+  }
+}
+
+/** 今日の記録から食事セットを作る（要件 N-03）。 */
+export async function createMealSetFrom(
+  name: string,
+  meals: Meal[],
+  slot?: MealSlot,
+): Promise<{ ok: boolean; message?: string }> {
+  const input: MealSetInput = {
+    name,
+    slot,
+    items: meals.map((m) => ({
+      name: m.name,
+      qty: m.qty ?? null,
+      kcal: m.kcal ?? null,
+      proteinG: m.proteinG ?? null,
+      fatG: m.fatG ?? null,
+      carbG: m.carbG ?? null,
+    })),
+  };
+
+  try {
+    await serverApi().createMealSet(input);
+    revalidatePath("/meals");
+
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: reason(e, "セットを作れなかった") };
+  }
 }

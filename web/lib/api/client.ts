@@ -23,6 +23,8 @@ export type MealInput = components["schemas"]["MealInput"];
 export type MealSlot = components["schemas"]["MealSlot"];
 export type MealSuggestion = components["schemas"]["MealSuggestion"];
 export type DailyTargets = components["schemas"]["DailyTargets"];
+export type MealSet = components["schemas"]["MealSet"];
+export type MealSetInput = components["schemas"]["MealSetInput"];
 export type Plan = components["schemas"]["Plan"];
 export type PlanInput = components["schemas"]["PlanInput"];
 export type PlanPhase = components["schemas"]["PlanPhase"];
@@ -176,6 +178,13 @@ export function createClient({ baseUrl, token }: ClientOptions) {
       request<{ items: Meal[] }>("POST", "/v1/meals/copy", { body }),
     // その日の摂取目標と残量（要件 N-05）
     dailyTargets: (date: string) => request<DailyTargets>("GET", `/v1/targets/${seg(date)}`),
+
+    // 食事セット（要件 N-03）
+    listMealSets: () => request<{ items: MealSet[] }>("GET", "/v1/meal-sets"),
+    createMealSet: (body: MealSetInput) => request<MealSet>("POST", "/v1/meal-sets", { body }),
+    deleteMealSet: (id: string) => request<void>("DELETE", `/v1/meal-sets/${seg(id)}`),
+    applyMealSet: (id: string, body: { date: string; slot?: MealSlot }) =>
+      request<{ items: Meal[] }>("POST", `/v1/meal-sets/${seg(id)}/apply`, { body }),
 
     getPlan: () => request<Plan>("GET", "/v1/plan"),
     putPlan: (body: PlanInput) => request<Plan>("PUT", "/v1/plan", { body }),

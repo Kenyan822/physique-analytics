@@ -391,6 +391,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/meal-sets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 食事セットの一覧
+         * @description 要件 N-03。「朝食セット」のように毎回同じ組み合わせで食べるものを
+         *     保存しておき、ワンタップで記録できるようにする。
+         */
+        get: operations["listMealSets"];
+        put?: never;
+        /** 食事セットの作成 */
+        post: operations["createMealSet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meal-sets/{mealSetId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealSetId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 食事セットの更新
+         * @description 項目は全入れ替え。差分更新にすると順序の付け替えが扱いにくい。
+         */
+        put: operations["updateMealSet"];
+        post?: never;
+        /** 食事セットの削除（論理削除） */
+        delete: operations["deleteMealSet"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meal-sets/{mealSetId}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealSetId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 食事セットをその日の記録に展開する
+         * @description 要件 N-03。**セットの内容を meals に写す。** 写した後は個別に
+         *     編集・削除できる（実際に食べた量は日によって変わる）。
+         */
+        post: operations["applyMealSet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/targets/{date}": {
         parameters: {
             query?: never;
@@ -864,6 +932,27 @@ export interface components {
             /** @description 炭水化物の目標が下限を割っているか（要件 A-03） */
             carbBelowFloor?: boolean;
             note?: string | null;
+        };
+        MealSetItem: {
+            name: string;
+            qty?: string | null;
+            kcal?: number | null;
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
+        };
+        MealSet: components["schemas"]["Timestamps"] & {
+            /** Format: uuid */
+            id: string;
+            /** @example 朝食セット */
+            name: string;
+            slot?: components["schemas"]["MealSlot"];
+            items: components["schemas"]["MealSetItem"][];
+        };
+        MealSetInput: {
+            name: string;
+            slot?: components["schemas"]["MealSlot"];
+            items: components["schemas"]["MealSetItem"][];
         };
         /** @description RFC 7807 Problem Details */
         Problem: {
@@ -1841,6 +1930,142 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    listMealSets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["MealSet"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createMealSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MealSetInput"];
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MealSet"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    updateMealSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealSetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MealSetInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MealSet"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteMealSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealSetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 削除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    applyMealSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealSetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: date */
+                    date: string;
+                    slot?: components["schemas"]["MealSlot"];
+                };
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Meal"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     getDailyTargets: {

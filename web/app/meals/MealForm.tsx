@@ -2,7 +2,7 @@
 
 import { useCallback, useState, useTransition } from "react";
 
-import type { DailyTargets, Meal, MealSlot, MealSuggestion } from "@/lib/api/client";
+import type { DailyTargets, Meal, MealSet, MealSlot, MealSuggestion } from "@/lib/api/client";
 
 import { MealPicker } from "./MealPicker";
 import type { CopyResult, MealResult } from "./actions";
@@ -15,6 +15,8 @@ type Props = {
   recorded: Meal[];
   /** その日の摂取目標（要件 N-05）。TDEE を推定できないときは target が無い */
   targets: DailyTargets;
+  /** 保存してある食事セット（要件 N-03） */
+  mealSets: MealSet[];
   loadSuggestions: (q: string) => Promise<MealSuggestion[]>;
   createMeal: (input: {
     date: string;
@@ -28,6 +30,12 @@ type Props = {
   }) => Promise<MealResult>;
   deleteMeal: (id: string) => Promise<{ ok: boolean; message?: string }>;
   copyMeals: (fromDate: string, toDate: string) => Promise<CopyResult>;
+  applyMealSet: (id: string, date: string, slot?: MealSlot) => Promise<CopyResult>;
+  createMealSetFrom: (
+    name: string,
+    meals: Meal[],
+    slot?: MealSlot,
+  ) => Promise<{ ok: boolean; message?: string }>;
 };
 
 type Draft = {
@@ -46,10 +54,13 @@ export function MealForm({
   yesterday,
   recorded,
   targets,
+  mealSets,
   loadSuggestions,
   createMeal,
   deleteMeal,
   copyMeals,
+  applyMealSet,
+  createMealSetFrom,
 }: Props) {
   const [meals, setMeals] = useState<Meal[]>(recorded);
   const [slot, setSlot] = useState<MealSlot>(defaultSlot());
@@ -113,6 +124,40 @@ export function MealForm({
     });
   }
 
+  function applySet(id: string) {
+    setMessage(null);
+    startTransition(async () => {
+      const res = await applyMealSet(id, date, slot);
+      setMessage(
+        res.ok
+          ? { ok: true, text: `${res.count} 件を記録した。画面を更新すると出る` }
+          : { ok: false, text: res.message },
+      );
+    });
+  }
+
+  function saveAsSet() {
+    const target = meals.filter((m) => m.slot === slot);
+    if (target.length === 0) {
+      setMessage({ ok: false, text: `${slot}の記録が無いのでセットにできない` });
+
+      return;
+    }
+
+    const name = window.prompt("セットの名前", `${slot}セット`);
+    if (name === null || name.trim() === "") return;
+
+    setMessage(null);
+    startTransition(async () => {
+      const res = await createMealSetFrom(name.trim(), target, slot);
+      setMessage(
+        res.ok
+          ? { ok: true, text: `「${name.trim()}」を保存した` }
+          : { ok: false, text: res.message ?? "保存できなかった" },
+      );
+    });
+  }
+
   function copyYesterday() {
     setMessage(null);
     startTransition(async () => {
@@ -169,6 +214,23 @@ export function MealForm({
             ))}
           </div>
 
+          {mealSets.length > 0 && (
+            <div className="mb-3 flex gap-2 overflow-x-auto">
+              {mealSets.map((ms) => (
+                <button
+                  key={ms.id}
+                  type="button"
+                  onClick={() => applySet(ms.id)}
+                  disabled={pending}
+                  className="pressable shrink-0 rounded-full border border-line bg-surface-2 px-3.5 py-2 text-sm disabled:opacity-40"
+                >
+                  {ms.name}
+                  <span className="tnum ml-1.5 text-xs text-muted">{ms.items.length}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <button
             type="button"
             onClick={() => setPicking(true)}
@@ -214,6 +276,15 @@ export function MealForm({
           className="pressable h-14 w-full rounded-2xl bg-accent text-base font-bold text-accent-ink disabled:opacity-40"
         >
           {pending ? "記録中…" : `${slot}に記録`}
+        </button>
+
+        <button
+          type="button"
+          onClick={saveAsSet}
+          disabled={pending}
+          className="pressable h-11 w-full rounded-xl border border-line text-sm text-muted disabled:opacity-40"
+        >
+          今の{slot}をセットとして保存
         </button>
 
         <button
