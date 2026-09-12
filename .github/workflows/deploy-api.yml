@@ -1,0 +1,63 @@
+name: Deploy API
+
+# api/ か openapi.yaml が変わったときだけ発火する。
+# ドキュメントや web/ の変更でデプロイが走らないようにするため。
+on:
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - "openapi.yaml"
+      - ".github/workflows/deploy-api.yml"
+  workflow_dispatch: {}   # 手動実行（ロールバック後の再デプロイなど）
+
+env:
+  REGION: asia-northeast1
+  SERVICE: physique-api
+  REPOSITORY: physique
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write     # Workload Identity 連携に必要
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # サービスアカウントキーをリポジトリに置かない。
+      # 短命のトークンを GitHub の OIDC から取得する。
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push image
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${REPOSITORY}/${SERVICE}:${GITHUB_SHA}"
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker build -t "${IMAGE}" api/
+          docker push "${IMAGE}"
+          echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
+
+      # DB マイグレーションはここで実行しない（手動）。
+      # 自動適用にすると、失敗時に「アプリが起動しない」と
+      # 「スキーマ不整合」が同時に起きて切り分けが難しくなるため。
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "${SERVICE}" \
+            --image "${IMAGE}" \
+            --region "${REGION}" \
+            --platform managed \
+            --min-instances 0 \
+            --port 8080 \
+            --quiet
+
+      - name: Show revision
+        run: |
+          gcloud run services describe "${SERVICE}" --region "${REGION}" \
+            --format='value(status.latestReadyRevisionName)'

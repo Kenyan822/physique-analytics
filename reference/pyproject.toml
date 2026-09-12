@@ -1,0 +1,20 @@
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+exclude = ["../ios", "../web", "../private"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]   # 行長は line-length で管理。日本語コメントの計算がずれるため
+
+[tool.ruff.lint.isort]
+# analysis/ 直下のモジュールは conftest.py で sys.path に追加するローカルモジュール
+known-first-party = ["analyze", "make_monthly_plan", "make_sample_data"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+exclude = []
+
+[tool.pytest.ini_options]
+testpaths = ["analysis/tests"]

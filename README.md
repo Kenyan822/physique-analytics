@@ -1,0 +1,155 @@
+# physique-analytics
+
+[![CI](https://github.com/Kenyan822/physique-analytics/actions/workflows/ci.yml/badge.svg)](https://github.com/Kenyan822/physique-analytics/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+トレーニング・栄養・体組成を統合して分析する、3年計画の肉体改造のための基盤。
+**iOS で記録し、Web で分析する**構成で、分析ロジックは Python 実装を正とする。
+
+## 何を解決するか
+
+既存のトレーニング記録アプリ（Hevy 等）と食事記録アプリ（MacroFactor 等）は入力体験が優れている一方、**構造的に解決できない問題**が2つある。
+
+| 問題 | 内容 |
+|---|---|
+| **データの分断** | トレーニングと栄養が別アプリに分かれ、統合分析ができない。「炭水化物量とトン数の相関」「睡眠と翌日の推定1RM」を誰も見られない |
+| **分析の浅さ** | 分析ロジックがブラックボックスで仮説を検証できない。部位別の週間セット数が適正範囲にあるかの判定、推定1RMの回帰による停滞検知が存在しないか浅い |
+
+このプロジェクトは**分析レイヤーを自前で持つ**ことでこれを解決する（[ADR-0003](docs/adr/0003-build-own-analytics.md)）。
+
+## 動かしてみる
+
+サンプルデータ（架空の記録55日分）が同梱されているので、clone してすぐ実行できる。
+
+```bash
+pip install -r analysis/requirements.txt
+python3 analysis/make_sample_data.py
+python3 analysis/analyze.py \
+  --data-dir data/sample --config config.example.json \
+  --asof 2026-10-31 --no-write
+```
+
+出力（抜粋）:
+
+```markdown
+## 1. 体重トレンド
+| 7日平均体重        | 73.69 kg (n=7)   |
+| トレンド(21日回帰)  | -0.84 kg/週      |
+| 目標との乖離       | -0.08 kg/週      |
+| 正規化FFMI        | 19.6             |
+
+## 3. 推定TDEE と 来週の推奨摂取
+| 平均摂取 (直近21日) | 2139 kcal        |
+| 推定TDEE           | 3062 kcal        |
+| 来週の推奨摂取      | 2226 kcal/日     |
+
+## 5. 部位別 有効セット数 (直近7日)
+| 部位     | セット | トン数    | MEV-MRV | 判定 |
+| 胸       | 16    | 8474 kg  | 10-20   | ✓   |
+| 大腿四頭  | 12    | 10932 kg | 10-20   | ✓   |
+| ハム     | 8     | 5045 kg  | 8-16    | ✓   |
+
+## 8. 今週のアクション
+1. **筋力低下**: デッドリフト が -0.84 kg/週。減量ペースを緩める。
+```
+
+**最終成果物は「8. 今週のアクション」**。数値の羅列ではなく、来週何を変えるかが出ることをゴールにしている。
+
+## 主要な分析
+
+仕様は [docs/03-分析ロジック.md](docs/03-分析ロジック.md)。すべて純粋関数として実装し、テストしている。
+
+| 分析 | 手法 |
+|---|---|
+| **TDEE の動的推定** | 21日窓の線形回帰 × 7700kcal/kg。計算式ではなく**実測から逆算**するため、代謝適応に毎週追随する |
+| **推定1RM (e1RM)** | Epley + RIR補正。限界12レップ超は推定が崩れるため除外 |
+| **部位別ボリューム** | 13部位の MEV/MRV 判定。肩を前部/中部/後部、背中を広背筋/僧帽筋に分割（一括では部位内の偏りが埋もれる） |
+| **停滞検知** | 体重トレンド・摂取のばらつき・e1RM傾き・HRV の複合条件で判定 |
+| **回復モニタリング** | Apple Watch の HRV / 安静時心拍 / 深睡眠。30日基準との乖離で判定 |
+
+## アーキテクチャ
+
+```
+┌─────────────┐   記録    ┌──────────┐
+│  iOS (Swift)│──────────▶│          │
+│  ・セット記録 │           │   API    │      ┌──────────┐
+│  ・食事記録   │◀──────────│ (Next.js)│─────▶│ Postgres │
+│  ・HealthKit │   同期    │          │      └──────────┘
+└─────────────┘           └──────────┘            │
+                                │                  │
+┌─────────────┐   分析          │          CSV export
+│  Web (Next) │◀───────────────┘                  │
+│  ・週次レポート│                                   ▼
+│  ・計画管理   │                          ┌──────────────┐
+└─────────────┘                          │ analysis/    │
+                                          │ (Python)     │
+                                          │ 分析ロジックの正 │
+                                          └──────────────┘
+```
+
+**役割は「汎用 / ジム特化」で分ける**（[ADR-0009](docs/adr/0009-web-first-with-input.md)）。Web は入力も分析もできる汎用クライアント、**iOS の存在理由は「ジムでの入力速度」と「HealthKit 連携」**。開発は Web 先行。Python 実装は移植後も破棄せず、**アプリの分析結果が `analysis/analyze.py` と一致することを受け入れ条件にする**。
+
+詳細は [docs/04-アーキテクチャ.md](docs/04-アーキテクチャ.md)。
+
+## 設計上の決定
+
+トレードオフのある決定は [ADR](docs/adr/) に記録している。
+
+| # | 決定 |
+|---|---|
+| [0001](docs/adr/0001-monorepo.md) | monorepo 構成を採用する |
+| [0002](docs/adr/0002-separate-personal-data.md) | 個人データをリポジトリから分離する |
+| [0003](docs/adr/0003-build-own-analytics.md) | 分析ロジックを自作する |
+| [0004](docs/adr/0004-ios-input-web-analysis.md) | iOS を入力、Web を分析に役割分離する |
+| [0005](docs/adr/0005-features-not-implemented.md) | **バーコードスキャン・Watch入力・消費カロリー取込を実装しない** |
+| [0006](docs/adr/0006-go-backend.md) | バックエンドに Go を採用する |
+| [0007](docs/adr/0007-openapi-schema-driven.md) | REST + OpenAPI でスキーマ駆動にする |
+| [0008](docs/adr/0008-r2-photo-storage.md) | 写真ストレージに Cloudflare R2 を採用する |
+| [0009](docs/adr/0009-web-first-with-input.md) | Web を先行開発し、Web にも入力機能を持たせる |
+| [0010](docs/adr/0010-mcp-over-analysis-ui.md) | 分析UIを作り込まず、MCP 経由での分析を主とする |
+
+0005 は「作らない決定」の記録。精度の低いデータをデータストアに持ち込まないことを優先している。
+
+## 開発
+
+```bash
+pip install -r analysis/requirements-dev.txt
+ruff check analysis/       # Lint
+mypy analysis/             # 型チェック
+pytest analysis/tests -v   # テスト
+```
+
+開発フロー（ブランチ戦略・コミット規約・issue の粒度）は [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+**個人の実記録は `private/` 配下にあり、リポジトリには含まれない。** 体重・体組成・身体写真・血液検査結果を公開しないため（[ADR-0002](docs/adr/0002-separate-personal-data.md)）。
+
+## ロードマップ
+
+| Phase | 内容 | 状態 |
+|---|---|---|
+| **0** | 分析ロジック（Python） | **完了** |
+| 1 | **API (Go) + DB + Web + MCP**: 記録が回る状態 | 未着手 |
+| 2 | iOS: ジムでの高速入力 + HealthKit 連携 | 未着手 |
+| 3 | 食事記録・周囲長・写真・計画管理 | 未着手 |
+| 4 | Watch 入力・位置情報サジェスト・相関分析 | 未着手 |
+
+**分析UIは作らず、MCP 経由で Claude Code から分析する**（[ADR-0010](docs/adr/0010-mcp-over-analysis-ui.md)）。「睡眠6時間未満だった翌日の e1RM は平均どれくらい落ちるか」のような質問は事前に定義できず、固定の画面では構造的に対応できないため。Web に置くのは毎日見る少数の指標だけに留める。
+
+各 Phase の受け入れ条件は [docs/01-要件定義.md](docs/01-要件定義.md) §8。
+
+## ドキュメント
+
+| | 内容 |
+|---|---|
+| [01-要件定義](docs/01-要件定義.md) | 機能要件（IDつき）・非機能要件・段階的リリース |
+| [02-データモデル](docs/02-データモデル.md) | 何を測るか、測定条件、記録しないと決めたもの |
+| [03-分析ロジック](docs/03-分析ロジック.md) | TDEE推定・e1RM・停滞検知の手法と閾値 |
+| [04-アーキテクチャ](docs/04-アーキテクチャ.md) | 構成・技術選定・データフロー |
+| [05-インフラ設計](docs/05-インフラ設計.md) | ホスティング・コスト試算・デプロイ・監視・障害対応 |
+| [06-技術選定](docs/06-技術選定.md) | 採用バージョン・選定理由・更新方針・却下した選択肢 |
+| [ADR](docs/adr/) | 設計判断の記録 |
+| [Go の学び](docs/go/) | 実装中に学んだことの記録（このプロジェクトは Go 学習を兼ねる） |
+
+## License
+
+[MIT](LICENSE)

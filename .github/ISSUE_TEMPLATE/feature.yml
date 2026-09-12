@@ -1,0 +1,39 @@
+name: 機能実装
+description: 要件定義書に対応する機能の実装
+title: "[要件ID] "
+labels: ["feature"]
+body:
+  - type: input
+    id: requirement-id
+    attributes:
+      label: 要件ID
+      description: docs/01-要件定義.md の機能ID
+      placeholder: "T-02 / N-03 / A-14 など"
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 概要
+      description: 何を実装するか
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 受け入れ条件
+      description: これを満たせば完了と言える条件。曖昧な表現を避ける
+      placeholder: |
+        - [ ] 前回同種目の重量・レップ・RIR がデフォルト表示される
+        - [ ] 記録が 3秒以内・2タップ以内で完了する
+        - [ ] オフラインで動作し、復帰時に同期される
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 補足
+      description: 実装方針、検討事項、参照するADRなど

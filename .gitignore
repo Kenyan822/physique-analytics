@@ -1,0 +1,37 @@
+# 個人データ一式（体組成・写真・血液検査・実記録・自分の計画）
+private/
+
+# 自動生成
+reports/
+__pycache__/
+*.pyc
+
+# 環境
+.env*
+.DS_Store
+
+# Go
+/api/bin/
+*.test
+coverage.out
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+.terraform.lock.hcl.bak
+
+# Docker
+.docker/
+
+# iOS / Web
+node_modules/
+.next/
+# pnpm を使う。npm/yarn の lockfile が混入しないようにする（CLAUDE.md）
+package-lock.json
+yarn.lock
+*.xcuserstate
+xcuserdata/
+build/

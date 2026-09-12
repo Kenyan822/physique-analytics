@@ -1,0 +1,187 @@
+{
+  "height_cm": 175.0,
+  "start_date": "2026-09-07",
+  "baseline": {
+    "weight_kg": 75.0,
+    "bodyfat_pct": 20.0,
+    "bench_1rm_kg": 100
+  },
+  "volume_sets_per_muscle": {
+    "default": {
+      "min": 10,
+      "max": 20
+    },
+    "胸": {
+      "min": 10,
+      "max": 20
+    },
+    "広背筋": {
+      "min": 10,
+      "max": 20
+    },
+    "僧帽筋": {
+      "min": 8,
+      "max": 18
+    },
+    "肩前部": {
+      "min": 4,
+      "max": 12
+    },
+    "肩中部": {
+      "min": 8,
+      "max": 14
+    },
+    "肩後部": {
+      "min": 4,
+      "max": 14
+    },
+    "上腕二頭": {
+      "min": 8,
+      "max": 16
+    },
+    "上腕三頭": {
+      "min": 8,
+      "max": 16
+    },
+    "大腿四頭": {
+      "min": 10,
+      "max": 20
+    },
+    "ハム": {
+      "min": 8,
+      "max": 16
+    },
+    "臀部": {
+      "min": 6,
+      "max": 14
+    },
+    "ふくらはぎ": {
+      "min": 8,
+      "max": 16
+    },
+    "腹": {
+      "min": 4,
+      "max": 16
+    }
+  },
+  "phases": [
+    {
+      "name": "P0 基盤構築",
+      "from": "2026-09-07",
+      "to": "2026-09-30",
+      "goal_kg_per_week": 0.0
+    },
+    {
+      "name": "P1-A カット1.0%",
+      "from": "2026-10-01",
+      "to": "2026-10-31",
+      "goal_kg_per_week": -0.76
+    },
+    {
+      "name": "P1-B カット0.8%",
+      "from": "2026-11-01",
+      "to": "2026-11-30",
+      "goal_kg_per_week": -0.58
+    },
+    {
+      "name": "P1-C カット0.6%",
+      "from": "2026-12-01",
+      "to": "2026-12-31",
+      "goal_kg_per_week": -0.42
+    },
+    {
+      "name": "P1-D カット0.45%",
+      "from": "2027-01-01",
+      "to": "2027-02-28",
+      "goal_kg_per_week": -0.31
+    },
+    {
+      "name": "Y1 ダイエットブレイク",
+      "from": "2027-03-01",
+      "to": "2027-03-31",
+      "goal_kg_per_week": 0.1
+    },
+    {
+      "name": "Y1 仕上げ(大会1)",
+      "from": "2027-04-01",
+      "to": "2027-05-31",
+      "goal_kg_per_week": -0.08
+    },
+    {
+      "name": "Y1 増量",
+      "from": "2027-06-01",
+      "to": "2028-03-31",
+      "goal_kg_per_week": 0.15
+    },
+    {
+      "name": "Y2 仕上げ(大会2)",
+      "from": "2028-04-01",
+      "to": "2028-06-30",
+      "goal_kg_per_week": -0.35
+    },
+    {
+      "name": "Y2 増量",
+      "from": "2028-07-01",
+      "to": "2029-04-30",
+      "goal_kg_per_week": 0.15
+    },
+    {
+      "name": "Y3 仕上げ(大会3)",
+      "from": "2029-05-01",
+      "to": "2029-07-31",
+      "goal_kg_per_week": -0.35
+    },
+    {
+      "name": "オフ",
+      "from": "2029-08-01",
+      "to": "2029-09-06",
+      "goal_kg_per_week": 0.15
+    }
+  ],
+  "weekly_sessions": {
+    "増量期": 6,
+    "減量期": 5
+  },
+  "leg_frequency_per_week": 1,
+  "volume_alert_exclude": [
+    "ふくらはぎ"
+  ],
+  "max_exercises_per_session": 4,
+  "nutrition": {
+    "cut": {
+      "protein_g_per_kg": 2.4,
+      "fat_g_per_kg": 0.85
+    },
+    "deep_cut": {
+      "protein_g_per_kg": 2.6,
+      "fat_g_per_kg": 0.85
+    },
+    "bulk": {
+      "protein_g_per_kg": 2.2,
+      "fat_g_per_kg": 1.0
+    },
+    "deep_cut_bf_threshold": 13.0,
+    "carb_min_g": 200,
+    "extra_steps_kcal": 200
+  },
+  "contests": [
+    {
+      "date": "2027-05",
+      "category": "BBJ or サマスタ(新人類/スタイリッシュガイ)",
+      "target_bf": 11.0,
+      "goal": "完走・経験"
+    },
+    {
+      "date": "2028-06",
+      "category": "BBJ or サマスタ",
+      "target_bf": 11.0,
+      "goal": "入賞を狙える体に"
+    },
+    {
+      "date": "2029-07",
+      "category": "BBJ or サマスタ",
+      "target_bf": 11.0,
+      "goal": "3年計画の集大成"
+    }
+  ]
+}

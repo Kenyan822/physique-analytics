@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 分析ロジックの正は Go（api/internal/analytics）。Phase 1a で追加する。
+  # api:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - golangci-lint run ./...
+  #     - go test ./... -race -cover
+  #     - oapi-codegen の生成物が最新か検証（差分があれば失敗）
+
+  reference:
+    # Phase 0 のプロトタイプ（Python）。Go 移植の検証基準として機能させるため、
+    # これ自体が正しく動いていることを CI で保証し続ける。
+    name: reference (Python プロトタイプ)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: reference
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: reference/analysis/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r analysis/requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check analysis/
+
+      - name: Type check (mypy)
+        run: mypy analysis/
+
+      - name: Test (pytest)
+        run: pytest analysis/tests -v
+
+      # 個別の関数が正しくても、全体の組み合わせが壊れているケースを検出する
+      - name: Smoke test (サンプルデータで週次レポートを生成)
+        run: |
+          python3 analysis/make_sample_data.py
+          python3 analysis/analyze.py \
+            --data-dir ../data/sample \
+            --config ../config.example.json \
+            --asof 2026-10-31 \
+            --no-write
+
+  # iOS / Web は Phase 2 / Phase 1a で追加する。
+  # ios:  runs-on: macos-latest / SwiftLint + xcodebuild test
+  # web:  runs-on: ubuntu-latest / ESLint + tsc + vitest + next build
