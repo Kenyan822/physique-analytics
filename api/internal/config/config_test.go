@@ -59,3 +59,24 @@ func lookup(env map[string]string) func(string) (string, bool) {
 		return v, ok
 	}
 }
+
+// MCP は手元で stdio 越しに動き DB を直接読む。認証の設定は要らない
+func TestLoadForMCP_DATABASE_URLだけで足りる(t *testing.T) {
+	env := map[string]string{"DATABASE_URL": "postgres://localhost:5432/physique"}
+	cfg, err := config.LoadForMCP(lookup(env))
+	if err != nil {
+		t.Fatalf("LoadForMCP: %v", err)
+	}
+	if cfg.DatabaseURL != env["DATABASE_URL"] {
+		t.Errorf("DatabaseURL = %q", cfg.DatabaseURL)
+	}
+	if cfg.DatabaseMaxConns <= 0 {
+		t.Errorf("DatabaseMaxConns = %d", cfg.DatabaseMaxConns)
+	}
+}
+
+func TestLoadForMCP_DATABASE_URLが無ければエラー(t *testing.T) {
+	if _, err := config.LoadForMCP(func(string) (string, bool) { return "", false }); err == nil {
+		t.Fatal("エラーを期待したが nil")
+	}
+}

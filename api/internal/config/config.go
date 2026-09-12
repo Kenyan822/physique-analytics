@@ -54,3 +54,20 @@ func Load(lookup LookupEnv) (Config, error) {
 
 	return cfg, nil
 }
+
+// LoadForMCP は MCP サーバ用の設定を読む。
+//
+// 認証の設定を要求しない。MCP は手元で stdio 越しに動き、DB を直接読むため
+// （ADR-0010）。HTTP を待ち受けないので、認証を挟む対象が無い。
+func LoadForMCP(lookup LookupEnv) (Config, error) {
+	// MCP は手元の1プロセスだけ。接続は少なくてよい
+	cfg := Config{DatabaseMaxConns: 2}
+
+	dsn, ok := lookup("DATABASE_URL")
+	if !ok || dsn == "" {
+		return Config{}, errors.New("DATABASE_URL が設定されていない")
+	}
+	cfg.DatabaseURL = dsn
+
+	return cfg, nil
+}

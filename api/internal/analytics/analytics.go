@@ -13,6 +13,10 @@ const (
 	// KcalPerKgFat は体脂肪1kgあたりのカロリー。TDEE の逆算に使う。
 	KcalPerKgFat = 7700.0
 
+	// E1RMWindowDays は e1RM の傾きを見る回帰窓（6週）。
+	// 短いと日々のばらつきに振り回され、長いと停滞の検出が遅れる。
+	E1RMWindowDays = 42
+
 	// E1RMMaxReps は Epley が信頼できる限界レップ数の上限。
 	// これを超えると推定1RMを過大評価し、種目内の時系列比較が崩れる。
 	E1RMMaxReps = 12
