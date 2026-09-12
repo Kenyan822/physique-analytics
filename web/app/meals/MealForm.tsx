@@ -2,10 +2,19 @@
 
 import { useCallback, useState, useTransition } from "react";
 
-import type { DailyTargets, Meal, MealSet, MealSlot, MealSuggestion } from "@/lib/api/client";
+import type {
+  DailyTargets,
+  Meal,
+  MealSet,
+  MealSlot,
+  MealSource,
+  MealSuggestion,
+} from "@/lib/api/client";
 
+import { EstimatePanel } from "./EstimatePanel";
 import { MealPicker } from "./MealPicker";
-import type { CopyResult, MealResult } from "./actions";
+import type { CopyResult, EstimateResult, MealResult } from "./actions";
+import { EMPTY_DRAFT, type Draft } from "./estimate";
 import { SLOTS, countWithoutMacros, groupBySlot, sumMeals } from "./totals";
 
 type Props = {
@@ -27,7 +36,10 @@ type Props = {
     proteinG?: number | null;
     fatG?: number | null;
     carbG?: number | null;
+    source?: MealSource;
   }) => Promise<MealResult>;
+  /** 写真から PFC を推定する（要件 N-06） */
+  estimateMeal: (form: FormData) => Promise<EstimateResult>;
   deleteMeal: (id: string) => Promise<{ ok: boolean; message?: string }>;
   copyMeals: (fromDate: string, toDate: string) => Promise<CopyResult>;
   applyMealSet: (id: string, date: string, slot?: MealSlot) => Promise<CopyResult>;
@@ -38,17 +50,6 @@ type Props = {
   ) => Promise<{ ok: boolean; message?: string }>;
 };
 
-type Draft = {
-  name: string;
-  qty: string;
-  kcal: string;
-  proteinG: string;
-  fatG: string;
-  carbG: string;
-};
-
-const EMPTY: Draft = { name: "", qty: "", kcal: "", proteinG: "", fatG: "", carbG: "" };
-
 export function MealForm({
   date,
   yesterday,
@@ -57,6 +58,7 @@ export function MealForm({
   mealSets,
   loadSuggestions,
   createMeal,
+  estimateMeal,
   deleteMeal,
   copyMeals,
   applyMealSet,
@@ -64,7 +66,7 @@ export function MealForm({
 }: Props) {
   const [meals, setMeals] = useState<Meal[]>(recorded);
   const [slot, setSlot] = useState<MealSlot>(defaultSlot());
-  const [draft, setDraft] = useState<Draft>(EMPTY);
+  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [picking, setPicking] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [pending, startTransition] = useTransition();
@@ -82,6 +84,8 @@ export function MealForm({
       proteinG: s.proteinG?.toString() ?? "",
       fatG: s.fatG?.toString() ?? "",
       carbG: s.carbG?.toString() ?? "",
+      // 履歴から選んだものは手入力と同じ確度で扱う
+      source: "manual",
     });
     setPicking(false);
   }, []);
@@ -100,6 +104,7 @@ export function MealForm({
         proteinG: num(draft.proteinG),
         fatG: num(draft.fatG),
         carbG: num(draft.carbG),
+        source: draft.source,
       });
 
       if (!res.ok) {
@@ -108,7 +113,7 @@ export function MealForm({
         return;
       }
       setMeals((prev) => [...prev, res.meal]);
-      setDraft(EMPTY);
+      setDraft(EMPTY_DRAFT);
     });
   }
 
@@ -242,6 +247,25 @@ export function MealForm({
             </span>
           </button>
 
+          {draft.source === "ai_estimated" && (
+            /*
+             * **少し直しても推定のままにする。** 元が推定なら確度は推定のもの。
+             * 全部打ち直したときだけ手入力に落とせるようにボタンを置く
+             */
+            <div className="mb-2 flex items-center gap-2 rounded-lg bg-surface-2 px-2 py-1.5">
+              <span className="flex-1 text-[11px] text-muted">
+                写真からの推定値として記録される
+              </span>
+              <button
+                type="button"
+                onClick={() => setDraft({ ...draft, source: "manual" })}
+                className="pressable shrink-0 rounded-lg border border-line px-2 py-1 text-[11px] text-muted"
+              >
+                手入力にする
+              </button>
+            </div>
+          )}
+
           <Field
             label="食べたもの"
             value={draft.name}
@@ -268,6 +292,8 @@ export function MealForm({
             <Num label="C" value={draft.carbG} onChange={(v) => setDraft({ ...draft, carbG: v })} />
           </div>
         </section>
+
+        <EstimatePanel estimateMeal={estimateMeal} onEstimated={setDraft} />
 
         <button
           type="button"

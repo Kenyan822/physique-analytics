@@ -24,6 +24,8 @@ export type Meal = components["schemas"]["Meal"];
 export type MealInput = components["schemas"]["MealInput"];
 export type MealSlot = components["schemas"]["MealSlot"];
 export type MealSuggestion = components["schemas"]["MealSuggestion"];
+export type MealEstimate = components["schemas"]["MealEstimate"];
+export type MealSource = components["schemas"]["MealSource"];
 export type DailyTargets = components["schemas"]["DailyTargets"];
 export type MealSet = components["schemas"]["MealSet"];
 export type MealSetInput = components["schemas"]["MealSetInput"];
@@ -250,6 +252,27 @@ export function createClient({ baseUrl, token }: ClientOptions) {
     createBloodTest: (body: BloodTestInput) =>
       request<BloodTest>("POST", "/v1/blood-tests", { body }),
     deleteBloodTest: (id: string) => request<void>("DELETE", `/v1/blood-tests/${seg(id)}`),
+
+    /**
+     * 写真から PFC を推定する（要件 N-06）。
+     *
+     * multipart なので `request` を通さない。**Content-Type を自分で付けない**
+     * （boundary が落ちる）。推定は保存されない。下書きが返るだけ。
+     */
+    estimateMeal: async (form: FormData): Promise<MealEstimate> => {
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const res = await fetch(buildUrl(baseUrl, "/v1/meals/estimate"), {
+        method: "POST",
+        headers,
+        body: form,
+        cache: "no-store",
+      });
+      if (!res.ok) throw await toApiError(res);
+
+      return (await res.json()) as MealEstimate;
+    },
 
     // CSV の取り込みと書き出し（要件 I-01 / I-02）
     exportCsv: (query: { resource: CsvResource; from?: string; to?: string }) =>

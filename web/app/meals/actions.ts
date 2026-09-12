@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import {
   ApiError,
   type Meal,
+  type MealEstimate,
   type MealInput,
   type MealSetInput,
   type MealSlot,
@@ -13,6 +14,8 @@ import { serverApi } from "@/lib/api/server";
 
 export type MealResult = { ok: true; meal: Meal } | { ok: false; message: string };
 export type CopyResult = { ok: true; count: number } | { ok: false; message: string };
+export type EstimateResult =
+  { ok: true; estimate: MealEstimate } | { ok: false; message: string; unavailable: boolean };
 
 /** 食事を1件記録する（要件 N-01）。 */
 export async function createMeal(input: MealInput): Promise<MealResult> {
@@ -35,6 +38,22 @@ export async function deleteMeal(id: string): Promise<{ ok: boolean; message?: s
     return { ok: true };
   } catch (e) {
     return { ok: false, message: reason(e, "削除できなかった") };
+  }
+}
+
+/**
+ * 写真から PFC を推定する（要件 N-06）。
+ *
+ * **結果は保存しない。** 下書きを返すだけで、記録は確認後に createMeal で行う。
+ * 推定が未設定なら 503。**課金が要るので既定では無効**（ADR-0008 と同じ考え方）。
+ */
+export async function estimateMeal(form: FormData): Promise<EstimateResult> {
+  try {
+    return { ok: true, estimate: await serverApi().estimateMeal(form) };
+  } catch (e) {
+    const unavailable = e instanceof ApiError && e.status === 503;
+
+    return { ok: false, message: reason(e, "推定できなかった"), unavailable };
   }
 }
 

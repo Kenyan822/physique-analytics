@@ -10,6 +10,7 @@ import {
   createMeal,
   createMealSetFrom,
   deleteMeal,
+  estimateMeal,
   loadSuggestions,
 } from "./actions";
 
@@ -46,6 +47,7 @@ export default async function MealsPage() {
           mealSets={mealSets}
           loadSuggestions={loadSuggestions}
           createMeal={createMeal}
+          estimateMeal={estimateMeal}
           deleteMeal={deleteMeal}
           copyMeals={copyMeals}
           applyMealSet={applyMealSet}
