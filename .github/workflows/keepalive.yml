@@ -1,0 +1,40 @@
+# Supabase の自動停止を防ぐ。
+#
+# Free プランは7日間プロジェクトへのアクセスがないと一時停止され、
+# 復旧はダッシュボードからの手動操作になる（docs/05-インフラ設計.md §2.1）。
+# 旅行や体調不良で1週間記録が空くと、次に開いたときサービスが落ちている。
+#
+# /health は DB に ping を打ってから 200 を返すので、これを叩けば
+# 非アクティブ判定を回避できる。
+name: keepalive
+
+on:
+  schedule:
+    # 月・木の 03:00 UTC（JST 12:00）。最大の間隔は4日で、閾値7日に対して余裕がある。
+    # 週1回にすると、1回スキップされただけで閾値を超える
+    - cron: "0 3 * * 1,4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: /health を叩く
+        run: |
+          for i in $(seq 1 5); do
+            code=$(curl -s -o /tmp/health.json -w '%{http_code}' --max-time 30 \
+              '${{ secrets.API_HEALTH_URL }}/health' || true)
+            if [ "$code" = "200" ]; then
+              echo "OK: $(cat /tmp/health.json)"
+              exit 0
+            fi
+            # Cloud Run は min-instances=0 なのでコールドスタートを待つ
+            echo "attempt $i: HTTP $code"
+            sleep 10
+          done
+          echo "::error::/health が 200 を返さない。Supabase が停止している可能性がある"
+          cat /tmp/health.json || true
+          exit 1
