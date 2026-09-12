@@ -35,8 +35,34 @@ jobs:
     defaults:
       run:
         working-directory: api
+    # DB を使うテストは本物の Postgres に繋ぐ。検証したいことの大半
+    # （部分インデックス、enum、論理削除の絞り込み）が SQL と DB の挙動そのもので、
+    # モックでは通ってしまうため
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: physique
+          POSTGRES_PASSWORD: dev
+          POSTGRES_DB: physique
+          TZ: Asia/Tokyo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U physique -d physique"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
+
+      - name: マイグレーションを適用
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/migrations:/migrations:ro" \
+            -e DSN='postgres://physique:dev@localhost:5432/physique?sslmode=disable' \
+            --entrypoint sh migrate/migrate:v4.19.0 \
+            -c 'migrate -path=/migrations -database="$DSN" up'
 
       - uses: actions/setup-go@v7
         with:
@@ -66,7 +92,20 @@ jobs:
 
       # -race: 並行処理のデータ競合は本番でしか再現しないことが多い
       - name: Test
+        env:
+          TEST_DATABASE_URL: postgres://physique:dev@localhost:5432/physique?sslmode=disable
         run: go test ./... -race -cover
+
+      # DB を立て忘れるとテストが Skip されて緑になる。CI では Skip を許さない
+      - name: DB のテストが Skip されていないこと
+        env:
+          TEST_DATABASE_URL: postgres://physique:dev@localhost:5432/physique?sslmode=disable
+        run: |
+          go test ./internal/repository/ -v 2>&1 | tee /tmp/repo.log
+          if grep -q -- '--- SKIP' /tmp/repo.log; then
+            echo '::error::DB のテストが Skip された。Postgres に接続できていない'
+            exit 1
+          fi
 
       # 依存の既知脆弱性。呼び出し到達性まで見るので pnpm audit より誤検知が少ない
       - name: govulncheck
