@@ -22,6 +22,9 @@ export type Meal = components["schemas"]["Meal"];
 export type MealInput = components["schemas"]["MealInput"];
 export type MealSlot = components["schemas"]["MealSlot"];
 export type MealSuggestion = components["schemas"]["MealSuggestion"];
+export type DailyTargets = components["schemas"]["DailyTargets"];
+export type Plan = components["schemas"]["Plan"];
+export type PlanInput = components["schemas"]["PlanInput"];
 export type Problem = components["schemas"]["Problem"];
 
 type ListExercisesQuery = NonNullable<paths["/v1/exercises"]["get"]["parameters"]["query"]>;
@@ -158,8 +161,7 @@ export function createClient({ baseUrl, token }: ClientOptions) {
     latestMeasurement: () =>
       request<{ measurement?: BodyMeasurement | null }>("GET", "/v1/measurements/latest"),
 
-    listMeals: (query: DateRangeQuery) =>
-      request<{ items: Meal[] }>("GET", "/v1/meals", { query }),
+    listMeals: (query: DateRangeQuery) => request<{ items: Meal[] }>("GET", "/v1/meals", { query }),
     createMeal: (body: MealInput) => request<Meal>("POST", "/v1/meals", { body }),
     updateMeal: (id: string, body: MealInput) =>
       request<Meal>("PATCH", `/v1/meals/${seg(id)}`, { body }),
@@ -169,6 +171,11 @@ export function createClient({ baseUrl, token }: ClientOptions) {
       request<{ items: MealSuggestion[] }>("GET", "/v1/meals/suggestions", { query }),
     copyMeals: (body: { fromDate: string; toDate: string; slot?: MealSlot }) =>
       request<{ items: Meal[] }>("POST", "/v1/meals/copy", { body }),
+    // その日の摂取目標と残量（要件 N-05）
+    dailyTargets: (date: string) => request<DailyTargets>("GET", `/v1/targets/${seg(date)}`),
+
+    getPlan: () => request<Plan>("GET", "/v1/plan"),
+    putPlan: (body: PlanInput) => request<Plan>("PUT", "/v1/plan", { body }),
   };
 }
 

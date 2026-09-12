@@ -290,6 +290,27 @@ type DailyMetricsInput struct {
 	WeightKg     *float32           `json:"weightKg,omitempty"`
 }
 
+// DailyTargets defines model for DailyTargets.
+type DailyTargets struct {
+	// CarbBelowFloor 炭水化物の目標が下限を割っているか（要件 A-03）
+	CarbBelowFloor *bool              `json:"carbBelowFloor,omitempty"`
+	Consumed       Macros             `json:"consumed"`
+	Date           openapi_types.Date `json:"date"`
+	GoalKgPerWeek  *float32           `json:"goalKgPerWeek,omitempty"`
+
+	// IntakeFloorHit 摂取が下限（体重×24kcal）に達しているか（要件 A-03）
+	IntakeFloorHit *bool   `json:"intakeFloorHit,omitempty"`
+	Note           *string `json:"note,omitempty"`
+	Phase          *string `json:"phase,omitempty"`
+
+	// Remaining 目標 − 実績。target が無ければ null
+	Remaining *Macros `json:"remaining,omitempty"`
+
+	// Target 摂取目標。TDEE を推定できないときは null
+	Target   *Macros  `json:"target,omitempty"`
+	TdeeKcal *float32 `json:"tdeeKcal,omitempty"`
+}
+
 // Exercise defines model for Exercise.
 type Exercise struct {
 	CreatedAt      time.Time `json:"createdAt"`
@@ -337,6 +358,14 @@ type ImportError struct {
 type MacroRatio struct {
 	FatGPerKg     float32 `json:"fatGPerKg"`
 	ProteinGPerKg float32 `json:"proteinGPerKg"`
+}
+
+// Macros defines model for Macros.
+type Macros struct {
+	CarbG    float32 `json:"carbG"`
+	FatG     float32 `json:"fatG"`
+	Kcal     float32 `json:"kcal"`
+	ProteinG float32 `json:"proteinG"`
 }
 
 // Meal defines model for Meal.
@@ -883,6 +912,9 @@ type ServerInterface interface {
 	// PushSync ローカルの変更を一括送信
 	// (POST /v1/sync)
 	PushSync(w http.ResponseWriter, r *http.Request)
+	// GetDailyTargets その日の摂取目標と残量
+	// (GET /v1/targets/{date})
+	GetDailyTargets(w http.ResponseWriter, r *http.Request, date openapi_types.Date)
 	// ListTemplates テンプレートの一覧
 	// (GET /v1/templates)
 	ListTemplates(w http.ResponseWriter, r *http.Request)
@@ -1617,6 +1649,32 @@ func (siw *ServerInterfaceWrapper) PushSync(w http.ResponseWriter, r *http.Reque
 	handler.ServeHTTP(w, r)
 }
 
+// GetDailyTargets operation middleware
+func (siw *ServerInterfaceWrapper) GetDailyTargets(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "date" -------------
+	var date openapi_types.Date
+
+	err = runtime.BindStyledParameterWithOptions("simple", "date", r.PathValue("date"), &date, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "date", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "date", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDailyTargets(w, r, date)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTemplates operation middleware
 func (siw *ServerInterfaceWrapper) ListTemplates(w http.ResponseWriter, r *http.Request) {
 
@@ -2118,6 +2176,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/meals/{mealId}", wrapper.UpdateMeal)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/meals/suggestions", wrapper.ListMealSuggestions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/meals/copy", wrapper.CopyMeals)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/targets/{date}", wrapper.GetDailyTargets)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/plan", wrapper.GetPlan)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/plan", wrapper.PutPlan)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/sync", wrapper.PullSync)
@@ -3431,6 +3490,60 @@ func (response PushSync200JSONResponse) VisitPushSyncResponse(w http.ResponseWri
 	return err
 }
 
+type GetDailyTargetsRequestObject struct {
+	Date openapi_types.Date `json:"date"`
+}
+
+type GetDailyTargetsResponseObject interface {
+	VisitGetDailyTargetsResponse(w http.ResponseWriter) error
+}
+
+type GetDailyTargets200JSONResponse DailyTargets
+
+func (response GetDailyTargets200JSONResponse) VisitGetDailyTargetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDailyTargets401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetDailyTargets401ApplicationProblemPlusJSONResponse) VisitGetDailyTargetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDailyTargets422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response GetDailyTargets422ApplicationProblemPlusJSONResponse) VisitGetDailyTargetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTemplatesRequestObject struct {
 }
 
@@ -4139,6 +4252,9 @@ type StrictServerInterface interface {
 	// PushSync ローカルの変更を一括送信
 	// (POST /v1/sync)
 	PushSync(ctx context.Context, request PushSyncRequestObject) (PushSyncResponseObject, error)
+	// GetDailyTargets その日の摂取目標と残量
+	// (GET /v1/targets/{date})
+	GetDailyTargets(ctx context.Context, request GetDailyTargetsRequestObject) (GetDailyTargetsResponseObject, error)
 	// ListTemplates テンプレートの一覧
 	// (GET /v1/templates)
 	ListTemplates(ctx context.Context, request ListTemplatesRequestObject) (ListTemplatesResponseObject, error)
@@ -4936,6 +5052,32 @@ func (sh *strictHandler) PushSync(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PushSyncResponseObject); ok {
 		if err := validResponse.VisitPushSyncResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetDailyTargets operation middleware
+func (sh *strictHandler) GetDailyTargets(w http.ResponseWriter, r *http.Request, date openapi_types.Date) {
+	var request GetDailyTargetsRequestObject
+
+	request.Date = date
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDailyTargets(ctx, request.(GetDailyTargetsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDailyTargets")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDailyTargetsResponseObject); ok {
+		if err := validResponse.VisitGetDailyTargetsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

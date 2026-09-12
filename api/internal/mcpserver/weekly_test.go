@@ -29,6 +29,14 @@ func fixture(t *testing.T, withPlan bool) (Deps, *repository.Body) {
 		Analysis:  repository.NewAnalysis(tx),
 		Plan:      repository.NewPlan(tx),
 	}
+	if !withPlan {
+		// 手元の DB には取り込み済みのフェーズがコミットされている。
+		// トランザクション内で消せば、他のテストには影響しない
+		if _, err := tx.Exec(t.Context(), "delete from plan_phases"); err != nil {
+			t.Fatalf("フェーズを消せない: %v", err)
+		}
+	}
+
 	if withPlan {
 		in := openapi.PlanInput{
 			HeightCm: f32(175),

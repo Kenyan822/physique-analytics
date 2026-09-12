@@ -11,10 +11,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
 	"github.com/Kenyan822/physique-analytics/api/internal/analytics"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 	"github.com/Kenyan822/physique-analytics/api/internal/timeutil"
+	"github.com/Kenyan822/physique-analytics/api/internal/weekly"
 )
 
 // keyExercises は e1RM の傾きを見る主要種目。
@@ -81,63 +81,35 @@ func weeklyActions(ctx context.Context, d Deps, in weeklyActionsIn) (weeklyActio
 		return weeklyActionsOut{}, errors.New("計画の設定を読む口が無い（MCP の組み立てを確認する）")
 	}
 
-	plan, err := d.Plan.Get(ctx)
+	// 集計と目標の組み立ては API と共通（internal/weekly）。
+	// 同じ計算を2か所に書くと、片方だけ直したときに値が食い違う
+	sum, err := weekly.Build(ctx, weekly.Deps{Plan: d.Plan, Series: d.Analysis}, asof)
 	if err != nil {
 		return weeklyActionsOut{}, err
 	}
-	if len(plan.Phases) == 0 {
-		return weeklyActionsOut{}, errors.New(
-			"フェーズが1つも登録されていない。Web の設定画面（/settings）か PUT /v1/plan で登録する")
-	}
 
-	out := weeklyActionsOut{AsOf: asof.Format(time.DateOnly)}
-
-	goal, ok := repository.GoalAt(plan.Phases, asof)
-	if !ok {
-		out.Note = "計画の期間外。目標ペースが決まらないので、停滞判定は維持期として扱う"
+	out := weeklyActionsOut{
+		AsOf:        sum.AsOf.Format(time.DateOnly),
+		Phase:       sum.Phase,
+		TDEEKcal:    sum.TDEEKcal,
+		WeightKg:    sum.WeightKg7dAvg,
+		BodyfatPct:  sum.BodyfatPct7dAvg,
+		SlopeKgWeek: sum.WeightSlopeKgWeek,
+		Note:        sum.Note,
 	}
+	goal := sum.GoalKgPerWeek
 	out.GoalKgPerWeek = &goal
-	out.Phase = phaseName(plan, asof)
-
-	// 30日分あれば HRV の基準まで取れる。前週の歩数のためにもう1週さかのぼる
-	from := openapi_types.Date{Time: asof.AddDate(0, 0, -(analytics.BaselineWindowDays + analytics.RecentWindowDays))}
-	points, err := d.Analysis.DailySeries(ctx, from, openapi_types.Date{Time: asof})
-	if err != nil {
-		return weeklyActionsOut{}, err
+	if t := sum.Targets; t != nil {
+		out.IntakeKcal, out.ProteinG, out.FatG, out.CarbG = &t.KcalTarget, &t.ProteinG, &t.FatG, &t.CarbG
 	}
-
-	stat := analytics.WeeklyStats(points, asof)
-	out.WeightKg, out.BodyfatPct, out.SlopeKgWeek = stat.WeightKg7dAvg, stat.BodyfatPct7dAvg, stat.WeightSlopeKgWeek
 
 	e1rm, err := worstKeyExerciseSlope(ctx, d, asof)
 	if err != nil {
 		return weeklyActionsOut{}, err
 	}
 
-	stalls := analytics.DetectStalls(analytics.BuildStallInput(points, asof, goal, e1rm))
-	actx := analytics.ActionContext{GoalKgPerWeek: goal}
-
-	// TDEE が出せるときだけ摂取の話をする。**推定できないのに数字を出さない**
-	if stat.MeanKcal21d != nil && stat.WeightSlopeKgWeek != nil && stat.KcalDays21d >= tdeeMinDays {
-		tdee := analytics.EstimateTDEE(*stat.MeanKcal21d, *stat.WeightSlopeKgWeek)
-		out.TDEEKcal = &tdee
-
-		if stat.WeightKg7dAvg != nil {
-			rec := analytics.RecommendedIntake(tdee, goal, *stat.WeightKg7dAvg)
-			mt := analytics.MacroTargets(nutritionConfig(plan.Nutrition), *stat.WeightKg7dAvg,
-				stat.BodyfatPct7dAvg, goal, rec.RecommendedKcal)
-
-			out.IntakeKcal = &rec.RecommendedKcal
-			out.ProteinG, out.FatG, out.CarbG = &mt.ProteinG, &mt.FatG, &mt.CarbG
-			actx.IntakeFloorHit = rec.FloorHit
-			actx.CarbBelowFloor, actx.CarbTargetG = mt.CarbBelowFloor, mt.CarbG
-		}
-	} else if out.Note == "" {
-		out.Note = fmt.Sprintf("TDEE を推定できない（直近%d日で摂取の記録が%d日 / 必要%d日）。"+
-			"摂取量の意思決定にはこれが要る", analytics.TrendWindowDays, stat.KcalDays21d, tdeeMinDays)
-	}
-
-	for _, a := range analytics.WeeklyActions(stalls, actx) {
+	stalls := analytics.DetectStalls(analytics.BuildStallInput(sum.Points, asof, goal, e1rm))
+	for _, a := range analytics.WeeklyActions(stalls, sum.ActionContext()) {
 		out.Actions = append(out.Actions, actionOut{
 			Kind: string(a.Kind), Priority: priorityLabel[a.Priority], Text: a.Text,
 		})
@@ -145,10 +117,6 @@ func weeklyActions(ctx context.Context, d Deps, in weeklyActionsIn) (weeklyActio
 
 	return out, nil
 }
-
-// tdeeMinDays は TDEE を出すのに必要な摂取の記録日数。
-// 足りない状態で出すと、数日の記録漏れがそのまま「代謝が落ちた」に化ける。
-const tdeeMinDays = 10
 
 // worstKeyExerciseSlope は主要種目の中で一番悪い e1RM の傾きを返す。
 //
@@ -198,35 +166,6 @@ func worstKeyExerciseSlope(ctx context.Context, d Deps, asof time.Time) (*float6
 	}
 
 	return worst, nil
-}
-
-func phaseName(p openapi.Plan, asof time.Time) string {
-	day := asof.Format(time.DateOnly)
-	for _, ph := range p.Phases {
-		if ph.StartsOn.Format(time.DateOnly) <= day && day <= ph.EndsOn.Format(time.DateOnly) {
-			return ph.Name
-		}
-	}
-
-	return ""
-}
-
-// nutrition Config は openapi の設定を analytics が受け取る形にする。
-func nutritionConfig(n openapi.NutritionSettings) analytics.NutritionConfig {
-	macros := func(m openapi.MacroRatio) analytics.Macros {
-		return analytics.Macros{
-			ProteinGPerKg: float64(m.ProteinGPerKg),
-			FatGPerKg:     float64(m.FatGPerKg),
-		}
-	}
-
-	return analytics.NutritionConfig{
-		Cut:                macros(n.Cut),
-		DeepCut:            macros(n.DeepCut),
-		Bulk:               macros(n.Bulk),
-		DeepCutBfThreshold: float64(n.DeepCutBfThreshold),
-		CarbMinG:           float64(n.CarbMinG),
-	}
 }
 
 func parseAsOf(s string) (time.Time, error) {

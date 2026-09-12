@@ -702,6 +702,32 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /v1/targets/{date}:
+    parameters:
+      - name: date
+        in: path
+        required: true
+        schema: { type: string, format: date }
+        description: JST の日付（ADR-0013）
+    get:
+      operationId: getDailyTargets
+      tags: [nutrition]
+      summary: その日の摂取目標と残量
+      description: |
+        要件 N-05。推定TDEE と目標ペースから出した摂取目標に、
+        その日の食事記録を突き合わせて残量を返す。
+
+        **TDEE を推定できないときは target を返さない。** 根拠の無い目標は
+        判断を誤らせるので、理由を note に入れる。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DailyTargets" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
   /v1/plan:
     get:
       operationId: getPlan
@@ -1375,6 +1401,42 @@ components:
           type: array
           maxItems: 50
           items: { $ref: "#/components/schemas/VolumeRange" }
+
+    Macros:
+      type: object
+      required: [kcal, proteinG, fatG, carbG]
+      properties:
+        kcal: { type: number }
+        proteinG: { type: number }
+        fatG: { type: number }
+        carbG: { type: number }
+
+    DailyTargets:
+      type: object
+      required: [date, consumed]
+      properties:
+        date: { type: string, format: date }
+        phase: { type: [string, "null"] }
+        goalKgPerWeek: { type: [number, "null"] }
+        tdeeKcal: { type: [number, "null"] }
+        target:
+          description: 摂取目標。TDEE を推定できないときは null
+          oneOf:
+            - $ref: "#/components/schemas/Macros"
+            - type: "null"
+        consumed: { $ref: "#/components/schemas/Macros" }
+        remaining:
+          description: 目標 − 実績。target が無ければ null
+          oneOf:
+            - $ref: "#/components/schemas/Macros"
+            - type: "null"
+        intakeFloorHit:
+          type: boolean
+          description: 摂取が下限（体重×24kcal）に達しているか（要件 A-03）
+        carbBelowFloor:
+          type: boolean
+          description: 炭水化物の目標が下限を割っているか（要件 A-03）
+        note: { type: [string, "null"] }
 
     Problem:
       type: object

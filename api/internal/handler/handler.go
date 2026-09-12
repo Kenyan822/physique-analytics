@@ -12,6 +12,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
+	"github.com/Kenyan822/physique-analytics/api/internal/analytics"
 	"github.com/Kenyan822/physique-analytics/api/internal/csvio"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 )
@@ -96,6 +97,11 @@ type PlanRepository interface {
 	Put(ctx context.Context, in openapi.PlanInput) (openapi.Plan, error)
 }
 
+// SeriesRepository は日次記録の系列（要件 N-05 の目標計算に使う）。
+type SeriesRepository interface {
+	DailySeries(ctx context.Context, from, to openapi_types.Date) ([]analytics.DailyPoint, error)
+}
+
 // Server は openapi.StrictServerInterface の実装。
 //
 // **openapi.yaml の全操作を実装している。** 仕様に操作を足すと
@@ -112,6 +118,7 @@ type Server struct {
 	body      BodyRepository
 	meals     MealRepository
 	plan      PlanRepository
+	series    SeriesRepository
 }
 
 // New は Server を作る。
@@ -125,11 +132,12 @@ func New(
 	body BodyRepository,
 	meals MealRepository,
 	plan PlanRepository,
+	series SeriesRepository,
 ) *Server {
 	return &Server{
 		db: db, exercises: exercises, workouts: workouts,
 		templates: templates, sync: sync, transfer: transfer,
-		body: body, meals: meals, plan: plan,
+		body: body, meals: meals, plan: plan, series: series,
 	}
 }
 

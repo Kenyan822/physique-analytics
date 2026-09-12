@@ -391,6 +391,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/targets/{date}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description JST の日付（ADR-0013） */
+                date: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * その日の摂取目標と残量
+         * @description 要件 N-05。推定TDEE と目標ペースから出した摂取目標に、
+         *     その日の食事記録を突き合わせて残量を返す。
+         *
+         *     **TDEE を推定できないときは target を返さない。** 根拠の無い目標は
+         *     判断を誤らせるので、理由を note に入れる。
+         */
+        get: operations["getDailyTargets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 計画の設定を取得
+         * @description 要件 P-01 / P-05。身長・フェーズ・栄養パラメータ・部位別 MEV/MRV。
+         *     分析（推奨摂取・ボリューム判定）の入力になる。
+         */
+        get: operations["getPlan"];
+        /**
+         * 計画の設定を保存
+         * @description **まるごと置き換える。** フェーズや MEV/MRV を部分更新にすると、
+         *     「消したつもりが残っている」が起きる。設定は頻繁には変えない。
+         */
+        put: operations["putPlan"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sync": {
         parameters: {
             query?: never;
@@ -742,6 +795,75 @@ export interface components {
             proteinG?: number | null;
             fatG?: number | null;
             carbG?: number | null;
+        };
+        PlanPhase: {
+            /** Format: uuid */
+            id?: string;
+            /** @example P1-A カット1.0% */
+            name: string;
+            /** Format: date */
+            startsOn: string;
+            /** Format: date */
+            endsOn: string;
+            /** @description 週あたりの体重変化の目標。負なら減量 */
+            goalKgPerWeek: number;
+        };
+        MacroRatio: {
+            proteinGPerKg: number;
+            fatGPerKg: number;
+        };
+        NutritionSettings: {
+            cut: components["schemas"]["MacroRatio"];
+            deepCut: components["schemas"]["MacroRatio"];
+            bulk: components["schemas"]["MacroRatio"];
+            /** @description この体脂肪率を下回ったらタンパク質を上げる（LBM 保護） */
+            deepCutBfThreshold: number;
+            /** @description 炭水化物の下限。割ったらトレーニングの質が落ちる */
+            carbMinG: number;
+        };
+        VolumeRange: {
+            muscleGroup: components["schemas"]["MuscleGroup"];
+            mev: number;
+            mrv: number;
+        };
+        Plan: {
+            heightCm?: number | null;
+            /** Format: date */
+            startDate?: string | null;
+            phases: components["schemas"]["PlanPhase"][];
+            nutrition: components["schemas"]["NutritionSettings"];
+            volumeRanges: components["schemas"]["VolumeRange"][];
+        };
+        PlanInput: {
+            heightCm?: number | null;
+            /** Format: date */
+            startDate?: string | null;
+            phases: components["schemas"]["PlanPhase"][];
+            nutrition: components["schemas"]["NutritionSettings"];
+            volumeRanges: components["schemas"]["VolumeRange"][];
+        };
+        Macros: {
+            kcal: number;
+            proteinG: number;
+            fatG: number;
+            carbG: number;
+        };
+        DailyTargets: {
+            /** Format: date */
+            date: string;
+            phase?: string | null;
+            goalKgPerWeek?: number | null;
+            tdeeKcal?: number | null;
+            /** @description 摂取目標。TDEE を推定できないときは null */
+            target?: components["schemas"]["Macros"] | null;
+            consumed: components["schemas"]["Macros"];
+            /** @description 目標 − 実績。target が無ければ null */
+            remaining?: components["schemas"]["Macros"] | null;
+            /** @description 摂取が下限（体重×24kcal）に達しているか（要件 A-03） */
+            intakeFloorHit?: boolean;
+            /** @description 炭水化物の目標が下限を割っているか（要件 A-03） */
+            carbBelowFloor?: boolean;
+            note?: string | null;
         };
         /** @description RFC 7807 Problem Details */
         Problem: {
@@ -1719,6 +1841,79 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    getDailyTargets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description JST の日付（ADR-0013） */
+                date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyTargets"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plan"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    putPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plan"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
         };
     };
     pullSync: {
