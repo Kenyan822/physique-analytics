@@ -71,7 +71,7 @@ func (s *stubBody) LatestMeasurement(context.Context) (openapi.BodyMeasurement, 
 
 func bodyServer(b *stubBody) http.Handler {
 	return handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{},
-		&stubTemplates{}, &stubSync{}, &stubTransfer{}, b, &stubMeals{}))
+		&stubTemplates{}, &stubSync{}, &stubTransfer{}, b, &stubMeals{}, &stubPlan{}))
 }
 
 func TestListDailyMetrics_期間を渡す(t *testing.T) {

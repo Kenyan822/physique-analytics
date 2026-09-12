@@ -90,6 +90,12 @@ type MealRepository interface {
 	Copy(ctx context.Context, from, to openapi_types.Date, slot *openapi.MealSlot) ([]openapi.Meal, error)
 }
 
+// PlanRepository は計画の設定へのアクセス（要件 P-01 / P-05）。
+type PlanRepository interface {
+	Get(ctx context.Context) (openapi.Plan, error)
+	Put(ctx context.Context, in openapi.PlanInput) (openapi.Plan, error)
+}
+
 // Server は openapi.StrictServerInterface の実装。
 //
 // **openapi.yaml の全操作を実装している。** 仕様に操作を足すと
@@ -105,6 +111,7 @@ type Server struct {
 	transfer  TransferRepository
 	body      BodyRepository
 	meals     MealRepository
+	plan      PlanRepository
 }
 
 // New は Server を作る。
@@ -117,10 +124,12 @@ func New(
 	transfer TransferRepository,
 	body BodyRepository,
 	meals MealRepository,
+	plan PlanRepository,
 ) *Server {
 	return &Server{
 		db: db, exercises: exercises, workouts: workouts,
-		templates: templates, sync: sync, transfer: transfer, body: body, meals: meals,
+		templates: templates, sync: sync, transfer: transfer,
+		body: body, meals: meals, plan: plan,
 	}
 }
 

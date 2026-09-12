@@ -43,6 +43,8 @@ tags:
     description: 体組成・周囲長
   - name: nutrition
     description: 食事記録
+  - name: plan
+    description: 計画の設定
   - name: sync
     description: オフライン同期
   - name: transfer
@@ -700,6 +702,43 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /v1/plan:
+    get:
+      operationId: getPlan
+      tags: [plan]
+      summary: 計画の設定を取得
+      description: |
+        要件 P-01 / P-05。身長・フェーズ・栄養パラメータ・部位別 MEV/MRV。
+        分析（推奨摂取・ボリューム判定）の入力になる。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      operationId: putPlan
+      tags: [plan]
+      summary: 計画の設定を保存
+      description: |
+        **まるごと置き換える。** フェーズや MEV/MRV を部分更新にすると、
+        「消したつもりが残っている」が起きる。設定は頻繁には変えない。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
   /v1/sync:
     get:
       operationId: pullSync
@@ -1259,6 +1298,83 @@ components:
         proteinG: { type: [number, "null"] }
         fatG: { type: [number, "null"] }
         carbG: { type: [number, "null"] }
+
+    PlanPhase:
+      type: object
+      required: [name, startsOn, endsOn, goalKgPerWeek]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 100, examples: [P1-A カット1.0%] }
+        startsOn: { type: string, format: date }
+        endsOn: { type: string, format: date }
+        goalKgPerWeek:
+          type: number
+          minimum: -2
+          maximum: 2
+          description: 週あたりの体重変化の目標。負なら減量
+
+    MacroRatio:
+      type: object
+      required: [proteinGPerKg, fatGPerKg]
+      properties:
+        proteinGPerKg: { type: number, exclusiveMinimum: 0, maximum: 5 }
+        fatGPerKg: { type: number, exclusiveMinimum: 0, maximum: 5 }
+
+    NutritionSettings:
+      type: object
+      required: [cut, deepCut, bulk, deepCutBfThreshold, carbMinG]
+      properties:
+        cut: { $ref: "#/components/schemas/MacroRatio" }
+        deepCut: { $ref: "#/components/schemas/MacroRatio" }
+        bulk: { $ref: "#/components/schemas/MacroRatio" }
+        deepCutBfThreshold:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 50
+          description: この体脂肪率を下回ったらタンパク質を上げる（LBM 保護）
+        carbMinG:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          description: 炭水化物の下限。割ったらトレーニングの質が落ちる
+
+    VolumeRange:
+      type: object
+      required: [muscleGroup, mev, mrv]
+      properties:
+        muscleGroup: { $ref: "#/components/schemas/MuscleGroup" }
+        mev: { type: integer, minimum: 0, maximum: 50 }
+        mrv: { type: integer, minimum: 0, maximum: 50 }
+
+    Plan:
+      type: object
+      required: [phases, nutrition, volumeRanges]
+      properties:
+        heightCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
+        startDate: { type: [string, "null"], format: date }
+        phases:
+          type: array
+          items: { $ref: "#/components/schemas/PlanPhase" }
+        nutrition: { $ref: "#/components/schemas/NutritionSettings" }
+        volumeRanges:
+          type: array
+          items: { $ref: "#/components/schemas/VolumeRange" }
+
+    PlanInput:
+      type: object
+      required: [phases, nutrition, volumeRanges]
+      properties:
+        heightCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
+        startDate: { type: [string, "null"], format: date }
+        phases:
+          type: array
+          maxItems: 100
+          items: { $ref: "#/components/schemas/PlanPhase" }
+        nutrition: { $ref: "#/components/schemas/NutritionSettings" }
+        volumeRanges:
+          type: array
+          maxItems: 50
+          items: { $ref: "#/components/schemas/VolumeRange" }
 
     Problem:
       type: object

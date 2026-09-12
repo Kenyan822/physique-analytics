@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,8 +11,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
 	"github.com/Kenyan822/physique-analytics/api/internal/analytics"
-	"github.com/Kenyan822/physique-analytics/api/internal/plan"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 	"github.com/Kenyan822/physique-analytics/api/internal/timeutil"
 )
@@ -77,18 +78,26 @@ func weeklyActions(ctx context.Context, d Deps, in weeklyActionsIn) (weeklyActio
 		return weeklyActionsOut{}, err
 	}
 	if d.Plan == nil {
-		return weeklyActionsOut{}, fmt.Errorf(
-			"計画の設定が読めていない。PHYSIQUE_CONFIG に config.json のパスを設定する")
+		return weeklyActionsOut{}, errors.New("計画の設定を読む口が無い（MCP の組み立てを確認する）")
+	}
+
+	plan, err := d.Plan.Get(ctx)
+	if err != nil {
+		return weeklyActionsOut{}, err
+	}
+	if len(plan.Phases) == 0 {
+		return weeklyActionsOut{}, errors.New(
+			"フェーズが1つも登録されていない。Web の設定画面（/settings）か PUT /v1/plan で登録する")
 	}
 
 	out := weeklyActionsOut{AsOf: asof.Format(time.DateOnly)}
 
-	goal, ok := d.Plan.GoalAt(asof)
+	goal, ok := repository.GoalAt(plan.Phases, asof)
 	if !ok {
 		out.Note = "計画の期間外。目標ペースが決まらないので、停滞判定は維持期として扱う"
 	}
 	out.GoalKgPerWeek = &goal
-	out.Phase = phaseName(*d.Plan, asof)
+	out.Phase = phaseName(plan, asof)
 
 	// 30日分あれば HRV の基準まで取れる。前週の歩数のためにもう1週さかのぼる
 	from := openapi_types.Date{Time: asof.AddDate(0, 0, -(analytics.BaselineWindowDays + analytics.RecentWindowDays))}
@@ -115,7 +124,7 @@ func weeklyActions(ctx context.Context, d Deps, in weeklyActionsIn) (weeklyActio
 
 		if stat.WeightKg7dAvg != nil {
 			rec := analytics.RecommendedIntake(tdee, goal, *stat.WeightKg7dAvg)
-			mt := analytics.MacroTargets(d.Plan.NutritionConfig(), *stat.WeightKg7dAvg,
+			mt := analytics.MacroTargets(nutritionConfig(plan.Nutrition), *stat.WeightKg7dAvg,
 				stat.BodyfatPct7dAvg, goal, rec.RecommendedKcal)
 
 			out.IntakeKcal = &rec.RecommendedKcal
@@ -191,15 +200,33 @@ func worstKeyExerciseSlope(ctx context.Context, d Deps, asof time.Time) (*float6
 	return worst, nil
 }
 
-func phaseName(p plan.Plan, asof time.Time) string {
+func phaseName(p openapi.Plan, asof time.Time) string {
 	day := asof.Format(time.DateOnly)
 	for _, ph := range p.Phases {
-		if ph.From <= day && day <= ph.To {
+		if ph.StartsOn.Format(time.DateOnly) <= day && day <= ph.EndsOn.Format(time.DateOnly) {
 			return ph.Name
 		}
 	}
 
 	return ""
+}
+
+// nutrition Config は openapi の設定を analytics が受け取る形にする。
+func nutritionConfig(n openapi.NutritionSettings) analytics.NutritionConfig {
+	macros := func(m openapi.MacroRatio) analytics.Macros {
+		return analytics.Macros{
+			ProteinGPerKg: float64(m.ProteinGPerKg),
+			FatGPerKg:     float64(m.FatGPerKg),
+		}
+	}
+
+	return analytics.NutritionConfig{
+		Cut:                macros(n.Cut),
+		DeepCut:            macros(n.DeepCut),
+		Bulk:               macros(n.Bulk),
+		DeepCutBfThreshold: float64(n.DeepCutBfThreshold),
+		CarbMinG:           float64(n.CarbMinG),
+	}
 }
 
 func parseAsOf(s string) (time.Time, error) {

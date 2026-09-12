@@ -17,7 +17,6 @@ import (
 	"github.com/Kenyan822/physique-analytics/api/internal/config"
 	"github.com/Kenyan822/physique-analytics/api/internal/database"
 	"github.com/Kenyan822/physique-analytics/api/internal/mcpserver"
-	"github.com/Kenyan822/physique-analytics/api/internal/plan"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 )
 
@@ -47,25 +46,14 @@ func run() error {
 	}
 	defer pool.Close()
 
-	deps := mcpserver.Deps{
+	srv := mcpserver.New(mcpserver.Deps{
 		Exercises: repository.NewExercise(pool.DB()),
 		Workouts:  repository.NewWorkout(pool.DB()),
 		Analysis:  repository.NewAnalysis(pool.DB()),
-	}
-
-	// 計画の設定（目標ペース・PFC 係数）。個人データなので任意にしてある。
-	// 無くても他のツールは動き、weekly_actions だけが使えない
-	if path, ok := os.LookupEnv("PHYSIQUE_CONFIG"); ok && path != "" {
-		p, err := plan.Load(path)
-		if err != nil {
-			return err
-		}
-		deps.Plan = &p
-	} else {
-		slog.Warn("PHYSIQUE_CONFIG が未設定。weekly_actions は使えない")
-	}
-
-	srv := mcpserver.New(deps)
+		// 計画の設定は DB を正とする（要件 P-05）。
+		// config.json から移すには `go run ./cmd/planimport` を使う
+		Plan: repository.NewPlan(pool.DB()),
+	})
 
 	slog.Info("MCP サーバを開始")
 

@@ -333,6 +333,12 @@ type ImportError struct {
 	Message string `json:"message"`
 }
 
+// MacroRatio defines model for MacroRatio.
+type MacroRatio struct {
+	FatGPerKg     float32 `json:"fatGPerKg"`
+	ProteinGPerKg float32 `json:"proteinGPerKg"`
+}
+
 // Meal defines model for Meal.
 type Meal struct {
 	CarbG     *float32  `json:"carbG,omitempty"`
@@ -410,6 +416,50 @@ type MealSuggestion struct {
 // MuscleGroup 部位。肩は前部/中部/後部、背中は広背筋/僧帽筋に分ける
 type MuscleGroup string
 
+// NutritionSettings defines model for NutritionSettings.
+type NutritionSettings struct {
+	Bulk MacroRatio `json:"bulk"`
+
+	// CarbMinG 炭水化物の下限。割ったらトレーニングの質が落ちる
+	CarbMinG int        `json:"carbMinG"`
+	Cut      MacroRatio `json:"cut"`
+	DeepCut  MacroRatio `json:"deepCut"`
+
+	// DeepCutBfThreshold この体脂肪率を下回ったらタンパク質を上げる（LBM 保護）
+	DeepCutBfThreshold float32 `json:"deepCutBfThreshold"`
+}
+
+// Plan defines model for Plan.
+type Plan struct {
+	HeightCm     *float32            `json:"heightCm,omitempty"`
+	Nutrition    NutritionSettings   `json:"nutrition"`
+	Phases       []PlanPhase         `json:"phases"`
+	StartDate    *openapi_types.Date `json:"startDate,omitempty"`
+	VolumeRanges []VolumeRange       `json:"volumeRanges"`
+}
+
+// PlanInput defines model for PlanInput.
+type PlanInput struct {
+	HeightCm     *float32            `json:"heightCm,omitempty"`
+	Nutrition    NutritionSettings   `json:"nutrition"`
+	Phases       []PlanPhase         `json:"phases"`
+	StartDate    *openapi_types.Date `json:"startDate,omitempty"`
+	VolumeRanges []VolumeRange       `json:"volumeRanges"`
+}
+
+// PlanPhase defines model for PlanPhase.
+type PlanPhase struct {
+	EndsOn openapi_types.Date `json:"endsOn"`
+
+	// GoalKgPerWeek 週あたりの体重変化の目標。負なら減量
+	GoalKgPerWeek float32             `json:"goalKgPerWeek"`
+	Id            *openapi_types.UUID `json:"id,omitempty"`
+
+	// Name Examples: P1-A カット1.0%
+	Name     string             `json:"name"`
+	StartsOn openapi_types.Date `json:"startsOn"`
+}
+
 // Problem RFC 7807 Problem Details
 type Problem struct {
 	Detail *string `json:"detail,omitempty"`
@@ -479,6 +529,15 @@ type Timestamps struct {
 
 	// UpdatedAt 競合解決に使う（ADR-0014）
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// VolumeRange defines model for VolumeRange.
+type VolumeRange struct {
+	Mev int `json:"mev"`
+	Mrv int `json:"mrv"`
+
+	// MuscleGroup 部位。肩は前部/中部/後部、背中は広背筋/僧帽筋に分ける
+	MuscleGroup MuscleGroup `json:"muscleGroup"`
 }
 
 // WorkoutSession defines model for WorkoutSession.
@@ -720,6 +779,9 @@ type UpdateMealJSONRequestBody = MealInput
 // PutMeasurementJSONRequestBody defines body for PutMeasurement for application/json ContentType.
 type PutMeasurementJSONRequestBody = BodyMeasurementInput
 
+// PutPlanJSONRequestBody defines body for PutPlan for application/json ContentType.
+type PutPlanJSONRequestBody = PlanInput
+
 // PushSyncJSONRequestBody defines body for PushSync for application/json ContentType.
 type PushSyncJSONRequestBody PushSyncJSONBody
 
@@ -809,6 +871,12 @@ type ServerInterface interface {
 	// GetLatestMeasurement 直近の周囲長
 	// (GET /v1/measurements/latest)
 	GetLatestMeasurement(w http.ResponseWriter, r *http.Request)
+	// GetPlan 計画の設定を取得
+	// (GET /v1/plan)
+	GetPlan(w http.ResponseWriter, r *http.Request)
+	// PutPlan 計画の設定を保存
+	// (PUT /v1/plan)
+	PutPlan(w http.ResponseWriter, r *http.Request)
 	// PullSync 差分の取得
 	// (GET /v1/sync)
 	PullSync(w http.ResponseWriter, r *http.Request, params PullSyncParams)
@@ -1474,6 +1542,34 @@ func (siw *ServerInterfaceWrapper) GetLatestMeasurement(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// GetPlan operation middleware
+func (siw *ServerInterfaceWrapper) GetPlan(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPlan(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutPlan operation middleware
+func (siw *ServerInterfaceWrapper) PutPlan(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutPlan(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PullSync operation middleware
 func (siw *ServerInterfaceWrapper) PullSync(w http.ResponseWriter, r *http.Request) {
 
@@ -2022,6 +2118,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/meals/{mealId}", wrapper.UpdateMeal)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/meals/suggestions", wrapper.ListMealSuggestions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/meals/copy", wrapper.CopyMeals)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/plan", wrapper.GetPlan)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/plan", wrapper.PutPlan)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/sync", wrapper.PullSync)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/sync", wrapper.PushSync)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/export/csv", wrapper.ExportCsv)
@@ -3151,6 +3249,113 @@ func (response GetLatestMeasurement401ApplicationProblemPlusJSONResponse) VisitG
 	return err
 }
 
+type GetPlanRequestObject struct {
+}
+
+type GetPlanResponseObject interface {
+	VisitGetPlanResponse(w http.ResponseWriter) error
+}
+
+type GetPlan200JSONResponse Plan
+
+func (response GetPlan200JSONResponse) VisitGetPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPlan401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetPlan401ApplicationProblemPlusJSONResponse) VisitGetPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutPlanRequestObject struct {
+	Body *PutPlanJSONRequestBody
+}
+
+type PutPlanResponseObject interface {
+	VisitPutPlanResponse(w http.ResponseWriter) error
+}
+
+type PutPlan200JSONResponse Plan
+
+func (response PutPlan200JSONResponse) VisitPutPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutPlan400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response PutPlan400ApplicationProblemPlusJSONResponse) VisitPutPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutPlan401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response PutPlan401ApplicationProblemPlusJSONResponse) VisitPutPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutPlan422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response PutPlan422ApplicationProblemPlusJSONResponse) VisitPutPlanResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PullSyncRequestObject struct {
 	Params PullSyncParams
 }
@@ -3922,6 +4127,12 @@ type StrictServerInterface interface {
 	// GetLatestMeasurement 直近の周囲長
 	// (GET /v1/measurements/latest)
 	GetLatestMeasurement(ctx context.Context, request GetLatestMeasurementRequestObject) (GetLatestMeasurementResponseObject, error)
+	// GetPlan 計画の設定を取得
+	// (GET /v1/plan)
+	GetPlan(ctx context.Context, request GetPlanRequestObject) (GetPlanResponseObject, error)
+	// PutPlan 計画の設定を保存
+	// (PUT /v1/plan)
+	PutPlan(ctx context.Context, request PutPlanRequestObject) (PutPlanResponseObject, error)
 	// PullSync 差分の取得
 	// (GET /v1/sync)
 	PullSync(ctx context.Context, request PullSyncRequestObject) (PullSyncResponseObject, error)
@@ -4613,6 +4824,61 @@ func (sh *strictHandler) GetLatestMeasurement(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetLatestMeasurementResponseObject); ok {
 		if err := validResponse.VisitGetLatestMeasurementResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPlan operation middleware
+func (sh *strictHandler) GetPlan(w http.ResponseWriter, r *http.Request) {
+	var request GetPlanRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPlan(ctx, request.(GetPlanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPlan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPlanResponseObject); ok {
+		if err := validResponse.VisitGetPlanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutPlan operation middleware
+func (sh *strictHandler) PutPlan(w http.ResponseWriter, r *http.Request) {
+	var request PutPlanRequestObject
+
+	var body PutPlanJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutPlan(ctx, request.(PutPlanRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutPlan")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutPlanResponseObject); ok {
+		if err := validResponse.VisitPutPlanResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

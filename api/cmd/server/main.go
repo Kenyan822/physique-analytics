@@ -59,6 +59,7 @@ func run() error {
 		repository.NewTransfer(pool.DB()),
 		repository.NewBody(pool.DB()),
 		repository.NewMeal(pool.DB()),
+		repository.NewPlan(pool.DB()),
 	))
 
 	if cfg.AuthDisabled {

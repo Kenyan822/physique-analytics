@@ -4,7 +4,8 @@
 // パスを受け取って読むだけで、値をコードに持たない。公開できる例は
 // リポジトリ直下の config.example.json。
 //
-// API サーバは使わない。手元で動かす MCP（ADR-0010）からだけ読む。
+// **設定の正は DB に移した**（要件 P-05）。このパッケージは
+// cmd/planimport が config.json を DB へ取り込むときだけ使う。
 package plan
 
 import (

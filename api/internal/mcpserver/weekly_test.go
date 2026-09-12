@@ -9,12 +9,16 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	"github.com/Kenyan822/physique-analytics/api/internal/plan"
+	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
+
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 	"github.com/Kenyan822/physique-analytics/api/internal/testdb"
 )
 
 // fixture はトランザクション内で動く Deps と、記録を入れるための Body を返す。
+//
+// withPlan のときはフェーズを1つ入れる。**公開用の設定例と同じ値**を使い、
+// private/config.json はテストから参照しない（ADR-0002）。
 func fixture(t *testing.T, withPlan bool) (Deps, *repository.Body) {
 	t.Helper()
 
@@ -23,20 +27,35 @@ func fixture(t *testing.T, withPlan bool) (Deps, *repository.Body) {
 		Exercises: repository.NewExercise(tx),
 		Workouts:  repository.NewWorkout(tx),
 		Analysis:  repository.NewAnalysis(tx),
+		Plan:      repository.NewPlan(tx),
 	}
 	if withPlan {
-		// **公開用の設定例を使う。** private/config.json はテストから参照しない（ADR-0002）
-		p, err := plan.Load("../../../config.example.json")
-		if err != nil {
-			t.Fatalf("plan.Load: %v", err)
+		in := openapi.PlanInput{
+			HeightCm: f32(175),
+			Phases: []openapi.PlanPhase{{
+				Name:          "P1-A カット1.0%",
+				StartsOn:      openapi_types.Date{Time: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)},
+				EndsOn:        openapi_types.Date{Time: time.Date(2029, 9, 6, 0, 0, 0, 0, time.UTC)},
+				GoalKgPerWeek: -0.76,
+			}},
+			Nutrition: openapi.NutritionSettings{
+				Cut:                openapi.MacroRatio{ProteinGPerKg: 2.4, FatGPerKg: 0.85},
+				DeepCut:            openapi.MacroRatio{ProteinGPerKg: 2.6, FatGPerKg: 0.85},
+				Bulk:               openapi.MacroRatio{ProteinGPerKg: 2.2, FatGPerKg: 1.0},
+				DeepCutBfThreshold: 13.0,
+				CarbMinG:           200,
+			},
+			VolumeRanges: []openapi.VolumeRange{},
 		}
-		d.Plan = &p
+		if _, err := d.Plan.Put(t.Context(), in); err != nil {
+			t.Fatalf("計画の設定を入れられない: %v", err)
+		}
 	}
 
 	return d, repository.NewBody(tx)
 }
 
-func TestWeeklyActions_設定が無ければエラー(t *testing.T) {
+func TestWeeklyActions_フェーズが無ければエラー(t *testing.T) {
 	t.Parallel()
 	d, _ := fixture(t, false)
 
@@ -44,8 +63,9 @@ func TestWeeklyActions_設定が無ければエラー(t *testing.T) {
 	if err == nil {
 		t.Fatal("エラーにならない")
 	}
-	if !strings.Contains(err.Error(), "PHYSIQUE_CONFIG") {
-		t.Errorf("err = %v, want 設定の指定方法を含む", err)
+	// エラーには直し方を書く。MCP のエラーは Claude が読んで利用者に伝える
+	if !strings.Contains(err.Error(), "設定画面") {
+		t.Errorf("err = %v, want 直し方を含む", err)
 	}
 }
 

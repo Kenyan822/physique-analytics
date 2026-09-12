@@ -19,7 +19,6 @@ import (
 
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
 	"github.com/Kenyan822/physique-analytics/api/internal/analytics"
-	"github.com/Kenyan822/physique-analytics/api/internal/plan"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 	"github.com/Kenyan822/physique-analytics/api/internal/timeutil"
 )
@@ -34,9 +33,9 @@ type Deps struct {
 	Workouts  *repository.Workout
 	Analysis  *repository.Analysis
 
-	// Plan は3年計画の設定（private/config.json）。
+	// Plan は3年計画の設定。**DB を正とする**（要件 P-05）。
 	// nil でも他のツールは動く。weekly_actions だけが要求する
-	Plan *plan.Plan
+	Plan *repository.Plan
 }
 
 // New は MCP サーバを組み立てる。
