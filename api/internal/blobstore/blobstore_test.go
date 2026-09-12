@@ -150,3 +150,17 @@ func signature(raw string) string {
 
 	return u.Query().Get("X-Amz-Signature")
 }
+
+func TestEnabled_Endpoint指定ならAccountIDは不要(t *testing.T) {
+	t.Parallel()
+
+	// S3 互換の実装に向けるとき、AccountID は宛先に使われない
+	s := blobstore.NewR2(blobstore.Config{
+		Bucket: "b", AccessKeyID: "k", SecretAccessKey: "s",
+		Endpoint: "127.0.0.1:9000",
+	})
+
+	if !s.Enabled() {
+		t.Error("Endpoint があるのに無効")
+	}
+}

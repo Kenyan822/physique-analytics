@@ -62,8 +62,13 @@ func NewR2(cfg Config) *R2 {
 }
 
 // Enabled は写真の機能が使える状態かを返す。
+//
+// AccountID が要るのは宛先を組み立てるためなので、Endpoint を
+// 指定しているときは不要（S3 互換の実装に向けるときに使う）。
 func (r *R2) Enabled() bool {
-	return r.cfg.AccountID != "" && r.cfg.Bucket != "" &&
+	hasHost := r.cfg.AccountID != "" || r.cfg.Endpoint != ""
+
+	return hasHost && r.cfg.Bucket != "" &&
 		r.cfg.AccessKeyID != "" && r.cfg.SecretAccessKey != ""
 }
 
