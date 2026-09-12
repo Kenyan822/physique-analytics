@@ -6,8 +6,10 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -264,4 +266,87 @@ func okHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+}
+
+// --- 許可リスト（#142） ---
+//
+// JWT の検証は「Supabase が発行したか」しか見ない。サインアップが開いていれば
+// 他人も有効なトークンを持てるので、**誰の sub かまで見る**。
+
+const otherSub = "22222222-2222-2222-2222-222222222222"
+
+func newVerifierAllowing(t *testing.T, allowed ...string) (*auth.Verifier, *ecdsa.PrivateKey) {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("鍵を作れない: %v", err)
+	}
+	srv := jwksServer(t, &key.PublicKey)
+
+	return auth.NewVerifier(srv.URL, allowed...), key
+}
+
+func TestVerify_許可リストにあるsubは通る(t *testing.T) {
+	t.Parallel()
+
+	v, key := newVerifierAllowing(t, "11111111-1111-1111-1111-111111111111")
+	if _, err := v.Verify(t.Context(), signToken(t, key, validClaims())); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+}
+
+func TestVerify_許可リストに無いsubは弾く(t *testing.T) {
+	t.Parallel()
+
+	// 署名も期限も正しいが、別人のトークン
+	v, key := newVerifierAllowing(t, otherSub)
+	_, err := v.Verify(t.Context(), signToken(t, key, validClaims()))
+
+	if !errors.Is(err, auth.ErrUnauthorized) {
+		t.Fatalf("err = %v, want ErrUnauthorized", err)
+	}
+}
+
+func TestVerify_許可リストが空なら全員通る(t *testing.T) {
+	t.Parallel()
+
+	// 今までどおりの挙動。設定を足すまで壊さない
+	v, key := newVerifierAllowing(t)
+	if _, err := v.Verify(t.Context(), signToken(t, key, validClaims())); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+}
+
+func TestVerify_許可リストの空白と空要素は無視する(t *testing.T) {
+	t.Parallel()
+
+	// 環境変数に "a, b," と書かれても意図どおりに動くこと。
+	// 空要素をそのまま入れると sub が空のトークンを通しうる
+	v, key := newVerifierAllowing(t, "  11111111-1111-1111-1111-111111111111  ", "", "   ")
+	if _, err := v.Verify(t.Context(), signToken(t, key, validClaims())); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+}
+
+func TestMiddleware_許可リストに無いsubは401(t *testing.T) {
+	t.Parallel()
+
+	v, key := newVerifierAllowing(t, otherSub)
+	h := auth.Middleware(v, "/health")(okHandler())
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/exercises", nil)
+	req.Header.Set("Authorization", "Bearer "+signToken(t, key, validClaims()))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	// **理由を細かく返さない。** 「その sub は許可されていない」と返すと、
+	// 誰が許可されているかを総当たりで探れる
+	if strings.Contains(rec.Body.String(), otherSub) {
+		t.Errorf("body に sub が漏れている: %s", rec.Body.String())
+	}
 }

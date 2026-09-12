@@ -141,3 +141,45 @@ func TestLoad_推定は任意(t *testing.T) {
 		t.Error("VisionModel が空。既定を持たせる")
 	}
 }
+
+func TestLoad_ALLOWED_USER_IDSを分ける(t *testing.T) {
+	env := map[string]string{
+		"DATABASE_URL":      "postgres://localhost:5432/physique",
+		"SUPABASE_JWKS_URL": "https://example.supabase.co/auth/v1/.well-known/jwks.json",
+		// 手で書くので、余分な空白と末尾のカンマは想定内
+		"ALLOWED_USER_IDS": " 11111111-1111-1111-1111-111111111111 ,22222222-2222-2222-2222-222222222222, ",
+	}
+	cfg, err := config.Load(lookup(env))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	want := []string{
+		"11111111-1111-1111-1111-111111111111",
+		"22222222-2222-2222-2222-222222222222",
+	}
+	if len(cfg.AllowedUserIDs) != len(want) {
+		t.Fatalf("AllowedUserIDs = %v, want %v", cfg.AllowedUserIDs, want)
+	}
+	for i, w := range want {
+		if cfg.AllowedUserIDs[i] != w {
+			t.Errorf("AllowedUserIDs[%d] = %q, want %q", i, cfg.AllowedUserIDs[i], w)
+		}
+	}
+}
+
+func TestLoad_ALLOWED_USER_IDSが未設定なら空(t *testing.T) {
+	env := map[string]string{
+		"DATABASE_URL":      "postgres://localhost:5432/physique",
+		"SUPABASE_JWKS_URL": "https://example.supabase.co/auth/v1/.well-known/jwks.json",
+	}
+	cfg, err := config.Load(lookup(env))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// 未設定は「全員通す」。設定を足すまで挙動を変えない
+	if len(cfg.AllowedUserIDs) != 0 {
+		t.Errorf("AllowedUserIDs = %v, want 空", cfg.AllowedUserIDs)
+	}
+}

@@ -39,19 +39,41 @@ type Verifier struct {
 	jwksURL string
 	client  *http.Client
 
+	// allowed は通す sub の集合。空なら誰でも通す
+	allowed map[string]bool
+
 	mu        sync.RWMutex
 	keys      map[string]*ecdsa.PublicKey
 	fetchedAt time.Time
 }
 
 // NewVerifier は Verifier を作る。
-func NewVerifier(jwksURL string) *Verifier {
+//
+// allowedUserIDs を渡すと、**その sub のトークンしか通さない**。
+// 署名の検証は「Supabase が発行したか」しか見ないので、サインアップが
+// 開いていれば他人も有効なトークンを持てる（#51 / #142）。
+// 空なら誰でも通す（設定を足すまで挙動を変えない）。
+func NewVerifier(jwksURL string, allowedUserIDs ...string) *Verifier {
+	allowed := make(map[string]bool, len(allowedUserIDs))
+	for _, id := range allowedUserIDs {
+		// 環境変数に "a, b," と書かれても意図どおりに動かす。
+		// 空要素を入れると sub が空のトークンを通しうる
+		if t := strings.TrimSpace(id); t != "" {
+			allowed[t] = true
+		}
+	}
+
 	return &Verifier{
 		jwksURL: jwksURL,
 		client:  &http.Client{Timeout: fetchTimeout},
+		allowed: allowed,
 		keys:    map[string]*ecdsa.PublicKey{},
 	}
 }
+
+// Allowlisted は許可リストが設定されているかを返す。
+// 起動時の警告に使う（未設定だと、サインアップした人は誰でも読める）。
+func (v *Verifier) Allowlisted() bool { return len(v.allowed) > 0 }
 
 // ErrUnauthorized はトークンが受け入れられないことを表す。
 //
@@ -64,6 +86,10 @@ func (v *Verifier) Verify(ctx context.Context, token string) (Claims, error) {
 	claims, err := v.parse(ctx, token)
 	if err != nil {
 		return Claims{}, fmt.Errorf("%w: %w", ErrUnauthorized, err)
+	}
+	if len(v.allowed) > 0 && !v.allowed[claims.UserID] {
+		// **sub を返さない。** 誰が許可されているかを総当たりで探れてしまう
+		return Claims{}, fmt.Errorf("%w: 許可されていない利用者", ErrUnauthorized)
 	}
 
 	return claims, nil

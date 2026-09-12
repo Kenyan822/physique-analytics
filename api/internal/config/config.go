@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // Config は API サーバの起動設定。
@@ -23,6 +24,13 @@ type Config struct {
 	// https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
 	// シークレットではない（公開鍵なので）。
 	SupabaseJWKSURL string
+
+	// AllowedUserIDs は通す Supabase の sub（auth.users.id）。
+	//
+	// **空だと、サインアップした人は誰でも全データを読める**（#51 / #142）。
+	// JWT の検証は「Supabase が発行したか」しか見ないため。
+	// シークレットではない（UUID であって鍵ではない）。
+	AllowedUserIDs []string
 
 	// VisionAPIKey は写真からの PFC 推定に使う API キー（要件 N-06）。
 	//
@@ -107,6 +115,10 @@ func Load(lookup LookupEnv) (Config, error) {
 	cfg.R2AccessKeyID, _ = lookup("R2_ACCESS_KEY_ID")
 	cfg.R2SecretAccessKey, _ = lookup("R2_SECRET_ACCESS_KEY")
 
+	if v, ok := lookup("ALLOWED_USER_IDS"); ok {
+		cfg.AllowedUserIDs = splitList(v)
+	}
+
 	if jwks, ok := lookup("SUPABASE_JWKS_URL"); ok && jwks != "" {
 		cfg.SupabaseJWKSURL = jwks
 	} else if !cfg.AuthDisabled {
@@ -139,4 +151,16 @@ func LoadForMCP(lookup LookupEnv) (Config, error) {
 	cfg.DatabaseURL = dsn
 
 	return cfg, nil
+}
+
+// splitList はカンマ区切りを分ける。空要素は落とす。
+func splitList(v string) []string {
+	out := make([]string, 0, 2)
+	for _, part := range strings.Split(v, ",") {
+		if t := strings.TrimSpace(part); t != "" {
+			out = append(out, t)
+		}
+	}
+
+	return out
 }

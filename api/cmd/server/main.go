@@ -88,7 +88,14 @@ func run() error {
 	} else {
 		// /health は openapi.yaml で security: [] になっている。
 		// keepalive と Cloud Run のスモークテストが叩くため
-		h = auth.Middleware(auth.NewVerifier(cfg.SupabaseJWKSURL), "/health")(h)
+		v := auth.NewVerifier(cfg.SupabaseJWKSURL, cfg.AllowedUserIDs...)
+		if !v.Allowlisted() {
+			// **JWT の検証だけでは所有者を区別できない。** Supabase の
+			// サインアップが開いていれば、登録した人は誰でも全データを読める（#51）
+			slog.Warn("ALLOWED_USER_IDS が未設定。Supabase に登録した利用者は全員データを読める",
+				"対処", "自分の auth.users.id を ALLOWED_USER_IDS に設定する")
+		}
+		h = auth.Middleware(v, "/health")(h)
 	}
 
 	srv := &http.Server{
