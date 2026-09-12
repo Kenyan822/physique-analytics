@@ -1,0 +1,841 @@
+openapi: 3.1.0
+
+info:
+  title: physique-analytics API
+  version: 0.1.0
+  description: |
+    トレーニング・栄養・体組成を統合して分析するアプリの API。
+
+    このファイルが **型の唯一の正** であり、Go サーバ・TypeScript クライアント・
+    Swift クライアントのコードはすべてここから生成する（ADR-0007）。
+    手で型を書かないこと。
+
+    ## 日付の扱い
+    `date` はすべて **JST（Asia/Tokyo）における日付**（ADR-0013）。
+    端末のタイムゾーンに依存しない。クライアントが JST で計算して送る。
+
+    ## 同期と削除
+    すべてのリソースが `updatedAt` / `deletedAt` を持つ（ADR-0014）。
+    競合は `updatedAt` が新しい方を採用する（Last Write Wins）。
+    削除は物理削除せず `deletedAt` を立てる。
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.example.com
+    description: production
+  - url: http://localhost:8080
+    description: local
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: health
+  - name: exercises
+    description: 種目マスタ
+  - name: workouts
+    description: トレーニング記録
+  - name: templates
+    description: トレーニングテンプレート
+  - name: sync
+    description: オフライン同期
+  - name: transfer
+    description: CSV インポート / エクスポート
+
+paths:
+  /healthz:
+    get:
+      operationId: getHealth
+      tags: [health]
+      summary: ヘルスチェック
+      description: |
+        DB 接続を含む疎通確認。Supabase の7日間非アクティブによる
+        自動停止を回避する keepalive も兼ねる（インフラ設計 §2.1）。
+      security: []
+      responses:
+        "200":
+          description: 正常
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, time]
+                properties:
+                  status: { type: string, enum: [ok] }
+                  time: { type: string, format: date-time }
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/exercises:
+    get:
+      operationId: listExercises
+      tags: [exercises]
+      summary: 種目の一覧
+      parameters:
+        - $ref: "#/components/parameters/MuscleGroup"
+        - $ref: "#/components/parameters/IncludeDeleted"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Exercise" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createExercise
+      tags: [exercises]
+      summary: 種目を追加
+      description: 種目マスタ58種目はマイグレーションで投入済み。ここでは独自種目を追加する。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExerciseInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Exercise" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/exercises/{exerciseId}:
+    parameters:
+      - $ref: "#/components/parameters/ExerciseId"
+    get:
+      operationId: getExercise
+      tags: [exercises]
+      summary: 種目の取得
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Exercise" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updateExercise
+      tags: [exercises]
+      summary: 種目の更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExerciseInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Exercise" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      operationId: deleteExercise
+      tags: [exercises]
+      summary: 種目の削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/workout-sessions:
+    get:
+      operationId: listWorkoutSessions
+      tags: [workouts]
+      summary: セッションの一覧
+      parameters:
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/WorkoutSession" }
+                  nextCursor:
+                    type: [string, "null"]
+                    description: 次ページがある場合のカーソル
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createWorkoutSession
+      tags: [workouts]
+      summary: セッションの作成（セットを含めて一括登録できる）
+      description: |
+        オフラインで記録した内容を一括送信するため、セットを含めて作成できる。
+        クライアントが生成した UUID を `id` に指定すると冪等に扱われる
+        （同じ id での再送は 200 を返す）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkoutSessionInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkoutSession" }
+        "200":
+          description: 既に同じ id で作成済み（冪等）
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkoutSession" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/workout-sessions/{sessionId}:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    get:
+      operationId: getWorkoutSession
+      tags: [workouts]
+      summary: セッションの取得（セットを含む）
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkoutSession" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updateWorkoutSession
+      tags: [workouts]
+      summary: セッションの更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                date: { type: string, format: date }
+                templateId: { type: [string, "null"], format: uuid }
+                note: { type: [string, "null"] }
+                updatedAt:
+                  type: string
+                  format: date-time
+                  description: |
+                    クライアントが保持する更新時刻。サーバ側がこれより新しい場合は
+                    409 を返す（ADR-0014）。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkoutSession" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      operationId: deleteWorkoutSession
+      tags: [workouts]
+      summary: セッションの削除（論理削除。配下のセットも削除される）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/workout-sessions/{sessionId}/sets:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    post:
+      operationId: createWorkoutSet
+      tags: [workouts]
+      summary: セットの追加
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkoutSetInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkoutSet" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/workout-sets/{setId}:
+    parameters:
+      - $ref: "#/components/parameters/SetId"
+    patch:
+      operationId: updateWorkoutSet
+      tags: [workouts]
+      summary: セットの更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkoutSetInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkoutSet" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      operationId: deleteWorkoutSet
+      tags: [workouts]
+      summary: セットの削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/exercises/{exerciseId}/last-performance:
+    parameters:
+      - $ref: "#/components/parameters/ExerciseId"
+    get:
+      operationId: getLastPerformance
+      tags: [workouts]
+      summary: 前回の実施内容
+      description: |
+        要件 T-02（前回値のデフォルト表示）のためのエンドポイント。
+        入力速度を決める最重要機能であり、1リクエストで取得できるようにする。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [exerciseId]
+                properties:
+                  exerciseId: { type: string, format: uuid }
+                  date:
+                    type: [string, "null"]
+                    format: date
+                    description: 前回実施日。未実施なら null
+                  sets:
+                    type: array
+                    items: { $ref: "#/components/schemas/WorkoutSet" }
+                  estimatedOneRm:
+                    type: [number, "null"]
+                    description: 前回の推定1RM（Epley + RIR補正）
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/templates:
+    get:
+      operationId: listTemplates
+      tags: [templates]
+      summary: テンプレートの一覧
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Template" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createTemplate
+      tags: [templates]
+      summary: テンプレートの作成
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TemplateInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Template" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/templates/{templateId}:
+    parameters:
+      - $ref: "#/components/parameters/TemplateId"
+    get:
+      operationId: getTemplate
+      tags: [templates]
+      summary: テンプレートの取得
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Template" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updateTemplate
+      tags: [templates]
+      summary: テンプレートの更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TemplateInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Template" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      operationId: deleteTemplate
+      tags: [templates]
+      summary: テンプレートの削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/sync:
+    get:
+      operationId: pullSync
+      tags: [sync]
+      summary: 差分の取得
+      description: |
+        `updatedSince` 以降に変更されたリソースをまとめて返す。
+        **削除済み（`deletedAt` が設定されたもの）も含む**（ADR-0014）。
+        クライアントはこれを受けてローカルDBを更新する。
+      parameters:
+        - name: updatedSince
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+          description: 前回同期時にサーバが返した `serverTime` を渡す
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [serverTime, exercises, sessions, sets, templates]
+                properties:
+                  serverTime:
+                    type: string
+                    format: date-time
+                    description: 次回の `updatedSince` に使う
+                  exercises:
+                    type: array
+                    items: { $ref: "#/components/schemas/Exercise" }
+                  sessions:
+                    type: array
+                    items: { $ref: "#/components/schemas/WorkoutSession" }
+                  sets:
+                    type: array
+                    items: { $ref: "#/components/schemas/WorkoutSet" }
+                  templates:
+                    type: array
+                    items: { $ref: "#/components/schemas/Template" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    post:
+      operationId: pushSync
+      tags: [sync]
+      summary: ローカルの変更を一括送信
+      description: |
+        オフライン中に蓄積した変更をまとめて送る。
+        サーバは `updatedAt` を比較し、**サーバ側が新しいものはスキップして
+        `conflicts` に含めて返す**（Last Write Wins / ADR-0014）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sessions:
+                  type: array
+                  items: { $ref: "#/components/schemas/WorkoutSessionInput" }
+                sets:
+                  type: array
+                  items: { $ref: "#/components/schemas/WorkoutSetInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [applied, conflicts, serverTime]
+                properties:
+                  applied:
+                    type: integer
+                    description: 適用された件数
+                  conflicts:
+                    type: array
+                    description: サーバ側が新しく、適用されなかったもの
+                    items:
+                      type: object
+                      required: [resource, id, serverUpdatedAt]
+                      properties:
+                        resource: { type: string, enum: [session, set] }
+                        id: { type: string, format: uuid }
+                        serverUpdatedAt: { type: string, format: date-time }
+                  serverTime: { type: string, format: date-time }
+
+  /v1/export/csv:
+    get:
+      operationId: exportCsv
+      tags: [transfer]
+      summary: CSV エクスポート
+      description: |
+        `daily.csv` / `workouts.csv` / `measures.csv` と同じスキーマで出力する。
+        Go 実装の検証基準（`reference/analysis/`）の入力形式であり、
+        長期バックアップの正でもある（ADR-0002 / ADR-0011）。
+      parameters:
+        - name: resource
+          in: query
+          required: true
+          schema: { type: string, enum: [daily, workouts, measures] }
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+      responses:
+        "200":
+          description: OK
+          content:
+            text/csv:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/import/csv:
+    post:
+      operationId: importCsv
+      tags: [transfer]
+      summary: CSV インポート
+      description: |
+        要件 I-01。アプリ完成前に CSV で記録した期間のデータを取り込む。
+        対応するのは本プロジェクトの CSV スキーマのみ。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [resource, file]
+              properties:
+                resource: { type: string, enum: [daily, workouts, measures] }
+                file: { type: string, format: binary }
+                onDuplicate:
+                  type: string
+                  enum: [skip, overwrite]
+                  default: skip
+                  description: 同日・同種目の重複をどう扱うか（要件 I-03）
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [imported, skipped, errors]
+                properties:
+                  imported: { type: integer }
+                  skipped: { type: integer }
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      required: [line, message]
+                      properties:
+                        line: { type: integer }
+                        message: { type: string }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Supabase Auth が発行した JWT。API 側は JWKS で検証し、
+        `sub` クレームから user_id を取り出す（インフラ設計 §8）。
+
+  parameters:
+    ExerciseId:
+      name: exerciseId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SetId:
+      name: setId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TemplateId:
+      name: templateId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    MuscleGroup:
+      name: muscleGroup
+      in: query
+      schema: { $ref: "#/components/schemas/MuscleGroup" }
+    IncludeDeleted:
+      name: includeDeleted
+      in: query
+      schema: { type: boolean, default: false }
+      description: 論理削除済みを含めるか。同期用途以外では false
+    DateFrom:
+      name: from
+      in: query
+      schema: { type: string, format: date }
+      description: JST の日付（ADR-0013）
+    DateTo:
+      name: to
+      in: query
+      schema: { type: string, format: date }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+
+  schemas:
+    MuscleGroup:
+      type: string
+      description: 部位。肩は前部/中部/後部、背中は広背筋/僧帽筋に分ける
+      enum:
+        - 胸
+        - 広背筋
+        - 僧帽筋
+        - 肩前部
+        - 肩中部
+        - 肩後部
+        - 上腕二頭
+        - 上腕三頭
+        - 大腿四頭
+        - ハム
+        - 臀部
+        - ふくらはぎ
+        - 腹
+
+    Timestamps:
+      type: object
+      required: [createdAt, updatedAt]
+      properties:
+        createdAt: { type: string, format: date-time }
+        updatedAt:
+          type: string
+          format: date-time
+          description: 競合解決に使う（ADR-0014）
+        deletedAt:
+          type: [string, "null"]
+          format: date-time
+          description: 論理削除。物理削除しない（ADR-0014）
+
+    Exercise:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, name, muscleGroup]
+          properties:
+            id: { type: string, format: uuid }
+            name:
+              type: string
+              description: 表記は固定する。ゆれると時系列が分断される
+              examples: [ベンチプレス]
+            muscleGroup: { $ref: "#/components/schemas/MuscleGroup" }
+            isCompound: { type: boolean, default: false }
+            defaultRestSec: { type: [integer, "null"], minimum: 0 }
+
+    ExerciseInput:
+      type: object
+      required: [name, muscleGroup]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: クライアント生成の UUID（冪等性のため）
+        name: { type: string, minLength: 1, maxLength: 100 }
+        muscleGroup: { $ref: "#/components/schemas/MuscleGroup" }
+        isCompound: { type: boolean, default: false }
+        defaultRestSec: { type: [integer, "null"], minimum: 0 }
+
+    WorkoutSet:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, sessionId, exerciseId, setNo, weightKg, reps]
+          properties:
+            id: { type: string, format: uuid }
+            sessionId: { type: string, format: uuid }
+            exerciseId: { type: string, format: uuid }
+            setNo: { type: integer, minimum: 1 }
+            weightKg:
+              type: number
+              minimum: 0
+              description: kg 固定（データモデル参照）
+            reps: { type: integer, minimum: 0 }
+            rir:
+              type: [integer, "null"]
+              minimum: 0
+              maximum: 10
+              description: |
+                Reps In Reserve（あと何回できたか）。
+                **これがないと推定1RMが計算できず進捗が測れない**。
+
+    WorkoutSetInput:
+      type: object
+      required: [exerciseId, setNo, weightKg, reps]
+      properties:
+        id: { type: string, format: uuid }
+        sessionId: { type: string, format: uuid }
+        exerciseId: { type: string, format: uuid }
+        setNo: { type: integer, minimum: 1 }
+        weightKg: { type: number, minimum: 0, maximum: 500 }
+        reps: { type: integer, minimum: 0, maximum: 100 }
+        rir: { type: [integer, "null"], minimum: 0, maximum: 10 }
+        updatedAt: { type: string, format: date-time }
+
+    WorkoutSession:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, date, sets]
+          properties:
+            id: { type: string, format: uuid }
+            date:
+              type: string
+              format: date
+              description: JST の日付（ADR-0013）
+            templateId: { type: [string, "null"], format: uuid }
+            note: { type: [string, "null"] }
+            sets:
+              type: array
+              items: { $ref: "#/components/schemas/WorkoutSet" }
+
+    WorkoutSessionInput:
+      type: object
+      required: [date]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: クライアント生成の UUID。再送時は冪等に扱われる
+        date: { type: string, format: date }
+        templateId: { type: [string, "null"], format: uuid }
+        note: { type: [string, "null"] }
+        sets:
+          type: array
+          items: { $ref: "#/components/schemas/WorkoutSetInput" }
+        updatedAt: { type: string, format: date-time }
+
+    TemplateItem:
+      type: object
+      required: [exerciseId, order, targetSets]
+      properties:
+        exerciseId: { type: string, format: uuid }
+        order: { type: integer, minimum: 1 }
+        targetSets: { type: integer, minimum: 1, maximum: 20 }
+        targetRepsMin: { type: [integer, "null"], minimum: 1 }
+        targetRepsMax: { type: [integer, "null"], minimum: 1 }
+        targetRir: { type: [integer, "null"], minimum: 0, maximum: 10 }
+
+    Template:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, name, items]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string, examples: ["Day1 胸"] }
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/TemplateItem" }
+
+    TemplateInput:
+      type: object
+      required: [name, items]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/TemplateItem" }
+        updatedAt: { type: string, format: date-time }
+
+    Problem:
+      type: object
+      description: RFC 7807 Problem Details
+      required: [type, title, status]
+      properties:
+        type: { type: string, format: uri, default: "about:blank" }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        errors:
+          type: array
+          description: バリデーションエラーの詳細
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field: { type: string }
+              message: { type: string }
+
+  responses:
+    BadRequest:
+      description: リクエストが不正
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Unauthorized:
+      description: 認証されていない
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    NotFound:
+      description: 見つからない
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Conflict:
+      description: |
+        競合。サーバ側の `updatedAt` がクライアントの保持する値より新しい（ADR-0014）。
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    ValidationFailed:
+      description: |
+        入力値の検証に失敗（要件 §4.8）。
+        体重30〜200kg、未来日の禁止、RIR 0〜10 など。
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    ServiceUnavailable:
+      description: DB 接続不可など
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
