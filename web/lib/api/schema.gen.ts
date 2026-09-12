@@ -674,7 +674,10 @@ export interface paths {
          *     通すとメモリもリクエスト時間も無駄になるので、署名付きURLに直接
          *     アップロードさせる。
          *
-         *     アップロードが終わったら `PUT /v1/photos/{photoId}/complete` を呼ぶ。
+         *     **メタデータは先に作られる。** アップロードに失敗したら
+         *     `DELETE /v1/photos/{photoId}` で消す。消さないと、画像の無い写真が
+         *     一覧に残り続ける（一覧は `url` の発行に失敗しても項目を返すため、
+         *     欠けていることが見た目では分からない）。
          */
         post: operations["createPhotoUpload"];
         delete?: never;
