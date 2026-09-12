@@ -306,6 +306,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/meals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 食事の一覧 */
+        get: operations["listMeals"];
+        put?: never;
+        /**
+         * 食事の記録
+         * @description 要件 N-01。**食品マスタは持たない**（docs/01-要件定義.md §4.3）。
+         *     名前と PFC を直接入れ、過去の記録がそのまま次回の候補になる。
+         */
+        post: operations["createMeal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meals/{mealId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 食事の削除（論理削除） */
+        delete: operations["deleteMeal"];
+        options?: never;
+        head?: never;
+        /** 食事の更新 */
+        patch: operations["updateMeal"];
+        trace?: never;
+    };
+    "/v1/meals/suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 過去の記録から候補を出す
+         * @description 要件 N-02。**記録履歴がマスタになる。** 同じ名前の記録を頻度順に並べ、
+         *     直近の PFC をそのまま初期値として返す。
+         *     食べるものは100品目程度に収束するので、網羅性より頻出品目への
+         *     最適化が実用的に速い。
+         */
+        get: operations["listMealSuggestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meals/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 別の日の食事を複製する
+         * @description 要件 N-04。前日と同じものを食べる日が多いので、1操作で写せるようにする。
+         */
+        post: operations["copyMeals"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sync": {
         parameters: {
             query?: never;
@@ -598,6 +683,65 @@ export interface components {
             calfRCm?: number | null;
             /** Format: date-time */
             updatedAt?: string;
+        };
+        /** @enum {string} */
+        MealSlot: "朝食" | "昼食" | "夕食" | "間食";
+        /**
+         * @description 手入力か AI 推定か（docs/02-データモデル.md）。
+         *     推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
+         *     分析の確度を下げて扱う。
+         * @enum {string}
+         */
+        MealSource: "manual" | "ai_estimated";
+        Meal: components["schemas"]["Timestamps"] & {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: date
+             * @description JST の日付（ADR-0013）
+             */
+            date: string;
+            slot?: components["schemas"]["MealSlot"];
+            /** @example サラダチキン */
+            name: string;
+            /** @description 「1個」「200g」のような自由記述。単位を型で縛ると入力が止まる */
+            qty?: string | null;
+            kcal?: number | null;
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
+            source: components["schemas"]["MealSource"];
+        };
+        MealInput: {
+            /**
+             * Format: uuid
+             * @description クライアント生成の UUID（冪等性のため）
+             */
+            id?: string;
+            /** Format: date */
+            date: string;
+            slot?: components["schemas"]["MealSlot"];
+            name: string;
+            qty?: string | null;
+            kcal?: number | null;
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
+            source?: components["schemas"]["MealSource"];
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        MealSuggestion: {
+            name: string;
+            /** @description 記録した回数。多い順に並ぶ */
+            count: number;
+            /** Format: date */
+            lastDate?: string | null;
+            qty?: string | null;
+            kcal?: number | null;
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
         };
         /** @description RFC 7807 Problem Details */
         Problem: {
@@ -1408,6 +1552,172 @@ export interface operations {
                     };
                 };
             };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listMeals: {
+        parameters: {
+            query?: {
+                /** @description JST の日付（ADR-0013） */
+                from?: components["parameters"]["DateFrom"];
+                to?: components["parameters"]["DateTo"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Meal"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createMeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MealInput"];
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Meal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteMeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 削除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateMeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MealInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Meal"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    listMealSuggestions: {
+        parameters: {
+            query?: {
+                /** @description 名前の部分一致で絞る */
+                q?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["MealSuggestion"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    copyMeals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: date */
+                    fromDate: string;
+                    /** Format: date */
+                    toDate: string;
+                    slot?: components["schemas"]["MealSlot"];
+                };
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Meal"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
         };
     };

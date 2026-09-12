@@ -80,6 +80,16 @@ type BodyRepository interface {
 	LatestMeasurement(ctx context.Context) (openapi.BodyMeasurement, error)
 }
 
+// MealRepository は食事記録へのアクセス（要件 N-01 / N-02 / N-04）。
+type MealRepository interface {
+	List(ctx context.Context, from, to *openapi_types.Date) ([]openapi.Meal, error)
+	Create(ctx context.Context, in repository.MealInput) (openapi.Meal, error)
+	Update(ctx context.Context, id uuid.UUID, in repository.MealInput) (openapi.Meal, error)
+	SoftDelete(ctx context.Context, id uuid.UUID) error
+	Suggestions(ctx context.Context, query string, limit int) ([]openapi.MealSuggestion, error)
+	Copy(ctx context.Context, from, to openapi_types.Date, slot *openapi.MealSlot) ([]openapi.Meal, error)
+}
+
 // Server は openapi.StrictServerInterface の実装。
 //
 // **openapi.yaml の全操作を実装している。** 仕様に操作を足すと
@@ -94,6 +104,7 @@ type Server struct {
 	sync      SyncRepository
 	transfer  TransferRepository
 	body      BodyRepository
+	meals     MealRepository
 }
 
 // New は Server を作る。
@@ -105,10 +116,11 @@ func New(
 	sync SyncRepository,
 	transfer TransferRepository,
 	body BodyRepository,
+	meals MealRepository,
 ) *Server {
 	return &Server{
 		db: db, exercises: exercises, workouts: workouts,
-		templates: templates, sync: sync, transfer: transfer, body: body,
+		templates: templates, sync: sync, transfer: transfer, body: body, meals: meals,
 	}
 }
 

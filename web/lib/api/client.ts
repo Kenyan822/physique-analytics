@@ -18,6 +18,10 @@ export type DailyMetrics = components["schemas"]["DailyMetrics"];
 export type DailyMetricsInput = components["schemas"]["DailyMetricsInput"];
 export type BodyMeasurement = components["schemas"]["BodyMeasurement"];
 export type BodyMeasurementInput = components["schemas"]["BodyMeasurementInput"];
+export type Meal = components["schemas"]["Meal"];
+export type MealInput = components["schemas"]["MealInput"];
+export type MealSlot = components["schemas"]["MealSlot"];
+export type MealSuggestion = components["schemas"]["MealSuggestion"];
 export type Problem = components["schemas"]["Problem"];
 
 type ListExercisesQuery = NonNullable<paths["/v1/exercises"]["get"]["parameters"]["query"]>;
@@ -153,6 +157,18 @@ export function createClient({ baseUrl, token }: ClientOptions) {
     // 前回値のデフォルト表示（要件 B-03）。記録が無ければ measurement は無い
     latestMeasurement: () =>
       request<{ measurement?: BodyMeasurement | null }>("GET", "/v1/measurements/latest"),
+
+    listMeals: (query: DateRangeQuery) =>
+      request<{ items: Meal[] }>("GET", "/v1/meals", { query }),
+    createMeal: (body: MealInput) => request<Meal>("POST", "/v1/meals", { body }),
+    updateMeal: (id: string, body: MealInput) =>
+      request<Meal>("PATCH", `/v1/meals/${seg(id)}`, { body }),
+    deleteMeal: (id: string) => request<void>("DELETE", `/v1/meals/${seg(id)}`),
+    // 過去の記録がそのまま候補になる（要件 N-02）
+    mealSuggestions: (query: { q?: string; limit?: number }) =>
+      request<{ items: MealSuggestion[] }>("GET", "/v1/meals/suggestions", { query }),
+    copyMeals: (body: { fromDate: string; toDate: string; slot?: MealSlot }) =>
+      request<{ items: Meal[] }>("POST", "/v1/meals/copy", { body }),
   };
 }
 

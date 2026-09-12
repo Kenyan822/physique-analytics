@@ -179,3 +179,33 @@ func checkInt(v *int, min, max int) string // × revive: redefines-builtin-id
 
 Go 1.21 で `min` / `max` が組み込みになった。シャドウしてもコンパイルは
 通るが、同じ関数の中で組み込みの `min` が呼べなくなる。lint が止める。
+
+## `distinct on` は並べ替えの自由が無い
+
+```sql
+select distinct on (m.name)
+    m.name, c.cnt, m.date, m.kcal
+from meals m
+join (select name, count(*) as cnt from meals group by name) c on c.name = m.name
+order by m.name, m.date desc      -- ← 先頭は distinct on の式と一致必須
+```
+
+Postgres の `distinct on (x)` は「x ごとに最初の1行」を取るが、
+**`order by` の先頭が x でなければならない**。`order by cnt desc` は書けない。
+
+「名前ごとの最新行を、件数の多い順に」は1つの SQL では素直に書けないので、
+`distinct on` で最新行を取ってから **Go 側で並べ替えた**。行数が
+100件程度に収束する前提（食べるものは収束する）なので、これで足りる。
+
+## `check` 制約はハンドラ側にも同じ範囲を書く
+
+```sql
+kcal integer check (kcal >= 0 and kcal <= 10000)
+```
+
+DB だけに任せると、範囲外の入力が SQLSTATE 23514 として返り、
+アプリからは 500 に見える。**何が悪いかが利用者に返らない。**
+
+二重に書くことになるが、DB 側は「壊れたデータが入らない」ための最後の砦、
+アプリ側は「何を直せばいいか返す」ためのものと割り切る。
+移行のときに両方直す必要があるので、マイグレーション番号をコメントに残す。

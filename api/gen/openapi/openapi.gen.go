@@ -20,6 +20,48 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for MealSlot.
+const (
+	Breakfast MealSlot = "朝食"
+	Dinner    MealSlot = "夕食"
+	Lunch     MealSlot = "昼食"
+	Snack     MealSlot = "間食"
+)
+
+// Valid indicates whether the value is a known member of the MealSlot enum.
+func (e MealSlot) Valid() bool {
+	switch e {
+	case Breakfast:
+		return true
+	case Dinner:
+		return true
+	case Lunch:
+		return true
+	case Snack:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MealSource.
+const (
+	AiEstimated MealSource = "ai_estimated"
+	Manual      MealSource = "manual"
+)
+
+// Valid indicates whether the value is a known member of the MealSource enum.
+func (e MealSource) Valid() bool {
+	switch e {
+	case AiEstimated:
+		return true
+	case Manual:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MuscleGroup.
 const (
 	Abs        MuscleGroup = "腹"
@@ -291,6 +333,80 @@ type ImportError struct {
 	Message string `json:"message"`
 }
 
+// Meal defines model for Meal.
+type Meal struct {
+	CarbG     *float32  `json:"carbG,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Date JST の日付（ADR-0013）
+	Date openapi_types.Date `json:"date"`
+
+	// DeletedAt 論理削除。物理削除しない（ADR-0014）
+	DeletedAt *time.Time         `json:"deletedAt,omitempty"`
+	FatG      *float32           `json:"fatG,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+	Kcal      *int               `json:"kcal,omitempty"`
+
+	// Name Examples: サラダチキン
+	Name     string   `json:"name"`
+	ProteinG *float32 `json:"proteinG,omitempty"`
+
+	// Qty 「1個」「200g」のような自由記述。単位を型で縛ると入力が止まる
+	Qty  *string   `json:"qty,omitempty"`
+	Slot *MealSlot `json:"slot,omitempty"`
+
+	// Source 手入力か AI 推定か（docs/02-データモデル.md）。
+	// 推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
+	// 分析の確度を下げて扱う。
+	Source MealSource `json:"source"`
+
+	// UpdatedAt 競合解決に使う（ADR-0014）
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// MealInput defines model for MealInput.
+type MealInput struct {
+	CarbG *float32           `json:"carbG,omitempty"`
+	Date  openapi_types.Date `json:"date"`
+	FatG  *float32           `json:"fatG,omitempty"`
+
+	// Id クライアント生成の UUID（冪等性のため）
+	Id       *openapi_types.UUID `json:"id,omitempty"`
+	Kcal     *int                `json:"kcal,omitempty"`
+	Name     string              `json:"name"`
+	ProteinG *float32            `json:"proteinG,omitempty"`
+	Qty      *string             `json:"qty,omitempty"`
+	Slot     *MealSlot           `json:"slot,omitempty"`
+
+	// Source 手入力か AI 推定か（docs/02-データモデル.md）。
+	// 推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
+	// 分析の確度を下げて扱う。
+	Source    *MealSource `json:"source,omitempty"`
+	UpdatedAt *time.Time  `json:"updatedAt,omitempty"`
+}
+
+// MealSlot defines model for MealSlot.
+type MealSlot string
+
+// MealSource 手入力か AI 推定か（docs/02-データモデル.md）。
+// 推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
+// 分析の確度を下げて扱う。
+type MealSource string
+
+// MealSuggestion defines model for MealSuggestion.
+type MealSuggestion struct {
+	CarbG *float32 `json:"carbG,omitempty"`
+
+	// Count 記録した回数。多い順に並ぶ
+	Count    int                 `json:"count"`
+	FatG     *float32            `json:"fatG,omitempty"`
+	Kcal     *int                `json:"kcal,omitempty"`
+	LastDate *openapi_types.Date `json:"lastDate,omitempty"`
+	Name     string              `json:"name"`
+	ProteinG *float32            `json:"proteinG,omitempty"`
+	Qty      *string             `json:"qty,omitempty"`
+}
+
 // MuscleGroup 部位。肩は前部/中部/後部、背中は広背筋/僧帽筋に分ける
 type MuscleGroup string
 
@@ -520,6 +636,27 @@ type ImportCsvMultipartBodyOnDuplicate string
 // ImportCsvMultipartBodyResource defines parameters for ImportCsv.
 type ImportCsvMultipartBodyResource string
 
+// ListMealsParams defines parameters for ListMeals.
+type ListMealsParams struct {
+	// From JST の日付（ADR-0013）
+	From *DateFrom `form:"from,omitempty" json:"from,omitempty"`
+	To   *DateTo   `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// CopyMealsJSONBody defines parameters for CopyMeals.
+type CopyMealsJSONBody struct {
+	FromDate openapi_types.Date `json:"fromDate"`
+	Slot     *MealSlot          `json:"slot,omitempty"`
+	ToDate   openapi_types.Date `json:"toDate"`
+}
+
+// ListMealSuggestionsParams defines parameters for ListMealSuggestions.
+type ListMealSuggestionsParams struct {
+	// Q 名前の部分一致で絞る
+	Q     *string `form:"q,omitempty" json:"q,omitempty"`
+	Limit *int    `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListMeasurementsParams defines parameters for ListMeasurements.
 type ListMeasurementsParams struct {
 	// From JST の日付（ADR-0013）
@@ -570,6 +707,15 @@ type UpdateExerciseJSONRequestBody = ExerciseInput
 
 // ImportCsvMultipartRequestBody defines body for ImportCsv for multipart/form-data ContentType.
 type ImportCsvMultipartRequestBody ImportCsvMultipartBody
+
+// CreateMealJSONRequestBody defines body for CreateMeal for application/json ContentType.
+type CreateMealJSONRequestBody = MealInput
+
+// CopyMealsJSONRequestBody defines body for CopyMeals for application/json ContentType.
+type CopyMealsJSONRequestBody CopyMealsJSONBody
+
+// UpdateMealJSONRequestBody defines body for UpdateMeal for application/json ContentType.
+type UpdateMealJSONRequestBody = MealInput
 
 // PutMeasurementJSONRequestBody defines body for PutMeasurement for application/json ContentType.
 type PutMeasurementJSONRequestBody = BodyMeasurementInput
@@ -636,6 +782,24 @@ type ServerInterface interface {
 	// ImportCsv CSV インポート
 	// (POST /v1/import/csv)
 	ImportCsv(w http.ResponseWriter, r *http.Request)
+	// ListMeals 食事の一覧
+	// (GET /v1/meals)
+	ListMeals(w http.ResponseWriter, r *http.Request, params ListMealsParams)
+	// CreateMeal 食事の記録
+	// (POST /v1/meals)
+	CreateMeal(w http.ResponseWriter, r *http.Request)
+	// CopyMeals 別の日の食事を複製する
+	// (POST /v1/meals/copy)
+	CopyMeals(w http.ResponseWriter, r *http.Request)
+	// ListMealSuggestions 過去の記録から候補を出す
+	// (GET /v1/meals/suggestions)
+	ListMealSuggestions(w http.ResponseWriter, r *http.Request, params ListMealSuggestionsParams)
+	// DeleteMeal 食事の削除（論理削除）
+	// (DELETE /v1/meals/{mealId})
+	DeleteMeal(w http.ResponseWriter, r *http.Request, mealId openapi_types.UUID)
+	// UpdateMeal 食事の更新
+	// (PATCH /v1/meals/{mealId})
+	UpdateMeal(w http.ResponseWriter, r *http.Request, mealId openapi_types.UUID)
 	// ListMeasurements 周囲長の一覧
 	// (GET /v1/measurements)
 	ListMeasurements(w http.ResponseWriter, r *http.Request, params ListMeasurementsParams)
@@ -1055,6 +1219,178 @@ func (siw *ServerInterfaceWrapper) ImportCsv(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ImportCsv(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMeals operation middleware
+func (siw *ServerInterfaceWrapper) ListMeals(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMealsParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMeals(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateMeal operation middleware
+func (siw *ServerInterfaceWrapper) CreateMeal(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateMeal(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CopyMeals operation middleware
+func (siw *ServerInterfaceWrapper) CopyMeals(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CopyMeals(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMealSuggestions operation middleware
+func (siw *ServerInterfaceWrapper) ListMealSuggestions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMealSuggestionsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMealSuggestions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMeal operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMeal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "mealId" -------------
+	var mealId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "mealId", r.PathValue("mealId"), &mealId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mealId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMeal(w, r, mealId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateMeal operation middleware
+func (siw *ServerInterfaceWrapper) UpdateMeal(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "mealId" -------------
+	var mealId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "mealId", r.PathValue("mealId"), &mealId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mealId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateMeal(w, r, mealId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1680,6 +2016,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/measurements", wrapper.ListMeasurements)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/measurements", wrapper.PutMeasurement)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/measurements/latest", wrapper.GetLatestMeasurement)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/meals", wrapper.ListMeals)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/meals", wrapper.CreateMeal)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/meals/{mealId}", wrapper.DeleteMeal)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/meals/{mealId}", wrapper.UpdateMeal)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/meals/suggestions", wrapper.ListMealSuggestions)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/meals/copy", wrapper.CopyMeals)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/sync", wrapper.PullSync)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/sync", wrapper.PushSync)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/export/csv", wrapper.ExportCsv)
@@ -2324,6 +2666,331 @@ type ImportCsv422ApplicationProblemPlusJSONResponse struct {
 }
 
 func (response ImportCsv422ApplicationProblemPlusJSONResponse) VisitImportCsvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMealsRequestObject struct {
+	Params ListMealsParams
+}
+
+type ListMealsResponseObject interface {
+	VisitListMealsResponse(w http.ResponseWriter) error
+}
+
+type ListMeals200JSONResponse struct {
+	Items []Meal `json:"items"`
+}
+
+func (response ListMeals200JSONResponse) VisitListMealsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMeals401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListMeals401ApplicationProblemPlusJSONResponse) VisitListMealsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMealRequestObject struct {
+	Body *CreateMealJSONRequestBody
+}
+
+type CreateMealResponseObject interface {
+	VisitCreateMealResponse(w http.ResponseWriter) error
+}
+
+type CreateMeal201JSONResponse Meal
+
+func (response CreateMeal201JSONResponse) VisitCreateMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMeal400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMeal400ApplicationProblemPlusJSONResponse) VisitCreateMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMeal401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMeal401ApplicationProblemPlusJSONResponse) VisitCreateMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMeal422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMeal422ApplicationProblemPlusJSONResponse) VisitCreateMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CopyMealsRequestObject struct {
+	Body *CopyMealsJSONRequestBody
+}
+
+type CopyMealsResponseObject interface {
+	VisitCopyMealsResponse(w http.ResponseWriter) error
+}
+
+type CopyMeals201JSONResponse struct {
+	Items []Meal `json:"items"`
+}
+
+func (response CopyMeals201JSONResponse) VisitCopyMealsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CopyMeals400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CopyMeals400ApplicationProblemPlusJSONResponse) VisitCopyMealsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CopyMeals401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CopyMeals401ApplicationProblemPlusJSONResponse) VisitCopyMealsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMealSuggestionsRequestObject struct {
+	Params ListMealSuggestionsParams
+}
+
+type ListMealSuggestionsResponseObject interface {
+	VisitListMealSuggestionsResponse(w http.ResponseWriter) error
+}
+
+type ListMealSuggestions200JSONResponse struct {
+	Items []MealSuggestion `json:"items"`
+}
+
+func (response ListMealSuggestions200JSONResponse) VisitListMealSuggestionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMealSuggestions401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListMealSuggestions401ApplicationProblemPlusJSONResponse) VisitListMealSuggestionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMealRequestObject struct {
+	MealId openapi_types.UUID `json:"mealId"`
+}
+
+type DeleteMealResponseObject interface {
+	VisitDeleteMealResponse(w http.ResponseWriter) error
+}
+
+type DeleteMeal204Response struct {
+}
+
+func (response DeleteMeal204Response) VisitDeleteMealResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteMeal401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteMeal401ApplicationProblemPlusJSONResponse) VisitDeleteMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMeal404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteMeal404ApplicationProblemPlusJSONResponse) VisitDeleteMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMealRequestObject struct {
+	MealId openapi_types.UUID `json:"mealId"`
+	Body   *UpdateMealJSONRequestBody
+}
+
+type UpdateMealResponseObject interface {
+	VisitUpdateMealResponse(w http.ResponseWriter) error
+}
+
+type UpdateMeal200JSONResponse Meal
+
+func (response UpdateMeal200JSONResponse) VisitUpdateMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMeal401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateMeal401ApplicationProblemPlusJSONResponse) VisitUpdateMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMeal404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateMeal404ApplicationProblemPlusJSONResponse) VisitUpdateMealResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMeal422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateMeal422ApplicationProblemPlusJSONResponse) VisitUpdateMealResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -3228,6 +3895,24 @@ type StrictServerInterface interface {
 	// ImportCsv CSV インポート
 	// (POST /v1/import/csv)
 	ImportCsv(ctx context.Context, request ImportCsvRequestObject) (ImportCsvResponseObject, error)
+	// ListMeals 食事の一覧
+	// (GET /v1/meals)
+	ListMeals(ctx context.Context, request ListMealsRequestObject) (ListMealsResponseObject, error)
+	// CreateMeal 食事の記録
+	// (POST /v1/meals)
+	CreateMeal(ctx context.Context, request CreateMealRequestObject) (CreateMealResponseObject, error)
+	// CopyMeals 別の日の食事を複製する
+	// (POST /v1/meals/copy)
+	CopyMeals(ctx context.Context, request CopyMealsRequestObject) (CopyMealsResponseObject, error)
+	// ListMealSuggestions 過去の記録から候補を出す
+	// (GET /v1/meals/suggestions)
+	ListMealSuggestions(ctx context.Context, request ListMealSuggestionsRequestObject) (ListMealSuggestionsResponseObject, error)
+	// DeleteMeal 食事の削除（論理削除）
+	// (DELETE /v1/meals/{mealId})
+	DeleteMeal(ctx context.Context, request DeleteMealRequestObject) (DeleteMealResponseObject, error)
+	// UpdateMeal 食事の更新
+	// (PATCH /v1/meals/{mealId})
+	UpdateMeal(ctx context.Context, request UpdateMealRequestObject) (UpdateMealResponseObject, error)
 	// ListMeasurements 周囲長の一覧
 	// (GET /v1/measurements)
 	ListMeasurements(ctx context.Context, request ListMeasurementsRequestObject) (ListMeasurementsResponseObject, error)
@@ -3674,6 +4359,179 @@ func (sh *strictHandler) ImportCsv(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ImportCsvResponseObject); ok {
 		if err := validResponse.VisitImportCsvResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMeals operation middleware
+func (sh *strictHandler) ListMeals(w http.ResponseWriter, r *http.Request, params ListMealsParams) {
+	var request ListMealsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMeals(ctx, request.(ListMealsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMeals")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMealsResponseObject); ok {
+		if err := validResponse.VisitListMealsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateMeal operation middleware
+func (sh *strictHandler) CreateMeal(w http.ResponseWriter, r *http.Request) {
+	var request CreateMealRequestObject
+
+	var body CreateMealJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateMeal(ctx, request.(CreateMealRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateMeal")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateMealResponseObject); ok {
+		if err := validResponse.VisitCreateMealResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CopyMeals operation middleware
+func (sh *strictHandler) CopyMeals(w http.ResponseWriter, r *http.Request) {
+	var request CopyMealsRequestObject
+
+	var body CopyMealsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CopyMeals(ctx, request.(CopyMealsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CopyMeals")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CopyMealsResponseObject); ok {
+		if err := validResponse.VisitCopyMealsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMealSuggestions operation middleware
+func (sh *strictHandler) ListMealSuggestions(w http.ResponseWriter, r *http.Request, params ListMealSuggestionsParams) {
+	var request ListMealSuggestionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMealSuggestions(ctx, request.(ListMealSuggestionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMealSuggestions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMealSuggestionsResponseObject); ok {
+		if err := validResponse.VisitListMealSuggestionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteMeal operation middleware
+func (sh *strictHandler) DeleteMeal(w http.ResponseWriter, r *http.Request, mealId openapi_types.UUID) {
+	var request DeleteMealRequestObject
+
+	request.MealId = mealId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteMeal(ctx, request.(DeleteMealRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteMeal")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteMealResponseObject); ok {
+		if err := validResponse.VisitDeleteMealResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateMeal operation middleware
+func (sh *strictHandler) UpdateMeal(w http.ResponseWriter, r *http.Request, mealId openapi_types.UUID) {
+	var request UpdateMealRequestObject
+
+	request.MealId = mealId
+
+	var body UpdateMealJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateMeal(ctx, request.(UpdateMealRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateMeal")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateMealResponseObject); ok {
+		if err := validResponse.VisitUpdateMealResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -41,6 +41,8 @@ tags:
     description: トレーニングテンプレート
   - name: body
     description: 体組成・周囲長
+  - name: nutrition
+    description: 食事記録
   - name: sync
     description: オフライン同期
   - name: transfer
@@ -557,6 +559,147 @@ paths:
                       - type: "null"
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /v1/meals:
+    get:
+      operationId: listMeals
+      tags: [nutrition]
+      summary: 食事の一覧
+      parameters:
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Meal" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createMeal
+      tags: [nutrition]
+      summary: 食事の記録
+      description: |
+        要件 N-01。**食品マスタは持たない**（docs/01-要件定義.md §4.3）。
+        名前と PFC を直接入れ、過去の記録がそのまま次回の候補になる。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MealInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meal" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/meals/{mealId}:
+    parameters:
+      - name: mealId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateMeal
+      tags: [nutrition]
+      summary: 食事の更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MealInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meal" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      operationId: deleteMeal
+      tags: [nutrition]
+      summary: 食事の削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/meals/suggestions:
+    get:
+      operationId: listMealSuggestions
+      tags: [nutrition]
+      summary: 過去の記録から候補を出す
+      description: |
+        要件 N-02。**記録履歴がマスタになる。** 同じ名前の記録を頻度順に並べ、
+        直近の PFC をそのまま初期値として返す。
+        食べるものは100品目程度に収束するので、網羅性より頻出品目への
+        最適化が実用的に速い。
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 100 }
+          description: 名前の部分一致で絞る
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/MealSuggestion" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/meals/copy:
+    post:
+      operationId: copyMeals
+      tags: [nutrition]
+      summary: 別の日の食事を複製する
+      description: |
+        要件 N-04。前日と同じものを食べる日が多いので、1操作で写せるようにする。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fromDate, toDate]
+              properties:
+                fromDate: { type: string, format: date }
+                toDate: { type: string, format: date }
+                slot: { $ref: "#/components/schemas/MealSlot" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Meal" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /v1/sync:
     get:
       operationId: pullSync
@@ -1046,6 +1189,76 @@ components:
         thighRCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 150 }
         calfRCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 100 }
         updatedAt: { type: string, format: date-time }
+
+    MealSlot:
+      type: string
+      enum: [朝食, 昼食, 夕食, 間食]
+      x-enum-varnames: [Breakfast, Lunch, Dinner, Snack]
+
+    MealSource:
+      type: string
+      description: |
+        手入力か AI 推定か（docs/02-データモデル.md）。
+        推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
+        分析の確度を下げて扱う。
+      enum: [manual, ai_estimated]
+      x-enum-varnames: [Manual, AiEstimated]
+
+    Meal:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, date, name, source]
+          properties:
+            id: { type: string, format: uuid }
+            date:
+              type: string
+              format: date
+              description: JST の日付（ADR-0013）
+            slot: { $ref: "#/components/schemas/MealSlot" }
+            name: { type: string, examples: [サラダチキン] }
+            qty:
+              type: [string, "null"]
+              description: 「1個」「200g」のような自由記述。単位を型で縛ると入力が止まる
+            kcal: { type: [integer, "null"], minimum: 0, maximum: 10000 }
+            proteinG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+            fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+            carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
+            source: { $ref: "#/components/schemas/MealSource" }
+
+    MealInput:
+      type: object
+      required: [date, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: クライアント生成の UUID（冪等性のため）
+        date: { type: string, format: date }
+        slot: { $ref: "#/components/schemas/MealSlot" }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        qty: { type: [string, "null"], maxLength: 50 }
+        kcal: { type: [integer, "null"], minimum: 0, maximum: 10000 }
+        proteinG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+        fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+        carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        source: { $ref: "#/components/schemas/MealSource" }
+        updatedAt: { type: string, format: date-time }
+
+    MealSuggestion:
+      type: object
+      required: [name, count]
+      properties:
+        name: { type: string }
+        count:
+          type: integer
+          description: 記録した回数。多い順に並ぶ
+        lastDate: { type: [string, "null"], format: date }
+        qty: { type: [string, "null"] }
+        kcal: { type: [integer, "null"] }
+        proteinG: { type: [number, "null"] }
+        fatG: { type: [number, "null"] }
+        carbG: { type: [number, "null"] }
 
     Problem:
       type: object
