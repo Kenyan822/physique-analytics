@@ -1,0 +1,151 @@
+// 内部テストにしているのは、weeklyActions を MCP のセッションを張らずに
+// 呼ぶため。ツール登録の薄い層のためだけにクライアントを立てる価値は無い。
+package mcpserver
+
+import (
+	"strings"
+	"testing"
+	"time"
+
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
+	"github.com/Kenyan822/physique-analytics/api/internal/plan"
+	"github.com/Kenyan822/physique-analytics/api/internal/repository"
+	"github.com/Kenyan822/physique-analytics/api/internal/testdb"
+)
+
+// fixture はトランザクション内で動く Deps と、記録を入れるための Body を返す。
+func fixture(t *testing.T, withPlan bool) (Deps, *repository.Body) {
+	t.Helper()
+
+	tx := testdb.Begin(t)
+	d := Deps{
+		Exercises: repository.NewExercise(tx),
+		Workouts:  repository.NewWorkout(tx),
+		Analysis:  repository.NewAnalysis(tx),
+	}
+	if withPlan {
+		// **公開用の設定例を使う。** private/config.json はテストから参照しない（ADR-0002）
+		p, err := plan.Load("../../../config.example.json")
+		if err != nil {
+			t.Fatalf("plan.Load: %v", err)
+		}
+		d.Plan = &p
+	}
+
+	return d, repository.NewBody(tx)
+}
+
+func TestWeeklyActions_設定が無ければエラー(t *testing.T) {
+	t.Parallel()
+	d, _ := fixture(t, false)
+
+	_, err := weeklyActions(t.Context(), d, weeklyActionsIn{AsOf: "2028-06-15"})
+	if err == nil {
+		t.Fatal("エラーにならない")
+	}
+	if !strings.Contains(err.Error(), "PHYSIQUE_CONFIG") {
+		t.Errorf("err = %v, want 設定の指定方法を含む", err)
+	}
+}
+
+func TestWeeklyActions_日付の形式(t *testing.T) {
+	t.Parallel()
+	d, _ := fixture(t, true)
+
+	if _, err := weeklyActions(t.Context(), d, weeklyActionsIn{AsOf: "2026/09/30"}); err == nil {
+		t.Error("エラーにならない")
+	}
+}
+
+func TestWeeklyActions_記録が無ければ記録を促す(t *testing.T) {
+	t.Parallel()
+	d, _ := fixture(t, true)
+
+	got, err := weeklyActions(t.Context(), d, weeklyActionsIn{AsOf: "2028-06-15"})
+	if err != nil {
+		t.Fatalf("weeklyActions: %v", err)
+	}
+
+	if got.TDEEKcal != nil {
+		t.Errorf("TDEEKcal = %v, want nil（記録が無い）", got.TDEEKcal)
+	}
+	if !strings.Contains(got.Note, "TDEE") {
+		t.Errorf("Note = %q, want TDEE を推定できない旨", got.Note)
+	}
+	if len(got.Actions) == 0 {
+		t.Fatal("Actions が空")
+	}
+	// 直近7日が丸ごと未記録なので、記録漏れが先頭に来る
+	if got.Actions[0].Kind != "missing_records" {
+		t.Errorf("先頭 = %q, want missing_records", got.Actions[0].Kind)
+	}
+}
+
+func TestWeeklyActions_記録からTDEEと推奨摂取を出す(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	d, body := fixture(t, true)
+
+	// 2026-10-31 を基準に21日分。体重は1日 -0.06kg、摂取は 2100kcal 一定
+	// 手元の DB にはサンプルが 2026-09〜10 に入っている。
+	// 重ならない日付を選ぶ（計画の期間内であることは必要）
+	asof := time.Date(2028, 6, 30, 0, 0, 0, 0, time.UTC)
+	for i := range 21 {
+		date := asof.AddDate(0, 0, -i)
+		if _, err := body.PutDaily(ctx, repository.DailyInput{
+			Date:     openapi_types.Date{Time: date},
+			WeightKg: f32(75.0 + 0.06*float64(i)),
+			Kcal:     ip(2100),
+			Steps:    ip(9000),
+		}); err != nil {
+			t.Fatalf("PutDaily: %v", err)
+		}
+	}
+
+	got, err := weeklyActions(ctx, d, weeklyActionsIn{AsOf: "2028-06-30"})
+	if err != nil {
+		t.Fatalf("weeklyActions: %v", err)
+	}
+
+	if got.TDEEKcal == nil {
+		t.Fatalf("TDEEKcal = nil, want 推定できる。Note = %q", got.Note)
+	}
+	// 2100 - (-0.42 × 7700 / 7) = 2562
+	if *got.TDEEKcal < 2550 || *got.TDEEKcal > 2575 {
+		t.Errorf("TDEEKcal = %.0f, want 2562 前後", *got.TDEEKcal)
+	}
+	if got.IntakeKcal == nil || got.ProteinG == nil || got.CarbG == nil {
+		t.Error("推奨摂取と PFC が出ていない")
+	}
+	// 計画の期間内なのでフェーズ名が付く
+	if got.Phase == "" {
+		t.Error("Phase が空")
+	}
+	// 目標どおりに落ちているので停滞にはならない
+	for _, a := range got.Actions {
+		if a.Kind == "weight_plateau" {
+			t.Errorf("停滞を検知している: %s", a.Text)
+		}
+	}
+}
+
+func TestWeeklyActions_計画の期間外(t *testing.T) {
+	t.Parallel()
+	d, _ := fixture(t, true)
+
+	got, err := weeklyActions(t.Context(), d, weeklyActionsIn{AsOf: "2020-01-01"})
+	if err != nil {
+		t.Fatalf("weeklyActions: %v", err)
+	}
+
+	if got.Phase != "" {
+		t.Errorf("Phase = %q, want 空", got.Phase)
+	}
+	if !strings.Contains(got.Note, "期間外") {
+		t.Errorf("Note = %q, want 期間外である旨", got.Note)
+	}
+}
+
+func f32(v float64) *float32 { f := float32(v); return &f }
+func ip(v int) *int          { return &v }
