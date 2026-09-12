@@ -95,11 +95,20 @@ struct DailyMetrics: Codable, Identifiable, Hashable, Sendable {
 }
 
 /// 日次記録の入力。nil は「変更しない」。
+///
+/// HealthKit から入る項目（要件 B-01 / B-09）もここに入れる。
+/// **送らない項目は API 側で変更されない**ので、手入力と自動取得が
+/// 同じ日に混ざっても互いを消さない。
 struct DailyMetricsInput: Codable, Sendable {
     let date: String
     var weightKg: Double?
     var bodyfatPct: Double?
     var fatigue: Int?
+    var steps: Int?
+    var sleepH: Double?
+    var hrvMs: Int?
+    var restingHr: Int?
+    var deepSleepMin: Int?
 }
 
 /// 前回値との差分を表示用の文字列にする（要件 B-03）。

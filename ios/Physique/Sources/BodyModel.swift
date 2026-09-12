@@ -25,8 +25,59 @@ final class BodyModel {
     private(set) var message: String?
     private(set) var isSaving = false
 
-    init(api: APIClient) {
+    /// HealthKit の読み取り口。nil なら取り込みボタンを出さない
+    private let health: HealthSource?
+    /// 最後に取り込んだ日。差分だけ取るために持つ
+    private var lastSynced: String? {
+        get { UserDefaults.standard.string(forKey: "healthLastSynced") }
+        set { UserDefaults.standard.set(newValue, forKey: "healthLastSynced") }
+    }
+
+    var canSyncHealth: Bool { health != nil }
+
+    init(api: APIClient, health: HealthSource? = nil) {
         self.api = api
+        self.health = health
+    }
+
+    /// Apple Health から取り込む（要件 B-01 / B-09）。
+    ///
+    /// **手入力を上書きしない。** 送るのは HealthKit から来た項目だけで、
+    /// 疲労度のような手入力の項目は触らない（API 側で nil は「変更しない」）。
+    func syncHealth(today: String) async {
+        guard let health else { return }
+
+        isSaving = true
+        message = nil
+        defer { isSaving = false }
+
+        do {
+            try await health.requestAuthorization()
+
+            let fromDay = HealthSync.syncFrom(lastSynced: lastSynced, today: today)
+            guard let from = JST.date(from: fromDay), let to = JST.date(from: today) else {
+                message = "日付を解釈できない"
+
+                return
+            }
+
+            var samples: [HealthSample] = []
+            for kind in HealthKind.allCases {
+                // 一部の型だけ許可されないことがある。**そこで全部止めない**
+                samples += (try? await health.samples(for: kind, from: from, to: to)) ?? []
+            }
+
+            let days = HealthSync.toDaily(samples)
+            for day in days {
+                _ = try await api.putDailyMetrics(day)
+            }
+
+            lastSynced = today
+            message = days.isEmpty ? "取り込むものが無かった" : "\(days.count)日分を取り込んだ"
+            await load(date: today)
+        } catch {
+            message = describe(error)
+        }
     }
 
     /// その日の状態を読み込む。

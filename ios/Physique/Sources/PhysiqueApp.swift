@@ -12,7 +12,7 @@ struct PhysiqueApp: App {
             TabView {
                 LogView()
                     .tabItem { Label("記録", systemImage: "dumbbell") }
-                BodyView(api: APIClient(baseURL: AppConfig.apiBaseURL))
+                BodyView(api: APIClient(baseURL: AppConfig.apiBaseURL), health: HealthKitSource())
                     .tabItem { Label("体組成", systemImage: "figure") }
             }
         }

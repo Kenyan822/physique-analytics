@@ -8,14 +8,15 @@ struct BodyView: View {
     @State private var model: BodyModel
     private let date: String
 
-    init(api: APIClient, date: String = JST.dateString()) {
-        _model = State(initialValue: BodyModel(api: api))
+    init(api: APIClient, health: HealthSource? = nil, date: String = JST.dateString()) {
+        _model = State(initialValue: BodyModel(api: api, health: health))
         self.date = date
     }
 
     var body: some View {
         NavigationStack {
             Form {
+                healthSection
                 compositionSection
                 fatigueSection
                 measurementSection
@@ -28,6 +29,24 @@ struct BodyView: View {
             }
             .navigationTitle("体組成 \(date)")
             .task { await model.load(date: date) }
+        }
+    }
+
+    /// Apple Health からの取り込み（要件 B-01 / B-09）。
+    ///
+    /// **自動では取り込まない。** 起動のたびに権限ダイアログが出るのは
+    /// 邪魔だし、いつ何が入ったか分からないまま数字が変わる方が怖い。
+    @ViewBuilder
+    private var healthSection: some View {
+        if model.canSyncHealth {
+            Section {
+                Button(model.isSaving ? "取り込み中…" : "Apple Health から取り込む") {
+                    Task { await model.syncHealth(today: date) }
+                }
+                .disabled(model.isSaving)
+            } footer: {
+                Text("体重・体脂肪率・歩数・睡眠。Watch があれば HRV・安静時心拍・深睡眠も")
+            }
         }
     }
 
