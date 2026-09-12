@@ -17,7 +17,7 @@ let package = Package(
             name: "PhysiqueCore",
             path: "Physique/Sources",
             // UI は SwiftUI で、テスト対象はロジックだけ
-            exclude: ["Info.plist", "PhysiqueApp.swift", "LogView.swift"]
+            exclude: ["Info.plist", "PhysiqueApp.swift", "LogView.swift", "BodyView.swift"]
         ),
         .testTarget(
             name: "PhysiqueCoreTests",

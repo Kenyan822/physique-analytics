@@ -119,6 +119,32 @@ struct APIClient: Sendable {
         )
     }
 
+    // MARK: - 体組成（要件 B-02 / B-03 / B-06）
+
+    func listDailyMetrics(from: String, to: String) async throws -> [DailyMetrics] {
+        struct Response: Decodable { let items: [DailyMetrics] }
+
+        return try await request(
+            Response.self, "GET", "v1/daily",
+            query: [.init(name: "from", value: from), .init(name: "to", value: to)]
+        ).items
+    }
+
+    func putDailyMetrics(_ input: DailyMetricsInput) async throws -> DailyMetrics {
+        try await request(DailyMetrics.self, "PUT", "v1/daily", body: input)
+    }
+
+    /// 直近の周囲長。記録が無ければ nil（初回は無いのが正常）。
+    func latestMeasurement() async throws -> BodyMeasurement? {
+        struct Response: Decodable { let measurement: BodyMeasurement? }
+
+        return try await request(Response.self, "GET", "v1/measurements/latest").measurement
+    }
+
+    func putMeasurement(_ input: BodyMeasurementInput) async throws -> BodyMeasurement {
+        try await request(BodyMeasurement.self, "PUT", "v1/measurements", body: input)
+    }
+
     // MARK: - 内部
 
     private func escape(_ s: String) -> String {
