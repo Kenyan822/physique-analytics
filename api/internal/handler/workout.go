@@ -27,6 +27,9 @@ func (s *Server) ListWorkoutSessions(ctx context.Context, req openapi.ListWorkou
 	if err != nil {
 		return nil, err
 	}
+	if items == nil {
+		items = []openapi.WorkoutSession{}
+	}
 
 	return openapi.ListWorkoutSessions200JSONResponse{Items: items}, nil
 }

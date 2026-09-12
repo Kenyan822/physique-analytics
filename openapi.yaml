@@ -403,6 +403,8 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Template" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
     delete:
       operationId: deleteTemplate
@@ -490,13 +492,7 @@ paths:
                   conflicts:
                     type: array
                     description: サーバ側が新しく、適用されなかったもの
-                    items:
-                      type: object
-                      required: [resource, id, serverUpdatedAt]
-                      properties:
-                        resource: { type: string, enum: [session, set] }
-                        id: { type: string, format: uuid }
-                        serverUpdatedAt: { type: string, format: date-time }
+                    items: { $ref: "#/components/schemas/SyncConflict" }
                   serverTime: { type: string, format: date-time }
 
   /v1/export/csv:
@@ -660,6 +656,20 @@ components:
         - Glutes
         - Calves
         - Abs
+
+    SyncConflict:
+      type: object
+      description: |
+        push で適用されなかった変更。サーバ側の `updatedAt` の方が新しい（ADR-0014）。
+        クライアントは pull し直してから再送する。
+      required: [resource, id, serverUpdatedAt]
+      properties:
+        resource:
+          type: string
+          enum: [session, set]
+          x-enum-varnames: [ConflictSession, ConflictSet]
+        id: { type: string, format: uuid }
+        serverUpdatedAt: { type: string, format: date-time }
 
     Timestamps:
       type: object

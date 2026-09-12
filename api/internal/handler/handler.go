@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -42,6 +43,21 @@ type WorkoutRepository interface {
 	LastPerformance(ctx context.Context, exerciseID uuid.UUID) (repository.LastPerformanceResult, error)
 }
 
+// TemplateRepository はトレーニングテンプレートへのアクセス。
+type TemplateRepository interface {
+	List(ctx context.Context) ([]openapi.Template, error)
+	Get(ctx context.Context, id uuid.UUID) (openapi.Template, error)
+	Create(ctx context.Context, in repository.TemplateInput) (openapi.Template, error)
+	Update(ctx context.Context, id uuid.UUID, in repository.TemplateInput) (openapi.Template, error)
+	SoftDelete(ctx context.Context, id uuid.UUID) error
+}
+
+// SyncRepository はオフライン同期（ADR-0014）。
+type SyncRepository interface {
+	Pull(ctx context.Context, since time.Time) (repository.PullResult, error)
+	Push(ctx context.Context, in repository.PushInput) (repository.PushResult, error)
+}
+
 // Server は openapi.StrictServerInterface の実装。
 // 未実装の操作は埋め込んだ Unimplemented が 501 で受ける。
 type Server struct {
@@ -50,11 +66,19 @@ type Server struct {
 	db        Pinger
 	exercises ExerciseRepository
 	workouts  WorkoutRepository
+	templates TemplateRepository
+	sync      SyncRepository
 }
 
 // New は Server を作る。
-func New(db Pinger, exercises ExerciseRepository, workouts WorkoutRepository) *Server {
-	return &Server{db: db, exercises: exercises, workouts: workouts}
+func New(
+	db Pinger,
+	exercises ExerciseRepository,
+	workouts WorkoutRepository,
+	templates TemplateRepository,
+	sync SyncRepository,
+) *Server {
+	return &Server{db: db, exercises: exercises, workouts: workouts, templates: templates, sync: sync}
 }
 
 // 埋め込みだけでは満たせていない場合にコンパイルで落とす

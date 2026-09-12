@@ -19,6 +19,9 @@ func (s *Server) ListExercises(ctx context.Context, req openapi.ListExercisesReq
 	if err != nil {
 		return nil, err
 	}
+	if items == nil {
+		items = []openapi.Exercise{}
+	}
 
 	return openapi.ListExercises200JSONResponse{Items: items}, nil
 }

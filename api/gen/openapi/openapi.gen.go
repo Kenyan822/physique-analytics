@@ -71,6 +71,24 @@ func (e MuscleGroup) Valid() bool {
 	}
 }
 
+// Defines values for SyncConflictResource.
+const (
+	ConflictSession SyncConflictResource = "session"
+	ConflictSet     SyncConflictResource = "set"
+)
+
+// Valid indicates whether the value is a known member of the SyncConflictResource enum.
+func (e SyncConflictResource) Valid() bool {
+	switch e {
+	case ConflictSession:
+		return true
+	case ConflictSet:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GetHealth200JSONResponseBodyStatus.
 const (
 	Ok GetHealth200JSONResponseBodyStatus = "ok"
@@ -146,24 +164,6 @@ func (e ImportCsvMultipartBodyResource) Valid() bool {
 	}
 }
 
-// Defines values for PushSync200JSONResponseBodyConflictsResource.
-const (
-	Session PushSync200JSONResponseBodyConflictsResource = "session"
-	Set     PushSync200JSONResponseBodyConflictsResource = "set"
-)
-
-// Valid indicates whether the value is a known member of the PushSync200JSONResponseBodyConflictsResource enum.
-func (e PushSync200JSONResponseBodyConflictsResource) Valid() bool {
-	switch e {
-	case Session:
-		return true
-	case Set:
-		return true
-	default:
-		return false
-	}
-}
-
 // Exercise defines model for Exercise.
 type Exercise struct {
 	CreatedAt      time.Time `json:"createdAt"`
@@ -216,6 +216,17 @@ type Problem struct {
 	Title    string  `json:"title"`
 	Type     string  `json:"type"`
 }
+
+// SyncConflict push で適用されなかった変更。サーバ側の `updatedAt` の方が新しい（ADR-0014）。
+// クライアントは pull し直してから再送する。
+type SyncConflict struct {
+	Id              openapi_types.UUID   `json:"id"`
+	Resource        SyncConflictResource `json:"resource"`
+	ServerUpdatedAt time.Time            `json:"serverUpdatedAt"`
+}
+
+// SyncConflictResource defines model for SyncConflict.Resource.
+type SyncConflictResource string
 
 // Template defines model for Template.
 type Template struct {
@@ -421,9 +432,6 @@ type PushSyncJSONBody struct {
 	Sessions *[]WorkoutSessionInput `json:"sessions,omitempty"`
 	Sets     *[]WorkoutSetInput     `json:"sets,omitempty"`
 }
-
-// PushSync200JSONResponseBodyConflictsResource defines parameters for PushSync.
-type PushSync200JSONResponseBodyConflictsResource string
 
 // ListWorkoutSessionsParams defines parameters for ListWorkoutSessions.
 type ListWorkoutSessionsParams struct {
@@ -1867,12 +1875,8 @@ type PushSync200JSONResponse struct {
 	Applied int `json:"applied"`
 
 	// Conflicts サーバ側が新しく、適用されなかったもの
-	Conflicts []struct {
-		Id              openapi_types.UUID                           `json:"id"`
-		Resource        PushSync200JSONResponseBodyConflictsResource `json:"resource"`
-		ServerUpdatedAt time.Time                                    `json:"serverUpdatedAt"`
-	} `json:"conflicts"`
-	ServerTime time.Time `json:"serverTime"`
+	Conflicts  []SyncConflict `json:"conflicts"`
+	ServerTime time.Time      `json:"serverTime"`
 }
 
 func (response PushSync200JSONResponse) VisitPushSyncResponse(w http.ResponseWriter) error {
@@ -2069,6 +2073,38 @@ func (response UpdateTemplate200JSONResponse) VisitUpdateTemplateResponse(w http
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTemplate400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTemplate400ApplicationProblemPlusJSONResponse) VisitUpdateTemplateResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateTemplate404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateTemplate404ApplicationProblemPlusJSONResponse) VisitUpdateTemplateResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
