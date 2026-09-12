@@ -9,7 +9,7 @@ import { ExercisePicker } from "./ExercisePicker";
 import { RestTimer } from "./RestTimer";
 import { clampReps, clampWeight, SetInput, type SetValue } from "./SetInput";
 import { nextRestSeconds } from "./rest";
-import type { LastPerformance, RecordSetResult } from "./actions";
+import type { EditSetResult, LastPerformance, RecordSetResult } from "./actions";
 
 type Props = {
   exercises: Exercise[];
@@ -17,6 +17,7 @@ type Props = {
   /** 種目を選んだときに前回値を引く（要件 T-02） */
   loadLast: (exerciseId: string) => Promise<LastPerformance>;
   recordSet: (input: {
+    id?: string;
     date: string;
     exerciseId: string;
     setNo: number;
@@ -24,22 +25,36 @@ type Props = {
     reps: number;
     rir: number | null;
   }) => Promise<RecordSetResult>;
+  /** 記録したセットを消す（要件 T-10） */
+  deleteSet: (setId: string) => Promise<EditSetResult>;
   date: string;
   /** その日すでに記録してあるセット。画面を開き直しても続きから入力できるようにする */
   recorded: Logged[];
 };
 
 export type Logged = {
+  /** クライアント生成の UUID。削除・修正に使う（要件 T-10） */
+  id: string;
   exerciseId: string;
   setNo: number;
   weightKg: number;
   reps: number;
   rir: number | null;
+  /** サーバに届いているか。未送信のセットは直せない */
+  synced: boolean;
 };
 
 const EMPTY: SetValue = { weightKg: 20, reps: 8, rir: 2 };
 
-export function LogForm({ exercises, templates, loadLast, recordSet, date, recorded }: Props) {
+export function LogForm({
+  exercises,
+  templates,
+  loadLast,
+  recordSet,
+  deleteSet,
+  date,
+  recorded,
+}: Props) {
   const [templateId, setTemplateId] = useState("");
   const [exerciseId, setExerciseId] = useState("");
   const [value, setValue] = useState<SetValue>(EMPTY);
@@ -52,6 +67,7 @@ export function LogForm({ exercises, templates, loadLast, recordSet, date, recor
   // 記録はキューに積んでから送る（要件 T-07）。ジムは電波が悪い
   const send = useCallback(
     async (item: {
+      id: string;
       date: string;
       exerciseId: string;
       setNo: number;
@@ -123,11 +139,15 @@ export function LogForm({ exercises, templates, loadLast, recordSet, date, recor
     setError(null);
 
     const setNo = nextSetNo(exerciseId);
+    // **ID はクライアントで振る。** 再送が冪等になり（要件 T-07）、
+    // 送信を待たずに削除・修正の対象を特定できる（要件 T-10）
+    const id = crypto.randomUUID();
+
     startTransition(async () => {
       // **積んだ時点で記録は確定**。送信の成否は表示で伝えるだけにする。
       // 「失敗したら入力し直し」では電波の悪いジムで使えない
       const res = await record({
-        id: crypto.randomUUID(),
+        id,
         date,
         exerciseId,
         setNo,
@@ -137,9 +157,24 @@ export function LogForm({ exercises, templates, loadLast, recordSet, date, recor
 
       // 記録したら次のセットの入力欄をそのまま開いておく（要件 T-04）。
       // 値は据え置き。次セットも同じ重量で入ることが多い
-      setLogged((prev) => [...prev, { exerciseId, setNo, ...value }]);
+      setLogged((prev) => [...prev, { id, exerciseId, setNo, ...value, synced: res.synced }]);
       setRestStartedAt(Date.now());
       setError(res.synced ? null : (res.message ?? null));
+    });
+  }
+
+  function removeSet(s: Logged) {
+    setError(null);
+    startTransition(async () => {
+      const res = await deleteSet(s.id);
+      if (!res.ok) {
+        setError(res.message);
+
+        return;
+      }
+      // **番号は振り直さない。** 消したセットの番号が空くだけにする。
+      // 振り直すと、既に記録した番号と衝突して入力できなくなる
+      setLogged((prev) => prev.filter((x) => x.id !== s.id));
     });
   }
 
@@ -236,9 +271,21 @@ export function LogForm({ exercises, templates, loadLast, recordSet, date, recor
                   {byId.get(s.exerciseId)?.name ?? "?"}
                   <span className="tnum ml-1.5 text-xs">#{s.setNo}</span>
                 </span>
-                <span className="tnum shrink-0">
-                  {s.weightKg}kg × {s.reps}
-                  {s.rir !== null && <span className="text-muted"> @{s.rir}</span>}
+                <span className="flex shrink-0 items-baseline gap-2">
+                  <span className="tnum">
+                    {s.weightKg}kg × {s.reps}
+                    {s.rir !== null && <span className="text-muted"> @{s.rir}</span>}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeSet(s)}
+                    disabled={pending || !s.synced}
+                    aria-label={`${byId.get(s.exerciseId)?.name ?? ""} ${s.setNo}セット目を削除`}
+                    title={s.synced ? "削除" : "送信が終われば消せる"}
+                    className="pressable rounded-lg px-1.5 text-muted disabled:opacity-30"
+                  >
+                    ×
+                  </button>
                 </span>
               </li>
             ))}
