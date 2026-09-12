@@ -1,0 +1,60 @@
+# ローカル開発用の Postgres。
+# 本番は Supabase（インフラ設計 §5）。ローカルは Docker で同等の環境を用意する。
+#
+#   docker compose up -d
+#   docker compose down          # 停止（データは残る）
+#   docker compose down -v       # 停止してデータも削除
+#
+# name を明示しているのは、Compose が既定でディレクトリ名をプロジェクト名に使うため。
+# ディレクトリ名が日本語等だと "project name must not be empty" で起動できない。
+name: physique-analytics
+
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: physique-db
+    environment:
+      POSTGRES_USER: physique
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: physique
+      # JST で日付を扱う（ADR-0013）。ローカルも本番と揃える
+      TZ: Asia/Tokyo
+      PGTZ: Asia/Tokyo
+    ports:
+      - "5432:5432"
+    volumes:
+      # PostgreSQL 18 以降は /var/lib/postgresql にマウントする。
+      # 17以前の /var/lib/postgresql/data を指定すると起動に失敗する
+      # （18 はメジャーバージョン別のサブディレクトリにデータを置くため）。
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      # API がこれを待ってから起動できるようにする
+      test: ["CMD-SHELL", "pg_isready -U physique -d physique"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # 本番と同じイメージで動作を確認したいときだけ起動する。
+  #   docker compose --profile full up
+  # 通常の開発では `go run ./cmd/server` を使う（ビルド時間を挟まないため）。
+  #
+  # Web(Next.js) はコンテナにしない。Vercel が管理するため。
+  # iOS(Swift) は端末上で動くのでコンテナ化しない。
+  api:
+    profiles: [full]
+    build:
+      context: ./api
+    environment:
+      DATABASE_URL: postgres://physique:dev@db:5432/physique?sslmode=disable
+      PORT: "8080"
+      ENV: local
+      TZ: Asia/Tokyo
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

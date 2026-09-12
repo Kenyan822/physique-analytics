@@ -11,6 +11,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  openapi:
+    # openapi.yaml は型の唯一の正（ADR-0007）。壊れると3言語すべての生成が止まる。
+    name: openapi (spec 検証)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Lint OpenAPI spec
+        run: npx --yes @redocly/cli@latest lint openapi.yaml --format stylish
+
   # 分析ロジックの正は Go（api/internal/analytics）。Phase 1a で追加する。
   # api:
   #   runs-on: ubuntu-latest
