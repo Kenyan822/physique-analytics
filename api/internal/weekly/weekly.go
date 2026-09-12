@@ -26,6 +26,7 @@ const TDEEMinDays = 10
 // PlanReader は計画の設定の読み取り。
 type PlanReader interface {
 	Get(ctx context.Context) (openapi.Plan, error)
+	ListBlocks(ctx context.Context) ([]openapi.PlanBlock, error)
 }
 
 // ContestReader は次の大会の読み取り。
@@ -66,6 +67,11 @@ type Summary struct {
 	Points []analytics.DailyPoint
 	// Nutrition は適用した栄養パラメータ
 	Nutrition analytics.NutritionConfig
+	// Composition は LBM と正規化FFMI（要件 A-06）。体脂肪率が無ければ nil
+	Composition *analytics.CompositionResult
+	// Deviation は月次目標との乖離（要件 A-09）。目標を出せなければ nil
+	Deviation *analytics.Deviation
+
 	// Contest は次の大会と必要ペース（要件 A-10）。無ければ nil
 	Contest *Countdown
 
@@ -132,6 +138,10 @@ func Build(ctx context.Context, d Deps, asof time.Time) (Summary, error) {
 	out.BodyfatPct7dAvg = stat.BodyfatPct7dAvg
 	out.WeightSlopeKgWeek = stat.WeightSlopeKgWeek
 
+	out.withComposition(plan, asof)
+	if err := out.withDeviation(ctx, d, plan, asof); err != nil {
+		return Summary{}, err
+	}
 	if err := out.withContest(ctx, d, asof); err != nil {
 		return Summary{}, err
 	}
@@ -173,6 +183,70 @@ func Build(ctx context.Context, d Deps, asof time.Time) (Summary, error) {
 	return out, nil
 }
 
+// withComposition は LBM と正規化FFMI を足す（要件 A-06）。
+//
+// 体脂肪率か身長が無ければ出さない。**推定値を混ぜない**（体組成計の
+// 誤差は ±3〜5% あり、無い日を埋めると傾きが意味を失う）。
+func (s *Summary) withComposition(plan openapi.Plan, _ time.Time) {
+	if s.WeightKg7dAvg == nil || s.BodyfatPct7dAvg == nil || plan.HeightCm == nil {
+		return
+	}
+
+	if c, ok := analytics.Composition(*s.WeightKg7dAvg, *s.BodyfatPct7dAvg, float64(*plan.HeightCm)); ok {
+		s.Composition = &c
+	}
+}
+
+// withDeviation は月次目標との乖離を足す（要件 A-09）。
+//
+// 起点かブロックが無ければ何もしない。計画を立てていないのは正常な状態。
+func (s *Summary) withDeviation(ctx context.Context, d Deps, plan openapi.Plan, asof time.Time) error {
+	if s.Composition == nil || plan.BaselineWeightKg == nil ||
+		plan.BaselineBodyfatPct == nil || plan.BaselineMonth == nil || plan.HeightCm == nil {
+		return nil
+	}
+
+	blocks, err := d.Plan.ListBlocks(ctx)
+	if err != nil {
+		return err
+	}
+	if len(blocks) == 0 {
+		return nil
+	}
+
+	base := analytics.Baseline{
+		WeightKg:   float64(*plan.BaselineWeightKg),
+		BodyfatPct: float64(*plan.BaselineBodyfatPct),
+		HeightCm:   float64(*plan.HeightCm),
+	}
+	targets := analytics.MonthlyTargets(base, toBlocks(blocks), *plan.BaselineMonth)
+
+	target, ok := analytics.FindMonthlyTarget(targets, asof.Format("2006-01"))
+	if !ok {
+		return nil
+	}
+
+	dev := analytics.PlanDeviation(target, *s.Composition, *s.WeightKg7dAvg, *s.BodyfatPct7dAvg)
+	s.Deviation = &dev
+
+	return nil
+}
+
+// toBlocks は openapi のブロックを analytics が受け取る形にする。
+func toBlocks(blocks []openapi.PlanBlock) []analytics.PlanBlock {
+	out := make([]analytics.PlanBlock, 0, len(blocks))
+	for _, b := range blocks {
+		out = append(out, analytics.PlanBlock{
+			Name:               b.Name,
+			Months:             b.Months,
+			LbmDeltaKgPerMonth: float64(b.LbmDeltaKgPerMonth),
+			BodyfatPctEnd:      float64(b.BodyfatPctEnd),
+		})
+	}
+
+	return out
+}
+
 // withContest は次の大会と必要ペースを足す（要件 A-10）。
 //
 // 大会を登録していなければ何もしない。計画に大会が無いのは正常な状態で、
@@ -205,6 +279,10 @@ func (s *Summary) withContest(ctx context.Context, d Deps, asof time.Time) error
 // ActionContext は停滞検知の文脈（要件 A-08）に渡す形を作る。
 func (s Summary) ActionContext() analytics.ActionContext {
 	ctx := analytics.ActionContext{GoalKgPerWeek: s.GoalKgPerWeek}
+	if s.Deviation != nil && s.Deviation.LbmBehind {
+		ctx.LbmBehindKg = s.Deviation.LbmKg
+		ctx.LbmBehind = true
+	}
 	if s.Contest != nil && s.Contest.Target != nil && s.Contest.Target.TooFast {
 		ctx.ContestPaceTooFast = true
 		ctx.ContestWeeksLeft = s.Contest.WeeksLeft

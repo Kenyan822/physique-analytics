@@ -227,3 +227,24 @@ func TestWeeklyActions_大会のペースは回復の次(t *testing.T) {
 		t.Errorf("2番目 = %v, want contest_pace", kinds[1])
 	}
 }
+
+func TestWeeklyActions_LBMが目標に届いていない(t *testing.T) {
+	t.Parallel()
+
+	got := analytics.WeeklyActions(nil, analytics.ActionContext{
+		GoalKgPerWeek: -0.5,
+		LbmBehind:     true,
+		LbmBehindKg:   -1.4,
+	})
+
+	if len(got) == 0 {
+		t.Fatal("アクションが空")
+	}
+	if got[0].Kind != analytics.ActionLbmBehind {
+		t.Errorf("先頭 = %v, want lbm_behind", got[0].Kind)
+	}
+	// 不足量を出す。「足りない」だけでは判断が変わらない
+	if !strings.Contains(got[0].Text, "1.4kg") {
+		t.Errorf("Text = %q, want 不足量を含む", got[0].Text)
+	}
+}

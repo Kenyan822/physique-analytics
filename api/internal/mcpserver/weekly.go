@@ -46,21 +46,34 @@ type contestOut struct {
 	TooFast        bool     `json:"tooFast"`
 }
 
+type deviationOut struct {
+	Month      string  `json:"month"`
+	Phase      string  `json:"phase"`
+	LbmKg      float64 `json:"lbmKg"`
+	BodyfatPct float64 `json:"bodyfatPct"`
+	WeightKg   float64 `json:"weightKg"`
+	Ffmi       float64 `json:"ffmi"`
+	LbmBehind  bool    `json:"lbmBehind"`
+}
+
 type weeklyActionsOut struct {
-	AsOf          string      `json:"asOf"`
-	Phase         string      `json:"phase,omitempty"`
-	GoalKgPerWeek *float64    `json:"goalKgPerWeek,omitempty"`
-	TDEEKcal      *float64    `json:"tdeeKcal,omitempty"`
-	IntakeKcal    *float64    `json:"intakeKcal,omitempty"`
-	ProteinG      *float64    `json:"proteinG,omitempty"`
-	FatG          *float64    `json:"fatG,omitempty"`
-	CarbG         *float64    `json:"carbG,omitempty"`
-	WeightKg      *float64    `json:"weightKg7dAvg,omitempty"`
-	BodyfatPct    *float64    `json:"bodyfatPct7dAvg,omitempty"`
-	SlopeKgWeek   *float64    `json:"weightSlopeKgPerWeek,omitempty"`
-	Contest       *contestOut `json:"contest,omitempty"`
-	Actions       []actionOut `json:"actions"`
-	Note          string      `json:"note,omitempty"`
+	AsOf          string        `json:"asOf"`
+	Phase         string        `json:"phase,omitempty"`
+	GoalKgPerWeek *float64      `json:"goalKgPerWeek,omitempty"`
+	TDEEKcal      *float64      `json:"tdeeKcal,omitempty"`
+	IntakeKcal    *float64      `json:"intakeKcal,omitempty"`
+	ProteinG      *float64      `json:"proteinG,omitempty"`
+	FatG          *float64      `json:"fatG,omitempty"`
+	CarbG         *float64      `json:"carbG,omitempty"`
+	WeightKg      *float64      `json:"weightKg7dAvg,omitempty"`
+	BodyfatPct    *float64      `json:"bodyfatPct7dAvg,omitempty"`
+	SlopeKgWeek   *float64      `json:"weightSlopeKgPerWeek,omitempty"`
+	LbmKg         *float64      `json:"lbmKg,omitempty"`
+	Ffmi          *float64      `json:"ffmi,omitempty"`
+	Deviation     *deviationOut `json:"deviationFromPlan,omitempty"`
+	Contest       *contestOut   `json:"contest,omitempty"`
+	Actions       []actionOut   `json:"actions"`
+	Note          string        `json:"note,omitempty"`
 }
 
 var priorityLabel = map[analytics.ActionPriority]string{
@@ -74,7 +87,8 @@ func registerWeeklyTools(s *mcp.Server, d Deps) {
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "weekly_actions",
 		Description: "今週のアクション（要件 A-08）。体重トレンドから TDEE を逆算し、" +
-			"推奨摂取と PFC、停滞・回復不足・記録漏れの検知を統合して、優先順位を付けた" +
+			"推奨摂取と PFC、体組成（LBM / 正規化FFMI）、月次目標との乖離、" +
+			"停滞・回復不足・記録漏れの検知を統合して、優先順位を付けた" +
 			"「来週変えること」を返す。**上から順に対処する。** 記録漏れが出ているときは、" +
 			"摂取やボリュームを動かす前に記録を直す。",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in weeklyActionsIn) (*mcp.CallToolResult, weeklyActionsOut, error) {
@@ -120,6 +134,16 @@ func weeklyActions(ctx context.Context, d Deps, in weeklyActionsIn) (weeklyActio
 	out.GoalKgPerWeek = &goal
 	if t := sum.Targets; t != nil {
 		out.IntakeKcal, out.ProteinG, out.FatG, out.CarbG = &t.KcalTarget, &t.ProteinG, &t.FatG, &t.CarbG
+	}
+	if c := sum.Composition; c != nil {
+		out.LbmKg, out.Ffmi = &c.LbmKg, &c.Ffmi
+	}
+	if dv := sum.Deviation; dv != nil {
+		out.Deviation = &deviationOut{
+			Month: dv.Month, Phase: dv.Phase, LbmKg: dv.LbmKg,
+			BodyfatPct: dv.BodyfatPct, WeightKg: dv.WeightKg, Ffmi: dv.Ffmi,
+			LbmBehind: dv.LbmBehind,
+		}
 	}
 	if c := sum.Contest; c != nil {
 		co := &contestOut{

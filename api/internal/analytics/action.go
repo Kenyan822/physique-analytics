@@ -36,6 +36,10 @@ type ActionContext struct {
 	CarbBelowFloor bool
 	CarbTargetG    float64
 
+	// LbmBehind は月次目標に対して LBM が遅れているか（要件 A-09）
+	LbmBehind   bool
+	LbmBehindKg float64
+
 	// ContestPaceTooFast は大会までに必要なペースが安全域を超えたか（要件 A-10）
 	ContestPaceTooFast    bool
 	ContestWeeksLeft      float64
@@ -56,6 +60,7 @@ const (
 	ActionCarbFloor   StallKind = "carb_floor"
 	ActionOnPlan      StallKind = "on_plan"
 	ActionContestPace StallKind = "contest_pace"
+	ActionLbmBehind   StallKind = "lbm_behind"
 )
 
 // priorityOf は種類ごとの優先度。
@@ -69,6 +74,9 @@ func priorityOf(kind StallKind) ActionPriority {
 		return PriorityBlocker
 	case StallHrvDrop, StallRestingHrUp, StallDeepSleepShort, StallFatigue, StallSleepShort,
 		StallStrengthDrop, StallNoStrengthGain:
+		return PriorityRecovery
+	case ActionLbmBehind:
+		// 筋量の遅れは回復かボリュームの問題なので、回復と同じ段に置く
 		return PriorityRecovery
 	case ActionContestPace:
 		// 大会のペースは計画そのものを変える話なので、回復の次に置く
@@ -92,7 +100,8 @@ var order = map[StallKind]int{
 	StallSleepShort:     4,
 	StallStrengthDrop:   5,
 	StallNoStrengthGain: 6,
-	ActionContestPace:   7,
+	ActionLbmBehind:     7,
+	ActionContestPace:   8,
 
 	// 摂取を削る前に消費側を確認する
 	StallStepsDrop:     0,
@@ -121,6 +130,15 @@ func WeeklyActions(ds []Detection, ctx ActionContext) []Action {
 		out = append(out, Action{Kind: kind, Priority: priorityOf(kind), Text: textFor(kind, d, ctx)})
 	}
 
+	if ctx.LbmBehind {
+		out = append(out, Action{
+			Kind:     ActionLbmBehind,
+			Priority: priorityOf(ActionLbmBehind),
+			Text: fmt.Sprintf("月次目標に対して LBM が %.1fkg 足りない。"+
+				"**体重が計画どおりでも中身が筋肉でなければ計画は失敗している。**"+
+				"減量ペースを緩めるか、ボリュームと回復を見直す。", -ctx.LbmBehindKg),
+		})
+	}
 	if ctx.ContestPaceTooFast {
 		out = append(out, Action{
 			Kind:     ActionContestPace,
