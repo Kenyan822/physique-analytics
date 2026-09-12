@@ -556,12 +556,7 @@ paths:
                   skipped: { type: integer }
                   errors:
                     type: array
-                    items:
-                      type: object
-                      required: [line, message]
-                      properties:
-                        line: { type: integer }
-                        message: { type: string }
+                    items: { $ref: "#/components/schemas/ImportError" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
 
 components:
@@ -656,6 +651,18 @@ components:
         - Glutes
         - Calves
         - Abs
+
+    ImportError:
+      type: object
+      description: |
+        取り込めなかった行。**1行のミスで全部止めない**ので、
+        読めた行は取り込んだうえでこれを返す（要件 I-01）。
+      required: [line, message]
+      properties:
+        line:
+          type: integer
+          description: CSV の行番号（ヘッダが1）
+        message: { type: string }
 
     SyncConflict:
       type: object

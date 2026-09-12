@@ -199,6 +199,14 @@ type ExerciseInput struct {
 	Name        string      `json:"name"`
 }
 
+// ImportError 取り込めなかった行。**1行のミスで全部止めない**ので、
+// 読めた行は取り込んだうえでこれを返す（要件 I-01）。
+type ImportError struct {
+	// Line CSV の行番号（ヘッダが1）
+	Line    int    `json:"line"`
+	Message string `json:"message"`
+}
+
 // MuscleGroup 部位。肩は前部/中部/後部、背中は広背筋/僧帽筋に分ける
 type MuscleGroup string
 
@@ -1780,12 +1788,9 @@ type ImportCsvResponseObject interface {
 }
 
 type ImportCsv200JSONResponse struct {
-	Errors []struct {
-		Line    int    `json:"line"`
-		Message string `json:"message"`
-	} `json:"errors"`
-	Imported int `json:"imported"`
-	Skipped  int `json:"skipped"`
+	Errors   []ImportError `json:"errors"`
+	Imported int           `json:"imported"`
+	Skipped  int           `json:"skipped"`
 }
 
 func (response ImportCsv200JSONResponse) VisitImportCsvResponse(w http.ResponseWriter) error {
