@@ -6,6 +6,7 @@ import type { Plan, PlanInput, PlanPhase, VolumeRange } from "@/lib/api/client";
 
 import type { SavePlanResult } from "./actions";
 import { findInvalidPeriod, findOverlap, nextPhaseDefaults, sortPhases } from "./phases";
+import { isMonth, toPlanInput } from "./planInput";
 
 type Props = {
   plan: Plan;
@@ -15,6 +16,11 @@ type Props = {
 
 export function SettingsForm({ plan, today, savePlan }: Props) {
   const [heightCm, setHeightCm] = useState(plan.heightCm?.toString() ?? "");
+  const [baselineWeightKg, setBaselineWeightKg] = useState(plan.baselineWeightKg?.toString() ?? "");
+  const [baselineBodyfatPct, setBaselineBodyfatPct] = useState(
+    plan.baselineBodyfatPct?.toString() ?? "",
+  );
+  const [baselineMonth, setBaselineMonth] = useState(plan.baselineMonth ?? "");
   const [phases, setPhases] = useState<PlanPhase[]>(sortPhases(plan.phases));
   const [nutrition, setNutrition] = useState(plan.nutrition);
   const [ranges, setRanges] = useState<VolumeRange[]>(plan.volumeRanges);
@@ -25,18 +31,23 @@ export function SettingsForm({ plan, today, savePlan }: Props) {
   // 往復してから怒られるより、その場で分かる方が速い
   const overlap = findOverlap(phases);
   const invalid = findInvalidPeriod(phases);
-  const blocked = overlap !== null || invalid !== null;
+  const badMonth = baselineMonth !== "" && !isMonth(baselineMonth);
+  const blocked = overlap !== null || invalid !== null || badMonth;
 
   function submit() {
     setMessage(null);
     startTransition(async () => {
-      const res = await savePlan({
-        heightCm: heightCm.trim() === "" ? null : Number(heightCm),
-        startDate: plan.startDate ?? null,
-        phases: sortPhases(phases),
-        nutrition,
-        volumeRanges: ranges,
-      });
+      const res = await savePlan(
+        toPlanInput(plan, {
+          heightCm,
+          baselineWeightKg,
+          baselineBodyfatPct,
+          baselineMonth,
+          phases: sortPhases(phases),
+          nutrition,
+          volumeRanges: ranges,
+        }),
+      );
       setMessage(res.ok ? { ok: true, text: "保存した" } : { ok: false, text: res.message });
       if (res.ok) setPhases(sortPhases(res.plan.phases));
     });
@@ -60,6 +71,41 @@ export function SettingsForm({ plan, today, savePlan }: Props) {
           />
           <span className="ml-2 text-sm text-muted">cm</span>
         </label>
+      </section>
+
+      {/*
+       * 月次目標の起点（要件 P-02 / P-03）。**ここを画面に出しておかないと
+       * 保存のたびに消える。** PUT /v1/plan はまるごと置き換わるため
+       */}
+      <section className="rounded-2xl border border-line bg-surface p-4">
+        <div className="mb-3 flex items-baseline justify-between gap-2">
+          <h2 className="text-sm font-medium">月次目標の起点</h2>
+          <span className="text-[11px] text-muted">3年計画の出発点</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <TextField
+            label="起点体重"
+            unit="kg"
+            value={baselineWeightKg}
+            onChange={setBaselineWeightKg}
+          />
+          <TextField
+            label="起点体脂肪率"
+            unit="%"
+            value={baselineBodyfatPct}
+            onChange={setBaselineBodyfatPct}
+          />
+          <TextField
+            label="起点月"
+            unit="起点月"
+            width="w-24"
+            placeholder="2026-09"
+            invalid={badMonth}
+            value={baselineMonth}
+            onChange={setBaselineMonth}
+          />
+        </div>
+        {badMonth && <p className="mt-2 text-xs text-danger">起点月は YYYY-MM で入れる</p>}
       </section>
 
       <section className="rounded-2xl border border-line bg-surface p-4">
@@ -331,5 +377,46 @@ function SetsInput({
       onChange={(e) => onChange(Math.round(Number(e.target.value.normalize("NFKC")) || 0))}
       className="tnum h-10 w-12 shrink-0 rounded-lg border border-line bg-surface-2 px-1 text-center outline-none focus:border-accent"
     />
+  );
+}
+
+/**
+ * 入力中の文字列をそのまま持つ数値欄。
+ *
+ * **数値に直しながら持たない。** 「20.」と打った時点で 20 に丸められ、
+ * 続きの小数が打てなくなる。読み取りは保存時にまとめてやる（toPlanInput）。
+ */
+function TextField({
+  label,
+  unit,
+  value,
+  onChange,
+  width = "w-20",
+  placeholder,
+  invalid,
+}: {
+  label: string;
+  unit: string;
+  value: string;
+  onChange: (v: string) => void;
+  width?: string;
+  placeholder?: string;
+  invalid?: boolean;
+}) {
+  return (
+    <label className="flex shrink-0 items-center gap-1.5">
+      <input
+        type="text"
+        inputMode="decimal"
+        aria-label={label}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={`tnum h-10 rounded-lg border bg-surface-2 px-2 text-right outline-none focus:border-accent ${width} ${
+          invalid ? "border-danger" : "border-line"
+        }`}
+      />
+      <span className="text-[11px] text-muted">{unit}</span>
+    </label>
   );
 }
