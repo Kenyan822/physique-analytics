@@ -177,3 +177,31 @@ func TestWeeklyActions_計画の期間外(t *testing.T) {
 
 func f32(v float64) *float32 { f := float32(v); return &f }
 func ip(v int) *int          { return &v }
+
+func TestWeeklyReport_Markdownを返す(t *testing.T) {
+	t.Parallel()
+	d, _ := fixture(t, true)
+
+	got, err := weeklyReport(t.Context(), d, weeklyReportIn{AsOf: "2028-06-15"})
+	if err != nil {
+		t.Fatalf("weeklyReport: %v", err)
+	}
+
+	if got.AsOf != "2028-06-15" {
+		t.Errorf("AsOf = %q", got.AsOf)
+	}
+	for _, want := range []string{"# 週次レポート", "## 1. 体重トレンド", "## 8. 今週のアクション"} {
+		if !strings.Contains(got.Markdown, want) {
+			t.Errorf("%q が無い\n---\n%s", want, got.Markdown)
+		}
+	}
+}
+
+func TestWeeklyReport_フェーズが無ければエラー(t *testing.T) {
+	t.Parallel()
+	d, _ := fixture(t, false)
+
+	if _, err := weeklyReport(t.Context(), d, weeklyReportIn{AsOf: "2028-06-15"}); err == nil {
+		t.Error("エラーにならない")
+	}
+}

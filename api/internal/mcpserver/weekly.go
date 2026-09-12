@@ -91,7 +91,27 @@ var priorityLabel = map[analytics.ActionPriority]string{
 	analytics.PriorityInfo:     "info",
 }
 
+type weeklyReportIn struct {
+	AsOf string `json:"asOf,omitempty" jsonschema:"基準日 YYYY-MM-DD（JST）。省略時は今日"`
+}
+
+type weeklyReportOut struct {
+	AsOf     string `json:"asOf"`
+	Markdown string `json:"markdown"`
+}
+
 func registerWeeklyTools(s *mcp.Server, d Deps) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name: "weekly_report",
+		Description: "週次レポートを Markdown で返す（要件 A-13）。体重トレンド・大会カウントダウン・" +
+			"当月目標との進捗・推定TDEEと推奨摂取・周囲長・今週のアクションを1つの文書にまとめる。" +
+			"**そのまま読ませる用。** 個々の数値を扱うなら weekly_actions を使う。",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in weeklyReportIn) (*mcp.CallToolResult, weeklyReportOut, error) {
+		out, err := weeklyReport(ctx, d, in)
+
+		return nil, out, err
+	})
+
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "weekly_actions",
 		Description: "今週のアクション（要件 A-08）。体重トレンドから TDEE を逆算し、" +
@@ -111,23 +131,8 @@ func weeklyActions(ctx context.Context, d Deps, in weeklyActionsIn) (weeklyActio
 	if err != nil {
 		return weeklyActionsOut{}, err
 	}
-	if d.Plan == nil {
-		return weeklyActionsOut{}, errors.New("計画の設定を読む口が無い（MCP の組み立てを確認する）")
-	}
 
-	// 集計と目標の組み立ては API と共通（internal/weekly）。
-	// 同じ計算を2か所に書くと、片方だけ直したときに値が食い違う
-	deps := weekly.Deps{Plan: d.Plan, Series: d.Analysis}
-	// **nil のポインタを interface に入れない。** 入れると interface 自体は
-	// 非 nil になり、weekly 側の nil チェックをすり抜けて panic する
-	if d.Contests != nil {
-		deps.Contests = d.Contests
-	}
-	if d.Body != nil {
-		deps.Measurements = d.Body
-	}
-
-	sum, err := weekly.Build(ctx, deps, asof)
+	sum, e1rm, err := buildSummary(ctx, d, asof)
 	if err != nil {
 		return weeklyActionsOut{}, err
 	}
@@ -175,11 +180,6 @@ func weeklyActions(ctx context.Context, d Deps, in weeklyActionsIn) (weeklyActio
 			co.PacePctPerWeek, co.TooFast = &t.PacePctPerWeek, t.TooFast
 		}
 		out.Contest = co
-	}
-
-	e1rm, err := worstKeyExerciseSlope(ctx, d, asof)
-	if err != nil {
-		return weeklyActionsOut{}, err
 	}
 
 	stalls := analytics.DetectStalls(analytics.BuildStallInput(sum.Points, asof, goal, e1rm))
@@ -253,4 +253,53 @@ func parseAsOf(s string) (time.Time, error) {
 	}
 
 	return t, nil
+}
+
+func weeklyReport(ctx context.Context, d Deps, in weeklyReportIn) (weeklyReportOut, error) {
+	asof, err := parseAsOf(in.AsOf)
+	if err != nil {
+		return weeklyReportOut{}, err
+	}
+
+	sum, e1rm, err := buildSummary(ctx, d, asof)
+	if err != nil {
+		return weeklyReportOut{}, err
+	}
+
+	stalls := analytics.DetectStalls(analytics.BuildStallInput(sum.Points, asof, sum.GoalKgPerWeek, e1rm))
+
+	return weeklyReportOut{
+		AsOf:     asof.Format(time.DateOnly),
+		Markdown: weekly.Markdown(sum, analytics.WeeklyActions(stalls, sum.ActionContext())),
+	}, nil
+}
+
+// buildSummary は集計と e1RM の傾きをまとめて作る。
+// weekly_actions と weekly_report が同じ入力から出ることを保証する。
+func buildSummary(ctx context.Context, d Deps, asof time.Time) (weekly.Summary, *float64, error) {
+	if d.Plan == nil {
+		return weekly.Summary{}, nil, errors.New("計画の設定を読む口が無い（MCP の組み立てを確認する）")
+	}
+
+	deps := weekly.Deps{Plan: d.Plan, Series: d.Analysis}
+	// **nil のポインタを interface に入れない。** 入れると interface 自体は
+	// 非 nil になり、weekly 側の nil チェックをすり抜けて panic する
+	if d.Contests != nil {
+		deps.Contests = d.Contests
+	}
+	if d.Body != nil {
+		deps.Measurements = d.Body
+	}
+
+	sum, err := weekly.Build(ctx, deps, asof)
+	if err != nil {
+		return weekly.Summary{}, nil, err
+	}
+
+	e1rm, err := worstKeyExerciseSlope(ctx, d, asof)
+	if err != nil {
+		return weekly.Summary{}, nil, err
+	}
+
+	return sum, e1rm, nil
 }

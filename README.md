@@ -61,15 +61,20 @@ cd api && go build -o /tmp/physique-mcp ./cmd/mcp
 claude mcp add physique -- /tmp/physique-mcp
 ```
 
-環境変数は2つ。
+環境変数は `DATABASE_URL`（Postgres の接続文字列）だけ。
 
-| 変数 | 用途 |
+主なツール。
+
+| ツール | 返すもの |
 |---|---|
-| `DATABASE_URL` | Postgres の接続文字列 |
-| `PHYSIQUE_CONFIG` | `config.json` のパス。目標ペースと PFC 係数を読む |
+| `weekly_report` | **週次レポート全文**（Markdown）。そのまま読ませる用 |
+| `weekly_actions` | 同じ内容を構造化して返す。個々の数値を扱うとき |
+| `weekly_volume` | 部位別の週間セット数と MEV/MRV 判定 |
+| `exercise_progress` | 種目の推定1RM の推移と傾き |
+| `query` | 読み取り専用の SQL |
 
-`weekly_actions` ツールが「今週のアクション」を返す。`PHYSIQUE_CONFIG` が
-無くても他のツール（`weekly_volume` / `exercise_progress` / `query`）は動く。
+計画の設定（目標ペース・PFC 係数）は **DB を正**とする（[ADR-0011](docs/adr/0011-go-analytics.md)）。
+`config.json` から移すには `PHYSIQUE_CONFIG=... go run ./cmd/planimport` を一度実行する。
 
 #### Python から（リファレンス実装）
 
