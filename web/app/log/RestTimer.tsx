@@ -31,7 +31,13 @@ export function RestTimer({ seconds, startedAt }: Props) {
   useEffect(() => {
     if (!startedAt || seconds <= 0) return;
 
-    const id = setInterval(() => setNow(Date.now()), 250);
+    // 期限に達したら止める。次のセットを記録するまで restStartedAt は
+    // 残るので、止めないと 250ms ごとの再描画が延々と走り続ける
+    const id = setInterval(() => {
+      const t = Date.now();
+      setNow(t);
+      if (t - startedAt >= seconds * 1000) clearInterval(id);
+    }, 250);
 
     return () => clearInterval(id);
   }, [startedAt, seconds]);

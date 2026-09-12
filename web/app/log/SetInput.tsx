@@ -29,10 +29,16 @@ type Props = {
 
 /**
  * 0.1 + 0.2 が 0.30000000000000004 になるのを消す。
- * 刻みには丸めない。ダンベルもマシンも 2.5kg 刻みとは限らない
+ * 刻みには丸めない。ダンベルもマシンも 2.5kg 刻みとは限らない。
+ *
+ * `v * 100` ではなく文字列で指数をずらしているのは、二進で丸めると
+ * 1.005 が 1.00 になるため（1.005 * 100 は 100.49999… になる）。
+ * 指数表記になる極端な値は桁シフトが NaN になるので、丸めずに返す
  */
 function round2(v: number): number {
-  return Math.round(v * 100) / 100;
+  const shifted = Number(`${v}e2`);
+
+  return Number.isFinite(shifted) ? Number(`${Math.round(shifted)}e-2`) : v;
 }
 
 export function clampWeight(v: number): number {

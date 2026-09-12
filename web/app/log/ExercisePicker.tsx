@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { Exercise, MuscleGroup } from "@/lib/api/client";
 
@@ -19,17 +19,23 @@ type Props = {
  * 長いリストをスクロールすることになる。検索と部位での絞り込みを付け、
  * 候補を数件まで減らしてから選ばせる。
  */
-export function ExercisePicker({
-  exercises,
-  selected,
-  doneCount,
-  onSelect,
-}: Props) {
+export function ExercisePicker({ exercises, selected, doneCount, onSelect }: Props) {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  /*
+   * 閉じたらこのボタンへフォーカスを戻す。シート側で「開く前にどこに
+   * いたか」を退避すると、`autoFocus` が先に走っていて検索欄を拾う
+   */
+  const close = useCallback(() => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }, []);
 
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen(true)}
         className="pressable flex w-full items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-4 text-left"
@@ -37,9 +43,7 @@ export function ExercisePicker({
         <span className="min-w-0">
           <span className="block text-xs text-muted">種目</span>
           {selected ? (
-            <span className="block truncate text-lg font-semibold">
-              {selected.name}
-            </span>
+            <span className="block truncate text-lg font-semibold">{selected.name}</span>
           ) : (
             <span className="block text-lg text-muted">選ぶ</span>
           )}
@@ -53,10 +57,10 @@ export function ExercisePicker({
         <PickerSheet
           exercises={exercises}
           doneCount={doneCount}
-          onClose={() => setOpen(false)}
+          onClose={close}
           onSelect={(id) => {
             onSelect(id);
-            setOpen(false);
+            close();
           }}
         />
       )}
@@ -102,10 +106,35 @@ function PickerSheet({
     });
   }, [exercises, query, group]);
 
-  // 広い画面ではダイアログになるので、Esc と背景クリックで閉じられるようにする
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  /*
+   * Esc で閉じ、Tab を内側に閉じ込める。`aria-modal` はフォーカスを
+   * 拘束しないので、これが無いと Tab で背後の画面へ抜けて戻れなくなる
+   */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
+        'input, button, select, [href], [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable?.length) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
 
@@ -124,7 +153,13 @@ function PickerSheet({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="flex min-h-0 flex-1 flex-col sm:h-[min(36rem,85vh)] sm:w-full sm:max-w-lg sm:flex-none sm:overflow-hidden sm:rounded-3xl sm:border sm:border-line sm:shadow-2xl">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="種目を選ぶ"
+        className="flex min-h-0 flex-1 flex-col sm:h-[min(36rem,85vh)] sm:w-full sm:max-w-lg sm:flex-none sm:overflow-hidden sm:rounded-3xl sm:border sm:border-line sm:shadow-2xl"
+      >
         <div className="flex items-center gap-2 border-b border-line bg-bg px-4 py-3">
           <input
             autoFocus
@@ -147,11 +182,7 @@ function PickerSheet({
             すべて
           </Chip>
           {groups.map((g) => (
-            <Chip
-              key={g}
-              active={group === g}
-              onClick={() => setGroup(group === g ? null : g)}
-            >
+            <Chip key={g} active={group === g} onClick={() => setGroup(group === g ? null : g)}>
               {g}
             </Chip>
           ))}
@@ -159,9 +190,7 @@ function PickerSheet({
 
         <ul className="flex-1 overflow-y-auto bg-bg pb-8">
           {shown.length === 0 && (
-            <li className="px-4 py-8 text-center text-sm text-muted">
-              見つからない
-            </li>
+            <li className="px-4 py-8 text-center text-sm text-muted">見つからない</li>
           )}
           {shown.map((e) => {
             const n = doneCount(e.id);
@@ -175,9 +204,7 @@ function PickerSheet({
                 >
                   <span className="min-w-0">
                     <span className="block truncate text-base">{e.name}</span>
-                    <span className="block text-xs text-muted">
-                      {e.muscleGroup}
-                    </span>
+                    <span className="block text-xs text-muted">{e.muscleGroup}</span>
                   </span>
                   {n > 0 && (
                     <span className="tnum shrink-0 rounded-full bg-accent px-2.5 py-1 text-xs font-semibold text-accent-ink">

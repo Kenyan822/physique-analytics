@@ -39,14 +39,7 @@ export type Logged = {
 
 const EMPTY: SetValue = { weightKg: 20, reps: 8, rir: 2 };
 
-export function LogForm({
-  exercises,
-  templates,
-  loadLast,
-  recordSet,
-  date,
-  recorded,
-}: Props) {
+export function LogForm({ exercises, templates, loadLast, recordSet, date, recorded }: Props) {
   const [templateId, setTemplateId] = useState("");
   const [exerciseId, setExerciseId] = useState("");
   const [value, setValue] = useState<SetValue>(EMPTY);
@@ -68,9 +61,7 @@ export function LogForm({
     }) => {
       const res = await recordSet(item);
 
-      return res.ok
-        ? ({ ok: true } as const)
-        : ({ ok: false, message: res.message } as const);
+      return res.ok ? ({ ok: true } as const) : ({ ok: false, message: res.message } as const);
     },
     [recordSet],
   );
@@ -88,17 +79,14 @@ export function LogForm({
         .filter((e): e is Exercise => e !== undefined)
     : exercises;
 
-  const doneCount = (id: string) =>
-    logged.filter((l) => l.exerciseId === id).length;
+  const doneCount = (id: string) => logged.filter((l) => l.exerciseId === id).length;
 
   /**
    * 次のセット番号。**件数ではなく最大値 + 1** にする。
    * 途中のセットを消したあとに件数で決めると、既存の番号と衝突する
    */
   const nextSetNo = (id: string) =>
-    logged
-      .filter((l) => l.exerciseId === id)
-      .reduce((max, l) => Math.max(max, l.setNo), 0) + 1;
+    logged.filter((l) => l.exerciseId === id).reduce((max, l) => Math.max(max, l.setNo), 0) + 1;
 
   function selectExercise(id: string) {
     setExerciseId(id);
@@ -176,10 +164,7 @@ export function LogForm({
 
         {templates.length > 0 && (
           <div className="flex gap-2 overflow-x-auto">
-            <MenuChip
-              active={templateId === ""}
-              onClick={() => setTemplateId("")}
-            >
+            <MenuChip active={templateId === ""} onClick={() => setTemplateId("")}>
               全種目
             </MenuChip>
             {templates.map((t) => (
@@ -206,9 +191,7 @@ export function LogForm({
         />
 
         {exercise && <LastPerformanceView last={last} pending={pending} />}
-        {exercise && (
-          <SetInput value={value} onChange={setValue} disabled={pending} />
-        )}
+        {exercise && <SetInput value={value} onChange={setValue} disabled={pending} />}
         {exercise && <RestTimer seconds={restSec} startedAt={restStartedAt} />}
 
         {error && (
@@ -240,8 +223,7 @@ export function LogForm({
           <div className="mb-3 flex items-baseline justify-between">
             <h2 className="text-sm font-medium">今日の記録</h2>
             <span className="tnum text-xs text-muted">
-              {logged.length} セット /{" "}
-              {Math.round(todayTonnage).toLocaleString()} kg
+              {logged.length} セット / {Math.round(todayTonnage).toLocaleString()} kg
             </span>
           </div>
           <ul className="flex flex-col gap-1.5">
@@ -256,9 +238,7 @@ export function LogForm({
                 </span>
                 <span className="tnum shrink-0">
                   {s.weightKg}kg × {s.reps}
-                  {s.rir !== null && (
-                    <span className="text-muted"> @{s.rir}</span>
-                  )}
+                  {s.rir !== null && <span className="text-muted"> @{s.rir}</span>}
                 </span>
               </li>
             ))}
@@ -325,9 +305,7 @@ function LastPerformanceView({
         <span className="text-xs text-muted">前回 {last.date}</span>
         {last.estimatedOneRm != null && (
           <span className="tnum text-xs text-muted">
-            推定1RM{" "}
-            <span className="text-ink">{last.estimatedOneRm.toFixed(1)}</span>{" "}
-            kg
+            推定1RM <span className="text-ink">{last.estimatedOneRm.toFixed(1)}</span> kg
           </span>
         )}
       </div>
