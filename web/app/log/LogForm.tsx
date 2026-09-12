@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useCallback, useState, useTransition } from "react";
+
+import { useOfflineQueue } from "@/lib/offline/useOfflineQueue";
 
 import type { Exercise, Template } from "@/lib/api/client";
 
@@ -46,6 +48,24 @@ export function LogForm({ exercises, templates, loadLast, recordSet, date, recor
   const [restStartedAt, setRestStartedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  // 記録はキューに積んでから送る（要件 T-07）。ジムは電波が悪い
+  const send = useCallback(
+    async (item: {
+      date: string;
+      exerciseId: string;
+      setNo: number;
+      weightKg: number;
+      reps: number;
+      rir: number | null;
+    }) => {
+      const res = await recordSet(item);
+
+      return res.ok ? ({ ok: true } as const) : ({ ok: false, message: res.message } as const);
+    },
+    [recordSet],
+  );
+  const { record, pendingCount, online } = useOfflineQueue({ send });
 
   const byId = new Map(exercises.map((e) => [e.id, e]));
   const exercise = byId.get(exerciseId);
@@ -101,15 +121,22 @@ export function LogForm({ exercises, templates, loadLast, recordSet, date, recor
 
     const setNo = nextSetNo(exerciseId);
     startTransition(async () => {
-      const res = await recordSet({ date, exerciseId, setNo, ...value });
-      if (!res.ok) {
-        setError(res.message);
-        return;
-      }
+      // **積んだ時点で記録は確定**。送信の成否は表示で伝えるだけにする。
+      // 「失敗したら入力し直し」では電波の悪いジムで使えない
+      const res = await record({
+        id: crypto.randomUUID(),
+        date,
+        exerciseId,
+        setNo,
+        ...value,
+        queuedAt: Date.now(),
+      });
+
       // 記録したら次のセットの入力欄をそのまま開いておく（要件 T-04）。
       // 値は据え置き。次セットも同じ重量で入ることが多い
       setLogged((prev) => [...prev, { exerciseId, setNo, ...value }]);
       setRestStartedAt(Date.now());
+      setError(res.synced ? null : (res.message ?? null));
     });
   }
 
@@ -117,6 +144,14 @@ export function LogForm({ exercises, templates, loadLast, recordSet, date, recor
 
   return (
     <div className="flex flex-col gap-6">
+      {(!online || pendingCount > 0) && (
+        <p className="rounded-lg bg-amber-100 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          {online
+            ? `未送信 ${pendingCount} 件。送信中…`
+            : `オフライン。記録は端末に残る（未送信 ${pendingCount} 件）`}
+        </p>
+      )}
+
       {templates.length > 0 && (
         <label className="flex flex-col gap-2">
           <span className="text-sm text-gray-600 dark:text-gray-400">メニュー</span>
