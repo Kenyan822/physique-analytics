@@ -11,7 +11,9 @@ name: physique-analytics
 
 services:
   db:
-    image: postgres:18-alpine
+    # 本番（Supabase）が 17 系。ローカルだけ 18 にすると
+    # 「ローカルで通ったのに本番で落ちる」が起きるので揃える（issue #24）
+    image: postgres:17-alpine
     container_name: physique-db
     environment:
       POSTGRES_USER: physique
@@ -23,10 +25,10 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      # PostgreSQL 18 以降は /var/lib/postgresql にマウントする。
-      # 17以前の /var/lib/postgresql/data を指定すると起動に失敗する
-      # （18 はメジャーバージョン別のサブディレクトリにデータを置くため）。
-      - pgdata:/var/lib/postgresql
+      # 17 以前は /var/lib/postgresql/data。
+      # 18 でメジャーバージョン別のサブディレクトリに変わり /var/lib/postgresql になる。
+      # バージョンを上げるときはここも直す。
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       # API がこれを待ってから起動できるようにする
       test: ["CMD-SHELL", "pg_isready -U physique -d physique"]
