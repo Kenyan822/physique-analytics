@@ -21,6 +21,16 @@ var ErrNotFound = errors.New("見つからない")
 // IsNotFound は err が ErrNotFound かを判定する。
 func IsNotFound(err error) bool { return errors.Is(err, ErrNotFound) }
 
+// ErrConflict は一意制約に反することを表す。
+// 種目名の重複がこれにあたる（表記がゆれると時系列が分断されるため弾く）。
+var ErrConflict = errors.New("既に存在する")
+
+// IsConflict は err が ErrConflict かを判定する。
+func IsConflict(err error) bool { return errors.Is(err, ErrConflict) }
+
+// uniqueViolation は Postgres の一意制約違反。
+const uniqueViolation = "23505"
+
 // DBTX は *pgxpool.Pool と pgx.Tx の両方が満たす。
 //
 // テストをトランザクション内で走らせて最後に Rollback するために挟んでいる。
