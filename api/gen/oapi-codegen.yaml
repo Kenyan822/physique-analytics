@@ -8,5 +8,6 @@ generate:
   # strict-server: ハンドラが型付きの request を受け取り型付きの response を返す。
   # 素の http.HandlerFunc と違い、仕様にない形のレスポンスがコンパイルで弾かれる。
   strict-server: true
-  # 生成物に spec 自体を埋め込む。リクエストの仕様適合を実行時に検証する用途で使う。
-  embedded-spec: true
+  # embedded-spec は有効にしない。
+  # 生成物に spec を埋め込むと kin-openapi が本番バイナリにリンクされる。
+  # 実行時のリクエスト検証を入れるまで不要で、入れるときに改めて検討する。
