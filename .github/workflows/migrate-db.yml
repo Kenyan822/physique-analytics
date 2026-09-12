@@ -67,6 +67,11 @@ jobs:
           # 値はログに出さない。形式だけ確認する
           grep -q ':5432/' /tmp/dsn || { echo '::error::session pooler (5432) ではない'; exit 1; }
 
+      # 先に pull しておく。実行時に pull されると進捗出力が
+      # コマンドの出力に混ざり、$GITHUB_OUTPUT の形式を壊す
+      - name: migrate のイメージを取得
+        run: docker pull -q "$MIGRATE_IMAGE"
+
       # 接続文字列は docker の -e で渡し、コンテナ内の sh に展開させる。
       # ホスト側で "$DSN" と書くと GitHub Actions のシェルが先に展開してしまい、
       # 値が docker run の引数（= ps から見える位置）に乗る。
@@ -74,9 +79,11 @@ jobs:
         id: before
         run: |
           export DSN="$(cat /tmp/dsn)"
+          # 未適用のとき migrate は stderr に "error: no migration" を出すので拾う。
+          # 複数行になると $GITHUB_OUTPUT が壊れるため最終行だけにする
           version=$(docker run --rm -v "$PWD/api/migrations:/migrations:ro" \
             -e DSN --entrypoint sh "$MIGRATE_IMAGE" \
-            -c 'migrate -path=/migrations -database="$DSN" version' 2>&1 || true)
+            -c 'migrate -path=/migrations -database="$DSN" version' 2>&1 | tail -1 || true)
           echo "実行前: ${version}"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
@@ -102,7 +109,7 @@ jobs:
           export DSN="$(cat /tmp/dsn)"
           after=$(docker run --rm -v "$PWD/api/migrations:/migrations:ro" \
             -e DSN --entrypoint sh "$MIGRATE_IMAGE" \
-            -c 'migrate -path=/migrations -database="$DSN" version' 2>&1 || true)
+            -c 'migrate -path=/migrations -database="$DSN" version' 2>&1 | tail -1 || true)
           {
             echo "### migrate ${{ inputs.command }}"
             echo ""
