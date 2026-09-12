@@ -69,6 +69,17 @@ type TransferRepository interface {
 	ImportMeasures(ctx context.Context, rows []csvio.MeasureRow, on repository.OnDuplicate) (repository.ImportResult, error)
 }
 
+// BodyRepository は日次記録と周囲長へのアクセス（要件 B-02 / B-03 / B-06）。
+type BodyRepository interface {
+	ListDaily(ctx context.Context, from, to *openapi_types.Date) ([]openapi.DailyMetrics, error)
+	GetDaily(ctx context.Context, date openapi_types.Date) (openapi.DailyMetrics, error)
+	PutDaily(ctx context.Context, in repository.DailyInput) (openapi.DailyMetrics, error)
+	SoftDeleteDaily(ctx context.Context, date openapi_types.Date) error
+	ListMeasurements(ctx context.Context, from, to *openapi_types.Date) ([]openapi.BodyMeasurement, error)
+	PutMeasurement(ctx context.Context, in repository.MeasurementInput) (openapi.BodyMeasurement, error)
+	LatestMeasurement(ctx context.Context) (openapi.BodyMeasurement, error)
+}
+
 // Server は openapi.StrictServerInterface の実装。
 //
 // **openapi.yaml の全操作を実装している。** 仕様に操作を足すと
@@ -82,6 +93,7 @@ type Server struct {
 	templates TemplateRepository
 	sync      SyncRepository
 	transfer  TransferRepository
+	body      BodyRepository
 }
 
 // New は Server を作る。
@@ -92,10 +104,11 @@ func New(
 	templates TemplateRepository,
 	sync SyncRepository,
 	transfer TransferRepository,
+	body BodyRepository,
 ) *Server {
 	return &Server{
 		db: db, exercises: exercises, workouts: workouts,
-		templates: templates, sync: sync, transfer: transfer,
+		templates: templates, sync: sync, transfer: transfer, body: body,
 	}
 }
 

@@ -111,3 +111,71 @@ pgx は既定（`QueryExecModeCacheStatement`）でプリペアドステート�
 
 **低負荷では物理接続が1本しかないので再現しない。** アクセスが増えて
 接続が散った瞬間に壊れる。詳細は `private/learning/postgres-connections.md`。
+
+## 部分インデックスに対する upsert は `on conflict ... where` が要る
+
+```sql
+create unique index daily_metrics_date_unique on daily_metrics (date) where deleted_at is null;
+```
+
+```go
+// 論理削除した行を除いた一意制約なので、where を書かないと
+// 「一致する制約が無い」で落ちる
+const q = `
+	insert into daily_metrics (date, weight_kg) values ($1, $2)
+	on conflict (date) where deleted_at is null do update set ...`
+```
+
+`on conflict (date)` だけでは、Postgres は「`date` 単独の一意制約」を探して
+`there is no unique or exclusion constraint matching the ON CONFLICT specification`
+を返す。**部分インデックスを狙うときは、インデックス定義と同じ `where` を書く。**
+
+論理削除（ADR-0014）と upsert を併用すると必ずこの形になる。
+
+## 「送らなかった項目は変えない」は SQL 側の `coalesce` で表す
+
+```go
+type DailyInput struct {
+	Date     openapi_types.Date
+	WeightKg *float32   // nil は「変更しない」
+	Kcal     *int
+}
+```
+
+```sql
+on conflict (date) where deleted_at is null do update set
+	weight_kg = coalesce(excluded.weight_kg, daily_metrics.weight_kg),
+	kcal      = coalesce(excluded.kcal, daily_metrics.kcal)
+```
+
+`do update set weight_kg = excluded.weight_kg` にすると、送らなかった項目が
+null で潰れる。朝に体重だけ入れて夜に食事を入れると、体重が消える。
+
+**Go 側で「absent」と「null」を区別しようとしない。** `omitempty` の付いた
+`*T` はどちらも nil になり、JSON に key があったかは復元できない
+（区別するには生の `json.RawMessage` を持つか `**T` にする必要がある）。
+そこまでするより、**null を「変更しない」と定義して仕様に書く**方が単純で、
+消したい場合は DELETE を用意すれば足りる。
+
+## `openapi_types.Date` は `time.Time` の埋め込み
+
+```go
+d.Date.Format("2006-01-02")   // ○ 埋め込みのメソッドがそのまま使える
+d.Date.Time.Format(...)       // × staticcheck QF1008 が出る
+
+row.Scan(&d.Date.Time)        // ○ Scan は埋め込みフィールドを直接渡す
+```
+
+メソッド呼び出しは埋め込みのプロモーションで解決されるので `.Time` は要らない。
+一方 `Scan` はポインタで書き込むため、`&d.Date` では `sql.Scanner` の実装が
+無く失敗する。**読むときは省略、書くときは `.Time` を明示**と覚える。
+
+## `min` / `max` は組み込み関数なので引数名に使わない
+
+```go
+func checkInt(v *int, lo, hi int) string   // ○
+func checkInt(v *int, min, max int) string // × revive: redefines-builtin-id
+```
+
+Go 1.21 で `min` / `max` が組み込みになった。シャドウしてもコンパイルは
+通るが、同じ関数の中で組み込みの `min` が呼べなくなる。lint が止める。

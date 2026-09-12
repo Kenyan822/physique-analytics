@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { parseInput, round2 } from "@/lib/number";
+
 /**
  * 重量・レップ・RIR の入力（要件 T-01 / T-03）。
  *
@@ -27,20 +29,6 @@ type Props = {
   disabled?: boolean;
 };
 
-/**
- * 0.1 + 0.2 が 0.30000000000000004 になるのを消す。
- * 刻みには丸めない。ダンベルもマシンも 2.5kg 刻みとは限らない。
- *
- * `v * 100` ではなく文字列で指数をずらしているのは、二進で丸めると
- * 1.005 が 1.00 になるため（1.005 * 100 は 100.49999… になる）。
- * 指数表記になる極端な値は桁シフトが NaN になるので、丸めずに返す
- */
-function round2(v: number): number {
-  const shifted = Number(`${v}e2`);
-
-  return Number.isFinite(shifted) ? Number(`${Math.round(shifted)}e-2`) : v;
-}
-
 export function clampWeight(v: number): number {
   return Math.min(500, Math.max(0, round2(v)));
 }
@@ -51,23 +39,6 @@ export function clampReps(v: number): number {
 
 export function clampRir(v: number): number {
   return Math.min(MAX_RIR, Math.max(0, Math.round(v)));
-}
-
-/**
- * 入力欄の文字列を数値にする。読めなければ `fallback`（＝直前の値）に戻す。
- *
- * NFKC で正規化しているのは、日本語入力のまま打つと全角数字になるため。
- * 弾くと「打てない」に見えるので、読めるものは読む。
- */
-export function parseInput(text: string, fallback: number): number {
-  const normalized = text.normalize("NFKC").trim();
-  if (!/^\d*\.?\d*$/.test(normalized) || normalized === "" || normalized === ".") {
-    return fallback;
-  }
-
-  const n = Number(normalized);
-
-  return Number.isFinite(n) ? n : fallback;
 }
 
 export function SetInput({ value, onChange, disabled }: Props) {

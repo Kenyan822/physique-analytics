@@ -39,6 +39,8 @@ tags:
     description: トレーニング記録
   - name: templates
     description: トレーニングテンプレート
+  - name: body
+    description: 体組成・周囲長
   - name: sync
     description: オフライン同期
   - name: transfer
@@ -412,6 +414,147 @@ paths:
       summary: テンプレートの削除（論理削除）
       responses:
         "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/daily:
+    get:
+      operationId: listDailyMetrics
+      tags: [body]
+      summary: 日次記録の一覧
+      description: |
+        体重・体脂肪率・PFC・回復指標。**1日1行**。
+        分析（TDEE の逆算・正規化FFMI・回復判定）の入力になる。
+      parameters:
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/DailyMetrics" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      operationId: putDailyMetrics
+      tags: [body]
+      summary: 日次記録の登録・更新
+      description: |
+        日付をキーにした upsert。同じ日に何度も書ける
+        （朝に体重、夜に食事、というように分けて入力する）。
+
+        **省略した・null のフィールドは変更しない。** 値を消したいときは
+        その日を DELETE して入れ直す。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DailyMetricsInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DailyMetrics" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/daily/{date}:
+    parameters:
+      - name: date
+        in: path
+        required: true
+        schema: { type: string, format: date }
+        description: JST の日付（ADR-0013）
+    get:
+      operationId: getDailyMetrics
+      tags: [body]
+      summary: 日次記録の取得
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DailyMetrics" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    delete:
+      operationId: deleteDailyMetrics
+      tags: [body]
+      summary: 日次記録の削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/measurements:
+    get:
+      operationId: listMeasurements
+      tags: [body]
+      summary: 周囲長の一覧
+      description: |
+        要件 B-02。**起床直後・食事前・同じメジャー・同じ強さ**で測る
+        （docs/02-データモデル.md）。日中は食事と姿勢でウエストが2〜3cm動く。
+      parameters:
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/BodyMeasurement" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      operationId: putMeasurement
+      tags: [body]
+      summary: 周囲長の登録・更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BodyMeasurementInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BodyMeasurement" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/measurements/latest:
+    get:
+      operationId: getLatestMeasurement
+      tags: [body]
+      summary: 直近の周囲長
+      description: |
+        要件 B-03。**前回値をデフォルト表示するため**に1リクエストで取る。
+        記録が無ければ date が null。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  measurement:
+                    oneOf:
+                      - $ref: "#/components/schemas/BodyMeasurement"
+                      - type: "null"
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   /v1/sync:
@@ -821,6 +964,87 @@ components:
         items:
           type: array
           items: { $ref: "#/components/schemas/TemplateItem" }
+        updatedAt: { type: string, format: date-time }
+
+    DailyMetrics:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, date]
+          properties:
+            id: { type: string, format: uuid }
+            date:
+              type: string
+              format: date
+              description: JST の日付（ADR-0013）。1日1行
+            weightKg: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
+            bodyfatPct: { type: [number, "null"], minimum: 0, maximum: 70 }
+            kcal: { type: [integer, "null"], minimum: 0 }
+            proteinG: { type: [integer, "null"], minimum: 0 }
+            fatG: { type: [integer, "null"], minimum: 0 }
+            carbG: { type: [integer, "null"], minimum: 0 }
+            sleepH: { type: [number, "null"], minimum: 0, maximum: 24 }
+            steps: { type: [integer, "null"], minimum: 0 }
+            fatigue:
+              type: [integer, "null"]
+              minimum: 1
+              maximum: 5
+              description: 主観的な疲労度（要件 B-06）
+            hrvMs: { type: [integer, "null"], exclusiveMinimum: 0 }
+            restingHr: { type: [integer, "null"], exclusiveMinimum: 0, maximum: 200 }
+            deepSleepMin: { type: [integer, "null"], minimum: 0 }
+            note: { type: [string, "null"] }
+
+    DailyMetricsInput:
+      type: object
+      required: [date]
+      properties:
+        date: { type: string, format: date }
+        weightKg: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
+        bodyfatPct: { type: [number, "null"], minimum: 0, maximum: 70 }
+        kcal: { type: [integer, "null"], minimum: 0 }
+        proteinG: { type: [integer, "null"], minimum: 0 }
+        fatG: { type: [integer, "null"], minimum: 0 }
+        carbG: { type: [integer, "null"], minimum: 0 }
+        sleepH: { type: [number, "null"], minimum: 0, maximum: 24 }
+        steps: { type: [integer, "null"], minimum: 0 }
+        fatigue: { type: [integer, "null"], minimum: 1, maximum: 5 }
+        hrvMs: { type: [integer, "null"], exclusiveMinimum: 0 }
+        restingHr: { type: [integer, "null"], exclusiveMinimum: 0, maximum: 200 }
+        deepSleepMin: { type: [integer, "null"], minimum: 0 }
+        note: { type: [string, "null"] }
+        updatedAt: { type: string, format: date-time }
+
+    BodyMeasurement:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, date]
+          properties:
+            id: { type: string, format: uuid }
+            date: { type: string, format: date }
+            neckCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 100 }
+            shoulderCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 200 }
+            chestCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 200 }
+            waistNavelCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 200 }
+            hipCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 200 }
+            armRCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 100 }
+            thighRCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 150 }
+            calfRCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 100 }
+
+    BodyMeasurementInput:
+      type: object
+      required: [date]
+      properties:
+        date: { type: string, format: date }
+        neckCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 100 }
+        shoulderCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 200 }
+        chestCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 200 }
+        waistNavelCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 200 }
+        hipCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 200 }
+        armRCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 100 }
+        thighRCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 150 }
+        calfRCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 100 }
         updatedAt: { type: string, format: date-time }
 
     Problem:

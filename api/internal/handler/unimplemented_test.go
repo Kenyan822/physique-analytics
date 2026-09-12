@@ -14,7 +14,7 @@ func TestRouter_未定義のパスは404(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	srv := handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{},
-		&stubTemplates{}, &stubSync{}, &stubTransfer{}))
+		&stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}))
 	srv.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/unknown", nil))
 
 	if rec.Code != http.StatusNotFound {
@@ -28,7 +28,7 @@ func TestRouter_未定義のメソッドは404(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	srv := handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{},
-		&stubTemplates{}, &stubSync{}, &stubTransfer{}))
+		&stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}))
 	srv.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodDelete, "/v1/exercises", nil))
 
 	if rec.Code != http.StatusNotFound && rec.Code != http.StatusMethodNotAllowed {

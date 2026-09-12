@@ -14,12 +14,15 @@ export type WorkoutSessionInput = components["schemas"]["WorkoutSessionInput"];
 export type WorkoutSet = components["schemas"]["WorkoutSet"];
 export type WorkoutSetInput = components["schemas"]["WorkoutSetInput"];
 export type Template = components["schemas"]["Template"];
+export type DailyMetrics = components["schemas"]["DailyMetrics"];
+export type DailyMetricsInput = components["schemas"]["DailyMetricsInput"];
+export type BodyMeasurement = components["schemas"]["BodyMeasurement"];
+export type BodyMeasurementInput = components["schemas"]["BodyMeasurementInput"];
 export type Problem = components["schemas"]["Problem"];
 
 type ListExercisesQuery = NonNullable<paths["/v1/exercises"]["get"]["parameters"]["query"]>;
-type ListSessionsQuery = NonNullable<
-  paths["/v1/workout-sessions"]["get"]["parameters"]["query"]
->;
+type ListSessionsQuery = NonNullable<paths["/v1/workout-sessions"]["get"]["parameters"]["query"]>;
+type DateRangeQuery = NonNullable<paths["/v1/daily"]["get"]["parameters"]["query"]>;
 type LastPerformance =
   paths["/v1/exercises/{exerciseId}/last-performance"]["get"]["responses"]["200"]["content"]["application/json"];
 
@@ -107,8 +110,7 @@ export function createClient({ baseUrl, token }: ClientOptions) {
     listExercises: (query: ListExercisesQuery) =>
       request<{ items: Exercise[] }>("GET", "/v1/exercises", { query }),
     getExercise: (id: string) => request<Exercise>("GET", `/v1/exercises/${seg(id)}`),
-    createExercise: (body: ExerciseInput) =>
-      request<Exercise>("POST", "/v1/exercises", { body }),
+    createExercise: (body: ExerciseInput) => request<Exercise>("POST", "/v1/exercises", { body }),
     updateExercise: (id: string, body: ExerciseInput) =>
       request<Exercise>("PATCH", `/v1/exercises/${seg(id)}`, { body }),
     deleteExercise: (id: string) => request<void>("DELETE", `/v1/exercises/${seg(id)}`),
@@ -136,6 +138,21 @@ export function createClient({ baseUrl, token }: ClientOptions) {
     deleteWorkoutSet: (setId: string) => request<void>("DELETE", `/v1/workout-sets/${seg(setId)}`),
 
     listTemplates: () => request<{ items: Template[] }>("GET", "/v1/templates"),
+
+    listDailyMetrics: (query: DateRangeQuery) =>
+      request<{ items: DailyMetrics[] }>("GET", "/v1/daily", { query }),
+    getDailyMetrics: (date: string) => request<DailyMetrics>("GET", `/v1/daily/${seg(date)}`),
+    putDailyMetrics: (body: DailyMetricsInput) =>
+      request<DailyMetrics>("PUT", "/v1/daily", { body }),
+    deleteDailyMetrics: (date: string) => request<void>("DELETE", `/v1/daily/${seg(date)}`),
+
+    listMeasurements: (query: DateRangeQuery) =>
+      request<{ items: BodyMeasurement[] }>("GET", "/v1/measurements", { query }),
+    putMeasurement: (body: BodyMeasurementInput) =>
+      request<BodyMeasurement>("PUT", "/v1/measurements", { body }),
+    // 前回値のデフォルト表示（要件 B-03）。記録が無ければ measurement は無い
+    latestMeasurement: () =>
+      request<{ measurement?: BodyMeasurement | null }>("GET", "/v1/measurements/latest"),
   };
 }
 

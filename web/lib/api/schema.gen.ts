@@ -213,6 +213,99 @@ export interface paths {
         patch: operations["updateTemplate"];
         trace?: never;
     };
+    "/v1/daily": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 日次記録の一覧
+         * @description 体重・体脂肪率・PFC・回復指標。**1日1行**。
+         *     分析（TDEE の逆算・正規化FFMI・回復判定）の入力になる。
+         */
+        get: operations["listDailyMetrics"];
+        /**
+         * 日次記録の登録・更新
+         * @description 日付をキーにした upsert。同じ日に何度も書ける
+         *     （朝に体重、夜に食事、というように分けて入力する）。
+         *
+         *     **省略した・null のフィールドは変更しない。** 値を消したいときは
+         *     その日を DELETE して入れ直す。
+         */
+        put: operations["putDailyMetrics"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/daily/{date}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description JST の日付（ADR-0013） */
+                date: string;
+            };
+            cookie?: never;
+        };
+        /** 日次記録の取得 */
+        get: operations["getDailyMetrics"];
+        put?: never;
+        post?: never;
+        /** 日次記録の削除（論理削除） */
+        delete: operations["deleteDailyMetrics"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/measurements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 周囲長の一覧
+         * @description 要件 B-02。**起床直後・食事前・同じメジャー・同じ強さ**で測る
+         *     （docs/02-データモデル.md）。日中は食事と姿勢でウエストが2〜3cm動く。
+         */
+        get: operations["listMeasurements"];
+        /** 周囲長の登録・更新 */
+        put: operations["putMeasurement"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/measurements/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 直近の周囲長
+         * @description 要件 B-03。**前回値をデフォルト表示するため**に1リクエストで取る。
+         *     記録が無ければ date が null。
+         */
+        get: operations["getLatestMeasurement"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sync": {
         parameters: {
             query?: never;
@@ -433,6 +526,76 @@ export interface components {
             id?: string;
             name: string;
             items: components["schemas"]["TemplateItem"][];
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        DailyMetrics: components["schemas"]["Timestamps"] & {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: date
+             * @description JST の日付（ADR-0013）。1日1行
+             */
+            date: string;
+            weightKg?: number | null;
+            bodyfatPct?: number | null;
+            kcal?: number | null;
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
+            sleepH?: number | null;
+            steps?: number | null;
+            /** @description 主観的な疲労度（要件 B-06） */
+            fatigue?: number | null;
+            hrvMs?: number | null;
+            restingHr?: number | null;
+            deepSleepMin?: number | null;
+            note?: string | null;
+        };
+        DailyMetricsInput: {
+            /** Format: date */
+            date: string;
+            weightKg?: number | null;
+            bodyfatPct?: number | null;
+            kcal?: number | null;
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
+            sleepH?: number | null;
+            steps?: number | null;
+            fatigue?: number | null;
+            hrvMs?: number | null;
+            restingHr?: number | null;
+            deepSleepMin?: number | null;
+            note?: string | null;
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        BodyMeasurement: components["schemas"]["Timestamps"] & {
+            /** Format: uuid */
+            id: string;
+            /** Format: date */
+            date: string;
+            neckCm?: number | null;
+            shoulderCm?: number | null;
+            chestCm?: number | null;
+            waistNavelCm?: number | null;
+            hipCm?: number | null;
+            armRCm?: number | null;
+            thighRCm?: number | null;
+            calfRCm?: number | null;
+        };
+        BodyMeasurementInput: {
+            /** Format: date */
+            date: string;
+            neckCm?: number | null;
+            shoulderCm?: number | null;
+            chestCm?: number | null;
+            waistNavelCm?: number | null;
+            hipCm?: number | null;
+            armRCm?: number | null;
+            thighRCm?: number | null;
+            calfRCm?: number | null;
             /** Format: date-time */
             updatedAt?: string;
         };
@@ -1068,6 +1231,184 @@ export interface operations {
             400: components["responses"]["BadRequest"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    listDailyMetrics: {
+        parameters: {
+            query?: {
+                /** @description JST の日付（ADR-0013） */
+                from?: components["parameters"]["DateFrom"];
+                to?: components["parameters"]["DateTo"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["DailyMetrics"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    putDailyMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DailyMetricsInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyMetrics"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getDailyMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description JST の日付（ADR-0013） */
+                date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyMetrics"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteDailyMetrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description JST の日付（ADR-0013） */
+                date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 削除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listMeasurements: {
+        parameters: {
+            query?: {
+                /** @description JST の日付（ADR-0013） */
+                from?: components["parameters"]["DateFrom"];
+                to?: components["parameters"]["DateTo"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["BodyMeasurement"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    putMeasurement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BodyMeasurementInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BodyMeasurement"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getLatestMeasurement: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        measurement?: components["schemas"]["BodyMeasurement"] | null;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     pullSync: {

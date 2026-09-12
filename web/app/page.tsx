@@ -31,12 +31,20 @@ export default async function Home() {
     <main className="mx-auto w-full max-w-md md:max-w-3xl xl:max-w-5xl">
       <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-bg/95 px-4 py-3 backdrop-blur md:px-6 md:py-4">
         <h1 className="text-lg font-semibold md:text-xl">{formatJstDate(date)}</h1>
-        <Link
-          href="/log"
-          className="pressable rounded-full bg-accent px-4 py-2 text-sm font-bold text-accent-ink"
-        >
-          記録する
-        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          <Link
+            href="/body"
+            className="pressable rounded-full border border-line px-3 py-2 text-sm text-muted"
+          >
+            体組成
+          </Link>
+          <Link
+            href="/log"
+            className="pressable rounded-full bg-accent px-4 py-2 text-sm font-bold text-accent-ink"
+          >
+            記録する
+          </Link>
+        </div>
       </header>
 
       <div className="flex flex-col gap-4 p-4 md:gap-6 md:p-6">
