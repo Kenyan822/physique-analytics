@@ -94,3 +94,42 @@ missing := float64(max(in.MissingKcalDays, in.MissingWeightDays))
 
 Go 1.21 から `min` / `max` が組み込みで、順序付きの型なら何でも使える。
 `math.Max` は `float64` 専用なので、int の比較に使うとキャストが増える。
+
+## 並べ替えは `slices.SortStableFunc` と「順序表」で書く
+
+```go
+var order = map[StallKind]int{
+	StallMissingRecords: 0,
+	StallHrvDrop:        0,
+	StallStepsDrop:      0,
+}
+
+slices.SortStableFunc(out, func(a, b Action) int {
+	if a.Priority != b.Priority {
+		return int(a.Priority) - int(b.Priority)
+	}
+
+	return order[a.Kind] - order[b.Kind]
+})
+```
+
+比較関数は `bool` ではなく **3値の int**（負/0/正）を返す。`sort.Slice` の
+`less func(i, j int) bool` とはシグネチャが違うので混ぜない。
+
+`SortStableFunc` にしているのは、順序表に無い種類（`order[k]` が 0 になる）が
+複数あっても、入力順が保たれて出力が安定するため。`SortFunc` だと
+同点の並びが実行ごとに変わり、テストが不安定になる。
+
+## `iota` で優先度を作ると「小さいほど高い」が型で表せる
+
+```go
+const (
+	PriorityBlocker ActionPriority = iota
+	PriorityRecovery
+	PriorityAdjust
+	PriorityInfo
+)
+```
+
+数値の大小がそのまま並び順になるので、比較関数に変換表を持たなくて済む。
+定義の順序が仕様（記録 → 回復 → 調整）そのものになる点も読みやすい。
