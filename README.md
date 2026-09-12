@@ -176,6 +176,7 @@ Python 実装は移植後も破棄せず `reference/` に残す。**Go の分析
 | [0012](docs/adr/0012-terraform.md) | インフラを Terraform で管理する |
 | [0013](docs/adr/0013-timezone-jst.md) | 日付は JST 固定で扱う |
 | [0014](docs/adr/0014-sync-conflict-resolution.md) | 同期の競合は Last Write Wins + 論理削除で解決する |
+| [0015](docs/adr/0015-plan-settings-in-db.md) | 計画の設定は DB を正とする |
 
 0005 は「作らない決定」の記録。精度の低いデータをデータストアに持ち込まないことを優先している。
 

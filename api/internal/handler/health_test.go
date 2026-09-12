@@ -22,7 +22,7 @@ func (p stubPinger) Ping(context.Context) error { return p.err }
 // openapi.yaml から生成された配線をそのまま通す。
 func newTestServer(t *testing.T, p handler.Pinger) http.Handler {
 	t.Helper()
-	return handler.NewRouter(handler.New(p, &stubExercises{}, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}, &stubContests{}))
+	return handler.NewRouter(handler.New(p, &stubExercises{}, &stubWorkouts{}, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}, &stubContests{}, &stubBlood{}))
 }
 
 func TestGetHealth_DBが応答すれば200を返す(t *testing.T) {

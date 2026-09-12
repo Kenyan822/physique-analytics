@@ -131,6 +131,30 @@ func (e MuscleGroup) Valid() bool {
 	}
 }
 
+// Defines values for RefFlag.
+const (
+	RefHigh    RefFlag = "high"
+	RefLow     RefFlag = "low"
+	RefNormal  RefFlag = "normal"
+	RefUnknown RefFlag = "unknown"
+)
+
+// Valid indicates whether the value is a known member of the RefFlag enum.
+func (e RefFlag) Valid() bool {
+	switch e {
+	case RefHigh:
+		return true
+	case RefLow:
+		return true
+	case RefNormal:
+		return true
+	case RefUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SyncConflictResource.
 const (
 	ConflictSession SyncConflictResource = "session"
@@ -240,6 +264,55 @@ func (e GetMonthlyTargetsParamsBaseline) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// BloodTest defines model for BloodTest.
+type BloodTest struct {
+	Clinic    *string   `json:"clinic,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Date 採血日（JST。ADR-0013）
+	Date openapi_types.Date `json:"date"`
+
+	// DeletedAt 論理削除。物理削除しない（ADR-0014）
+	DeletedAt *time.Time         `json:"deletedAt,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+	Items     []BloodTestItem    `json:"items"`
+	Note      *string            `json:"note,omitempty"`
+
+	// OutOfRangeCount 基準外の項目数。まずここを見る
+	OutOfRangeCount *int `json:"outOfRangeCount,omitempty"`
+
+	// UpdatedAt 競合解決に使う（ADR-0014）
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// BloodTestInput defines model for BloodTestInput.
+type BloodTestInput struct {
+	Clinic *string            `json:"clinic,omitempty"`
+	Date   openapi_types.Date `json:"date"`
+	Items  []BloodTestItem    `json:"items"`
+	Note   *string            `json:"note,omitempty"`
+}
+
+// BloodTestItem defines model for BloodTestItem.
+type BloodTestItem struct {
+	// Flag サーバが値と基準範囲から判定して返す（入力では無視される）
+	Flag *RefFlag `json:"flag,omitempty"`
+
+	// Name Examples: ヘモグロビン
+	Name    string   `json:"name"`
+	RefHigh *float32 `json:"refHigh,omitempty"`
+
+	// RefLow 基準範囲の下限。**検査票に書いてある値を入れる**
+	RefLow    *float32 `json:"refLow,omitempty"`
+	TextValue *string  `json:"textValue,omitempty"`
+
+	// Unit Examples: g/dL
+	Unit *string `json:"unit,omitempty"`
+
+	// Value 数値で入らない項目（「陰性」など）は null にして textValue を使う
+	Value *float32 `json:"value,omitempty"`
 }
 
 // BodyMeasurement defines model for BodyMeasurement.
@@ -674,6 +747,10 @@ type Problem struct {
 	Type     string  `json:"type"`
 }
 
+// RefFlag 基準範囲に対する位置。**基準が無ければ unknown**。
+// 検査票に書いていない基準を勝手に当てて「異常」と言わない。
+type RefFlag string
+
 // SyncConflict push で適用されなかった変更。サーバ側の `updatedAt` の方が新しい（ADR-0014）。
 // クライアントは pull し直してから再送する。
 type SyncConflict struct {
@@ -974,6 +1051,12 @@ type UpdateWorkoutSessionJSONBody struct {
 	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
 }
 
+// CreateBloodTestJSONRequestBody defines body for CreateBloodTest for application/json ContentType.
+type CreateBloodTestJSONRequestBody = BloodTestInput
+
+// UpdateBloodTestJSONRequestBody defines body for UpdateBloodTest for application/json ContentType.
+type UpdateBloodTestJSONRequestBody = BloodTestInput
+
 // CreateContestJSONRequestBody defines body for CreateContest for application/json ContentType.
 type CreateContestJSONRequestBody = ContestInput
 
@@ -1045,6 +1128,18 @@ type ServerInterface interface {
 	// GetHealth ヘルスチェック
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// ListBloodTests 血液検査の一覧
+	// (GET /v1/blood-tests)
+	ListBloodTests(w http.ResponseWriter, r *http.Request)
+	// CreateBloodTest 血液検査の登録
+	// (POST /v1/blood-tests)
+	CreateBloodTest(w http.ResponseWriter, r *http.Request)
+	// DeleteBloodTest 血液検査の削除（論理削除）
+	// (DELETE /v1/blood-tests/{bloodTestId})
+	DeleteBloodTest(w http.ResponseWriter, r *http.Request, bloodTestId openapi_types.UUID)
+	// UpdateBloodTest 血液検査の更新
+	// (PUT /v1/blood-tests/{bloodTestId})
+	UpdateBloodTest(w http.ResponseWriter, r *http.Request, bloodTestId openapi_types.UUID)
 	// ListContests 大会の一覧
 	// (GET /v1/contests)
 	ListContests(w http.ResponseWriter, r *http.Request)
@@ -1214,6 +1309,86 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListBloodTests operation middleware
+func (siw *ServerInterfaceWrapper) ListBloodTests(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBloodTests(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateBloodTest operation middleware
+func (siw *ServerInterfaceWrapper) CreateBloodTest(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateBloodTest(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteBloodTest operation middleware
+func (siw *ServerInterfaceWrapper) DeleteBloodTest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "bloodTestId" -------------
+	var bloodTestId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "bloodTestId", r.PathValue("bloodTestId"), &bloodTestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bloodTestId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteBloodTest(w, r, bloodTestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateBloodTest operation middleware
+func (siw *ServerInterfaceWrapper) UpdateBloodTest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "bloodTestId" -------------
+	var bloodTestId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "bloodTestId", r.PathValue("bloodTestId"), &bloodTestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bloodTestId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateBloodTest(w, r, bloodTestId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2673,6 +2848,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/meal-sets/{mealSetId}", wrapper.UpdateMealSet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/meal-sets/{mealSetId}/apply", wrapper.ApplyMealSet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/targets/{date}", wrapper.GetDailyTargets)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/blood-tests", wrapper.ListBloodTests)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/blood-tests", wrapper.CreateBloodTest)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/blood-tests/{bloodTestId}", wrapper.DeleteBloodTest)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/blood-tests/{bloodTestId}", wrapper.UpdateBloodTest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/contests", wrapper.ListContests)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/contests", wrapper.CreateContest)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/contests/{contestId}", wrapper.DeleteContest)
@@ -2738,6 +2917,250 @@ func (response GetHealth503ApplicationProblemPlusJSONResponse) VisitGetHealthRes
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBloodTestsRequestObject struct {
+}
+
+type ListBloodTestsResponseObject interface {
+	VisitListBloodTestsResponse(w http.ResponseWriter) error
+}
+
+type ListBloodTests200JSONResponse struct {
+	Items []BloodTest `json:"items"`
+}
+
+func (response ListBloodTests200JSONResponse) VisitListBloodTestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBloodTests401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListBloodTests401ApplicationProblemPlusJSONResponse) VisitListBloodTestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateBloodTestRequestObject struct {
+	Body *CreateBloodTestJSONRequestBody
+}
+
+type CreateBloodTestResponseObject interface {
+	VisitCreateBloodTestResponse(w http.ResponseWriter) error
+}
+
+type CreateBloodTest201JSONResponse BloodTest
+
+func (response CreateBloodTest201JSONResponse) VisitCreateBloodTestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateBloodTest400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateBloodTest400ApplicationProblemPlusJSONResponse) VisitCreateBloodTestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateBloodTest401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateBloodTest401ApplicationProblemPlusJSONResponse) VisitCreateBloodTestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateBloodTest409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateBloodTest409ApplicationProblemPlusJSONResponse) VisitCreateBloodTestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateBloodTest422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateBloodTest422ApplicationProblemPlusJSONResponse) VisitCreateBloodTestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteBloodTestRequestObject struct {
+	BloodTestId openapi_types.UUID `json:"bloodTestId"`
+}
+
+type DeleteBloodTestResponseObject interface {
+	VisitDeleteBloodTestResponse(w http.ResponseWriter) error
+}
+
+type DeleteBloodTest204Response struct {
+}
+
+func (response DeleteBloodTest204Response) VisitDeleteBloodTestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteBloodTest401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteBloodTest401ApplicationProblemPlusJSONResponse) VisitDeleteBloodTestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteBloodTest404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteBloodTest404ApplicationProblemPlusJSONResponse) VisitDeleteBloodTestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateBloodTestRequestObject struct {
+	BloodTestId openapi_types.UUID `json:"bloodTestId"`
+	Body        *UpdateBloodTestJSONRequestBody
+}
+
+type UpdateBloodTestResponseObject interface {
+	VisitUpdateBloodTestResponse(w http.ResponseWriter) error
+}
+
+type UpdateBloodTest200JSONResponse BloodTest
+
+func (response UpdateBloodTest200JSONResponse) VisitUpdateBloodTestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateBloodTest401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateBloodTest401ApplicationProblemPlusJSONResponse) VisitUpdateBloodTestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateBloodTest404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateBloodTest404ApplicationProblemPlusJSONResponse) VisitUpdateBloodTestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateBloodTest422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateBloodTest422ApplicationProblemPlusJSONResponse) VisitUpdateBloodTestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5374,6 +5797,18 @@ type StrictServerInterface interface {
 	// GetHealth ヘルスチェック
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// ListBloodTests 血液検査の一覧
+	// (GET /v1/blood-tests)
+	ListBloodTests(ctx context.Context, request ListBloodTestsRequestObject) (ListBloodTestsResponseObject, error)
+	// CreateBloodTest 血液検査の登録
+	// (POST /v1/blood-tests)
+	CreateBloodTest(ctx context.Context, request CreateBloodTestRequestObject) (CreateBloodTestResponseObject, error)
+	// DeleteBloodTest 血液検査の削除（論理削除）
+	// (DELETE /v1/blood-tests/{bloodTestId})
+	DeleteBloodTest(ctx context.Context, request DeleteBloodTestRequestObject) (DeleteBloodTestResponseObject, error)
+	// UpdateBloodTest 血液検査の更新
+	// (PUT /v1/blood-tests/{bloodTestId})
+	UpdateBloodTest(ctx context.Context, request UpdateBloodTestRequestObject) (UpdateBloodTestResponseObject, error)
 	// ListContests 大会の一覧
 	// (GET /v1/contests)
 	ListContests(ctx context.Context, request ListContestsRequestObject) (ListContestsResponseObject, error)
@@ -5585,6 +6020,120 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetHealthResponseObject); ok {
 		if err := validResponse.VisitGetHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListBloodTests operation middleware
+func (sh *strictHandler) ListBloodTests(w http.ResponseWriter, r *http.Request) {
+	var request ListBloodTestsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListBloodTests(ctx, request.(ListBloodTestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListBloodTests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListBloodTestsResponseObject); ok {
+		if err := validResponse.VisitListBloodTestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateBloodTest operation middleware
+func (sh *strictHandler) CreateBloodTest(w http.ResponseWriter, r *http.Request) {
+	var request CreateBloodTestRequestObject
+
+	var body CreateBloodTestJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateBloodTest(ctx, request.(CreateBloodTestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateBloodTest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateBloodTestResponseObject); ok {
+		if err := validResponse.VisitCreateBloodTestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteBloodTest operation middleware
+func (sh *strictHandler) DeleteBloodTest(w http.ResponseWriter, r *http.Request, bloodTestId openapi_types.UUID) {
+	var request DeleteBloodTestRequestObject
+
+	request.BloodTestId = bloodTestId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteBloodTest(ctx, request.(DeleteBloodTestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteBloodTest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteBloodTestResponseObject); ok {
+		if err := validResponse.VisitDeleteBloodTestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateBloodTest operation middleware
+func (sh *strictHandler) UpdateBloodTest(w http.ResponseWriter, r *http.Request, bloodTestId openapi_types.UUID) {
+	var request UpdateBloodTestRequestObject
+
+	request.BloodTestId = bloodTestId
+
+	var body UpdateBloodTestJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateBloodTest(ctx, request.(UpdateBloodTestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateBloodTest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateBloodTestResponseObject); ok {
+		if err := validResponse.VisitUpdateBloodTestResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -37,7 +37,7 @@ func (s *stubPlan) PutBlocks(_ context.Context, blocks []openapi.PlanBlock) ([]o
 
 func planServer(p *stubPlan) http.Handler {
 	return handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{},
-		&stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, p, &stubSeries{}, &stubMealSets{}, &stubContests{}))
+		&stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, p, &stubSeries{}, &stubMealSets{}, &stubContests{}, &stubBlood{}))
 }
 
 func validPlan() map[string]any {

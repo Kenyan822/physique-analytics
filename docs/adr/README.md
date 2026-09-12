@@ -25,5 +25,6 @@
 | [0012](0012-terraform.md) | **インフラを Terraform で管理する** | Accepted |
 | [0013](0013-timezone-jst.md) | **日付は JST 固定で扱う** | Accepted |
 | [0014](0014-sync-conflict-resolution.md) | **同期の競合は LWW + 論理削除で解決する** | Accepted |
+| [0015](0015-plan-settings-in-db.md) | 計画の設定は DB を正とする | Accepted |
 
 形式は [Michael Nygard の ADR](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions) に準拠する。

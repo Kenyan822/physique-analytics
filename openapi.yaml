@@ -841,6 +841,81 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
 
+  /v1/blood-tests:
+    get:
+      operationId: listBloodTests
+      tags: [body]
+      summary: 血液検査の一覧
+      description: |
+        要件 B-08。年2回の検査結果。**検査項目を固定しない**（クリニックや
+        パネルによって違う）。検査票の表をそのまま写せる形で持つ。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/BloodTest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createBloodTest
+      tags: [body]
+      summary: 血液検査の登録
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BloodTestInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BloodTest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/blood-tests/{bloodTestId}:
+    parameters:
+      - name: bloodTestId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: updateBloodTest
+      tags: [body]
+      summary: 血液検査の更新
+      description: 項目は全入れ替え。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BloodTestInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BloodTest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      operationId: deleteBloodTest
+      tags: [body]
+      summary: 血液検査の削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/contests:
     get:
       operationId: listContests
@@ -1852,6 +1927,68 @@ components:
           type: array
           items: { $ref: "#/components/schemas/MonthlyTarget" }
         note: { type: [string, "null"] }
+
+    RefFlag:
+      type: string
+      description: |
+        基準範囲に対する位置。**基準が無ければ unknown**。
+        検査票に書いていない基準を勝手に当てて「異常」と言わない。
+      enum: [normal, low, high, unknown]
+      x-enum-varnames: [RefNormal, RefLow, RefHigh, RefUnknown]
+
+    BloodTestItem:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100, examples: [ヘモグロビン] }
+        value:
+          type: [number, "null"]
+          description: 数値で入らない項目（「陰性」など）は null にして textValue を使う
+        textValue: { type: [string, "null"], maxLength: 50 }
+        unit: { type: [string, "null"], maxLength: 30, examples: [g/dL] }
+        refLow:
+          type: [number, "null"]
+          description: 基準範囲の下限。**検査票に書いてある値を入れる**
+        refHigh: { type: [number, "null"] }
+        flag:
+          allOf:
+            - $ref: "#/components/schemas/RefFlag"
+          description: サーバが値と基準範囲から判定して返す（入力では無視される）
+          readOnly: true
+
+    BloodTest:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, date, items]
+          properties:
+            id: { type: string, format: uuid }
+            date:
+              type: string
+              format: date
+              description: 採血日（JST。ADR-0013）
+            clinic: { type: [string, "null"], maxLength: 100 }
+            note: { type: [string, "null"], maxLength: 1000 }
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/BloodTestItem" }
+            outOfRangeCount:
+              type: integer
+              description: 基準外の項目数。まずここを見る
+              readOnly: true
+
+    BloodTestInput:
+      type: object
+      required: [date, items]
+      properties:
+        date: { type: string, format: date }
+        clinic: { type: [string, "null"], maxLength: 100 }
+        note: { type: [string, "null"], maxLength: 1000 }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: { $ref: "#/components/schemas/BloodTestItem" }
 
     Problem:
       type: object

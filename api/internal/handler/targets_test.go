@@ -45,7 +45,7 @@ func series(n int, asof string, weight, kcal float64) []analytics.DailyPoint {
 
 func targetsServer(p *stubPlan, s *stubSeries, m *stubMeals) http.Handler {
 	return handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{},
-		&stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, m, p, s, &stubMealSets{}, &stubContests{}))
+		&stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, m, p, s, &stubMealSets{}, &stubContests{}, &stubBlood{}))
 }
 
 func planWithPhase() openapi.Plan {

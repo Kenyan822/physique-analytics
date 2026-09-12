@@ -63,6 +63,7 @@ func run() error {
 		repository.NewAnalysis(pool.DB()),
 		repository.NewMealSet(pool.DB()),
 		repository.NewContest(pool.DB()),
+		repository.NewBloodTest(pool.DB()),
 	))
 
 	if cfg.AuthDisabled {
