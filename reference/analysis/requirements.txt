@@ -6,5 +6,5 @@
 # 「Go の出力がこれと一致すること」を受け入れ条件にしている。
 # 基準側の数値が動くと比較そのものが成立しなくなる。
 # Python も 3.11 に固定する（reference/.python-version）。
-pandas==2.1.4
+pandas==2.3.3
 numpy==1.26.4
