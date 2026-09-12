@@ -4,7 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 トレーニング・栄養・体組成を統合して分析する、3年計画の肉体改造のための基盤。
-**iOS で記録し、Web で分析する**構成で、分析ロジックは Python 実装を正とする。
+**Web で記録・分析し、iOS はジムでの高速入力に特化する**構成。
+API と分析ロジックは Go（[ADR-0006](docs/adr/0006-go-backend.md) / [ADR-0011](docs/adr/0011-go-analytics.md)）。
 
 ## 何を解決するか
 
@@ -19,13 +20,28 @@
 
 ## 動かしてみる
 
-サンプルデータ（架空の記録55日分）が同梱されているので、clone してすぐ実行できる。
+### API を起動する
 
 ```bash
+docker compose up -d                       # Postgres 17
+docker compose run --rm migrate up         # スキーマ + 種目マスタ49件
+
+cd api
+DATABASE_URL='postgres://physique:dev@localhost:5432/physique?sslmode=disable' go run ./cmd/server
+curl -s localhost:8080/health
+```
+
+### 分析を動かす
+
+サンプルデータ（架空の記録55日分）が同梱されているので、clone してすぐ実行できる。
+分析ロジックは Go へ移植中で、現時点では Python のリファレンス実装が動く唯一の経路。
+
+```bash
+cd reference
 pip install -r analysis/requirements.txt
 python3 analysis/make_sample_data.py
 python3 analysis/analyze.py \
-  --data-dir data/sample --config config.example.json \
+  --data-dir ../data/sample --config ../config.example.json \
   --asof 2026-10-31 --no-write
 ```
 
@@ -33,15 +49,15 @@ python3 analysis/analyze.py \
 
 ```markdown
 ## 1. 体重トレンド
-| 7日平均体重        | 73.69 kg (n=7)   |
-| トレンド(21日回帰)  | -0.84 kg/週      |
-| 目標との乖離       | -0.08 kg/週      |
-| 正規化FFMI        | 19.6             |
+| 7日平均体重        | 71.97 kg (n=7)   |
+| トレンド(21日回帰)  | -0.81 kg/週      |
+| 目標との乖離       | -0.05 kg/週      |
+| 正規化FFMI        | 19.9             |
 
 ## 3. 推定TDEE と 来週の推奨摂取
 | 平均摂取 (直近21日) | 2139 kcal        |
-| 推定TDEE           | 3062 kcal        |
-| 来週の推奨摂取      | 2226 kcal/日     |
+| 推定TDEE           | 3026 kcal        |
+| 来週の推奨摂取      | 2190 kcal/日     |
 
 ## 5. 部位別 有効セット数 (直近7日)
 | 部位     | セット | トン数    | MEV-MRV | 判定 |
@@ -50,7 +66,8 @@ python3 analysis/analyze.py \
 | ハム     | 8     | 5045 kg  | 8-16    | ✓   |
 
 ## 8. 今週のアクション
-1. **筋力低下**: デッドリフト が -0.84 kg/週。減量ペースを緩める。
+1. **筋力低下**: デッドリフト が -0.84 kg/週。減量ペースを -0.25kg/週 に緩める。
+2. **筋力低下**: ミリタリープレス が -0.40 kg/週。減量ペースを -0.25kg/週 に緩める。
 ```
 
 **最終成果物は「8. 今週のアクション」**。数値の羅列ではなく、来週何を変えるかが出ることをゴールにしている。
@@ -70,24 +87,25 @@ python3 analysis/analyze.py \
 ## アーキテクチャ
 
 ```
-┌─────────────┐   記録    ┌──────────┐
-│  iOS (Swift)│──────────▶│          │
-│  ・セット記録 │           │   API    │      ┌──────────┐
-│  ・食事記録   │◀──────────│ (Next.js)│─────▶│ Postgres │
-│  ・HealthKit │   同期    │          │      └──────────┘
-└─────────────┘           └──────────┘            │
-                                │                  │
-┌─────────────┐   分析          │          CSV export
-│  Web (Next) │◀───────────────┘                  │
-│  ・週次レポート│                                   ▼
-│  ・計画管理   │                          ┌──────────────┐
-└─────────────┘                          │ analysis/    │
-                                          │ (Python)     │
-                                          │ 分析ロジックの正 │
-                                          └──────────────┘
+┌──────────────┐                ┌──────────────┐
+│ Web (Next.js)│───────┐   ┌───▶│ Supabase     │
+│ 入力 + サマリ  │       │   │    │ Postgres 17  │
+└──────────────┘       ▼   │    └──────────────┘
+                 ┌──────────┴──┐        ▲
+┌──────────────┐ │  API (Go)   │        │ Supavisor
+│ iOS (Swift)  │▶│  Cloud Run  │────────┘ (6543)
+│ ジムでの入力   │ │  + 分析ロジック│
+│ HealthKit    │ └──────┬──────┘
+└──────────────┘        │
+                        │ MCP
+                 ┌──────▼──────┐
+                 │ Claude Code │  ← 分析はここから問い合わせる
+                 └─────────────┘  （ADR-0010）
 ```
 
-**役割は「汎用 / ジム特化」で分ける**（[ADR-0009](docs/adr/0009-web-first-with-input.md)）。Web は入力も分析もできる汎用クライアント、**iOS の存在理由は「ジムでの入力速度」と「HealthKit 連携」**。開発は Web 先行。Python 実装は移植後も破棄せず、**アプリの分析結果が `analysis/analyze.py` と一致することを受け入れ条件にする**。
+**役割は「汎用 / ジム特化」で分ける**（[ADR-0009](docs/adr/0009-web-first-with-input.md)）。Web は入力も分析もできる汎用クライアント、**iOS の存在理由は「ジムでの入力速度」と「HealthKit 連携」**。開発は Web 先行。
+
+Python 実装は移植後も破棄せず `reference/` に残す。**Go の分析結果が `reference/analysis/analyze.py` と一致することを受け入れ条件にする**（[ADR-0011](docs/adr/0011-go-analytics.md)）。
 
 詳細は [docs/04-アーキテクチャ.md](docs/04-アーキテクチャ.md)。
 
@@ -107,16 +125,28 @@ python3 analysis/analyze.py \
 | [0008](docs/adr/0008-r2-photo-storage.md) | 写真ストレージに Cloudflare R2 を採用する |
 | [0009](docs/adr/0009-web-first-with-input.md) | Web を先行開発し、Web にも入力機能を持たせる |
 | [0010](docs/adr/0010-mcp-over-analysis-ui.md) | 分析UIを作り込まず、MCP 経由での分析を主とする |
+| [0011](docs/adr/0011-go-analytics.md) | 分析ロジックを Go に統一する |
+| [0012](docs/adr/0012-terraform.md) | インフラを Terraform で管理する |
+| [0013](docs/adr/0013-timezone-jst.md) | 日付は JST 固定で扱う |
+| [0014](docs/adr/0014-sync-conflict-resolution.md) | 同期の競合は Last Write Wins + 論理削除で解決する |
 
 0005 は「作らない決定」の記録。精度の低いデータをデータストアに持ち込まないことを優先している。
 
 ## 開発
 
 ```bash
+# API (Go)
+cd api
+go generate ./...          # openapi.yaml → gen/openapi/
+go test ./... -race -cover
+golangci-lint run ./...
+
+# リファレンス実装 (Python)
+cd reference
 pip install -r analysis/requirements-dev.txt
-ruff check analysis/       # Lint
-mypy analysis/             # 型チェック
-pytest analysis/tests -v   # テスト
+ruff check analysis/
+mypy analysis/
+pytest analysis/tests -v
 ```
 
 開発フロー（ブランチ戦略・コミット規約・issue の粒度）は [CONTRIBUTING.md](CONTRIBUTING.md)。
@@ -127,8 +157,8 @@ pytest analysis/tests -v   # テスト
 
 | Phase | 内容 | 状態 |
 |---|---|---|
-| **0** | 分析ロジック（Python） | **完了** |
-| 1 | **API (Go) + DB + Web + MCP**: 記録が回る状態 | 未着手 |
+| **0** | 分析ロジック（Python リファレンス実装） | **完了** |
+| **1** | **API (Go) + DB + Web + MCP**: 記録が回る状態 | **進行中**（API の土台と CD が動作） |
 | 2 | iOS: ジムでの高速入力 + HealthKit 連携 | 未着手 |
 | 3 | 食事記録・周囲長・写真・計画管理 | 未着手 |
 | 4 | Watch 入力・位置情報サジェスト・相関分析 | 未着手 |
