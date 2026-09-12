@@ -50,6 +50,7 @@ export default async function Home() {
         <NavLink href="/photos">写真</NavLink>
         <NavLink href="/blood">血液検査</NavLink>
         <NavLink href="/settings">設定</NavLink>
+        <NavLink href="/transfer">CSV</NavLink>
       </nav>
 
       <div className="flex flex-col gap-4 p-4 md:gap-6 md:p-6">

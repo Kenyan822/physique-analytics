@@ -40,6 +40,12 @@ export type BloodTestInput = components["schemas"]["BloodTestInput"];
 export type BloodTestItem = components["schemas"]["BloodTestItem"];
 export type BodyPhoto = components["schemas"]["BodyPhoto"];
 export type PhotoPose = components["schemas"]["PhotoPose"];
+export type ImportError = components["schemas"]["ImportError"];
+export type CsvResource = NonNullable<
+  paths["/v1/export/csv"]["get"]["parameters"]["query"]
+>["resource"];
+export type ImportResult =
+  paths["/v1/import/csv"]["post"]["responses"]["200"]["content"]["application/json"];
 export type VolumeRange = components["schemas"]["VolumeRange"];
 export type NutritionSettings = components["schemas"]["NutritionSettings"];
 export type Problem = components["schemas"]["Problem"];
@@ -123,6 +129,24 @@ export function createClient({ baseUrl, token }: ClientOptions) {
     if (res.status === 204) return undefined as T;
 
     return (await res.json()) as T;
+  }
+
+  /**
+   * CSV は JSON ではないので `request` を通さない。
+   * `text/csv` を `res.json()` に食わせると、原因が「JSON を読めない」に化ける。
+   */
+  async function requestCsv(query: Record<string, QueryValue>): Promise<string> {
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const res = await fetch(buildUrl(baseUrl, "/v1/export/csv", query), {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    });
+    if (!res.ok) throw await toApiError(res);
+
+    return res.text();
   }
 
   /** パスパラメータは必ずエスケープする。id に / が入ると別のパスになる */
@@ -226,6 +250,25 @@ export function createClient({ baseUrl, token }: ClientOptions) {
     createBloodTest: (body: BloodTestInput) =>
       request<BloodTest>("POST", "/v1/blood-tests", { body }),
     deleteBloodTest: (id: string) => request<void>("DELETE", `/v1/blood-tests/${seg(id)}`),
+
+    // CSV の取り込みと書き出し（要件 I-01 / I-02）
+    exportCsv: (query: { resource: CsvResource; from?: string; to?: string }) =>
+      requestCsv({ ...query }),
+    importCsv: async (form: FormData): Promise<ImportResult> => {
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      // **Content-Type を自分で付けない。** boundary が付かず、サーバが読めなくなる
+      const res = await fetch(buildUrl(baseUrl, "/v1/import/csv"), {
+        method: "POST",
+        headers,
+        body: form,
+        cache: "no-store",
+      });
+      if (!res.ok) throw await toApiError(res);
+
+      return (await res.json()) as ImportResult;
+    },
 
     // 身体写真（要件 B-04 / B-07）
     listPhotos: (query: DateRangeQuery) =>
