@@ -24,7 +24,7 @@ jobs:
       id-token: write     # Workload Identity 連携に必要
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # サービスアカウントキーをリポジトリに置かない。
       # 短命のトークンを GitHub の OIDC から取得する。
