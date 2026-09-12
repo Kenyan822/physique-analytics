@@ -348,6 +348,36 @@ export interface paths {
         patch: operations["updateMeal"];
         trace?: never;
     };
+    "/v1/meals/estimate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 写真から PFC を推定する
+         * @description 要件 N-06。**食品マスタを持たない設計の弱点は「初めて食べるものの入力」**で、
+         *     そこを Vision 対応の LLM で埋める。
+         *
+         *     **推定結果は保存しない。** 編集可能な下書きとして返し、
+         *     確認してから `POST /v1/meals` で記録する（その際 `source` は
+         *     `ai_estimated` にする）。
+         *
+         *     テキスト補足は任意だが、「鶏むね200g、白米150g」のように**量を添えると
+         *     精度が大きく上がる**（写真だけでは食器のサイズが分からない）。
+         *
+         *     推定が未設定のときは 503 を返す。
+         */
+        post: operations["estimateMeal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/meals/suggestions": {
         parameters: {
             query?: never;
@@ -478,6 +508,216 @@ export interface paths {
          *     判断を誤らせるので、理由を note に入れる。
          */
         get: operations["getDailyTargets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/blood-tests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 血液検査の一覧
+         * @description 要件 B-08。年2回の検査結果。**検査項目を固定しない**（クリニックや
+         *     パネルによって違う）。検査票の表をそのまま写せる形で持つ。
+         */
+        get: operations["listBloodTests"];
+        put?: never;
+        /** 血液検査の登録 */
+        post: operations["createBloodTest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/blood-tests/{bloodTestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bloodTestId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 血液検査の更新
+         * @description 項目は全入れ替え。
+         */
+        put: operations["updateBloodTest"];
+        post?: never;
+        /** 血液検査の削除（論理削除） */
+        delete: operations["deleteBloodTest"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/contests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 大会の一覧
+         * @description 要件 P-04。開催日の昇順で返す。カウントダウンと必要ペース判定
+         *     （要件 A-10）の入力になる。
+         */
+        get: operations["listContests"];
+        put?: never;
+        /** 大会の登録 */
+        post: operations["createContest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/contests/{contestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contestId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 大会の削除（論理削除） */
+        delete: operations["deleteContest"];
+        options?: never;
+        head?: never;
+        /** 大会の更新 */
+        patch: operations["updateContest"];
+        trace?: never;
+    };
+    "/v1/plan/blocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 計画のブロック一覧
+         * @description 要件 P-02。3年計画のブロック（LBM の増減と終了時点の体脂肪率）。
+         *     月次目標はここから毎回計算する。**月ごとの表は持たない。**
+         */
+        get: operations["listPlanBlocks"];
+        /**
+         * 計画のブロックを保存
+         * @description まるごと置き換える。順序は配列の並びで決まる。
+         */
+        put: operations["putPlanBlocks"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/plan/monthly-targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 月次目標
+         * @description 要件 P-02 / P-03。起点とブロックから各月末の到達目標を計算して返す。
+         *
+         *     **追う順序は LBM → 体脂肪率 → 体重。** 体重は従属変数であって
+         *     目標そのものではない。
+         *
+         *     `baseline=measured` を指定すると、**直近の実測（7日平均）を起点に
+         *     引き直す**。計画どおりに進まなかったときはこちらを見る。
+         */
+        get: operations["getMonthlyTargets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/photos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 写真の一覧
+         * @description 要件 B-04 / B-07。撮影日の降順。**短期の署名付きURL**を添えて返す
+         *     （ADR-0008。公開URLは作らない）。
+         */
+        get: operations["listPhotos"];
+        put?: never;
+        /**
+         * アップロード用のURLを発行する
+         * @description 要件 B-04。**画像は API を経由させない。** 4MB の画像を Cloud Run に
+         *     通すとメモリもリクエスト時間も無駄になるので、署名付きURLに直接
+         *     アップロードさせる。
+         *
+         *     アップロードが終わったら `PUT /v1/photos/{photoId}/complete` を呼ぶ。
+         */
+        post: operations["createPhotoUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/photos/{photoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                photoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 写真の削除（論理削除） */
+        delete: operations["deletePhoto"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/photos/guide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 撮影ガイド用の前回写真
+         * @description 要件 B-05。**同じ距離・角度・ポーズを再現する**ために、撮影時に
+         *     前回の写真を重ねて表示する。条件を固定しないと比較が成立しない
+         *     （docs/02-データモデル.md）。
+         *
+         *     向きごとに直近の1枚を返す。
+         */
+        get: operations["getPhotoGuide"];
         put?: never;
         post?: never;
         delete?: never;
@@ -898,6 +1138,10 @@ export interface components {
             heightCm?: number | null;
             /** Format: date */
             startDate?: string | null;
+            baselineWeightKg?: number | null;
+            baselineBodyfatPct?: number | null;
+            /** @description 月次目標の起点となる月（YYYY-MM） */
+            baselineMonth?: string | null;
             phases: components["schemas"]["PlanPhase"][];
             nutrition: components["schemas"]["NutritionSettings"];
             volumeRanges: components["schemas"]["VolumeRange"][];
@@ -906,6 +1150,9 @@ export interface components {
             heightCm?: number | null;
             /** Format: date */
             startDate?: string | null;
+            baselineWeightKg?: number | null;
+            baselineBodyfatPct?: number | null;
+            baselineMonth?: string | null;
             phases: components["schemas"]["PlanPhase"][];
             nutrition: components["schemas"]["NutritionSettings"];
             volumeRanges: components["schemas"]["VolumeRange"][];
@@ -927,11 +1174,25 @@ export interface components {
             consumed: components["schemas"]["Macros"];
             /** @description 目標 − 実績。target が無ければ null */
             remaining?: components["schemas"]["Macros"] | null;
+            /** @description 次の大会と必要ペース（要件 A-10） */
+            contest?: components["schemas"]["ContestCountdown"] | null;
             /** @description 摂取が下限（体重×24kcal）に達しているか（要件 A-03） */
             intakeFloorHit?: boolean;
             /** @description 炭水化物の目標が下限を割っているか（要件 A-03） */
             carbBelowFloor?: boolean;
+            /**
+             * @description 残量を埋める食品の候補（要件 N-07）。**履歴から作る**ので、
+             *     食べたことのないものは出ない。目標を超えていれば空。
+             */
+            suggestions?: components["schemas"]["FoodSuggestion"][];
             note?: string | null;
+        };
+        FoodSuggestion: {
+            name: string;
+            /** @description 残りのカロリーに収まるか */
+            fits: boolean;
+            /** @description タンパク質の不足を何%埋めるか */
+            fillsProteinPct: number;
         };
         MealSetItem: {
             name: string;
@@ -953,6 +1214,163 @@ export interface components {
             name: string;
             slot?: components["schemas"]["MealSlot"];
             items: components["schemas"]["MealSetItem"][];
+        };
+        ContestCountdown: {
+            /** Format: date */
+            heldOn: string;
+            category: string;
+            targetBfPct: number;
+            weeksLeft: number;
+            stageWeightKg?: number | null;
+            needLossKg?: number | null;
+            pacePctPerWeek?: number | null;
+            tooFast?: boolean;
+        };
+        Contest: components["schemas"]["Timestamps"] & {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: date
+             * @description 開催日。日付が決まる前は**その月の末日**を入れる。
+             *     月内では最終日が一番遠く、必要ペースを過小評価しない
+             */
+            heldOn: string;
+            /** @example サマスタ スタイリッシュガイ */
+            category: string;
+            /** @description ステージ体脂肪率の目標 */
+            targetBfPct: number;
+            /** @description その大会での位置づけ（完走・入賞など） */
+            goal?: string | null;
+        };
+        ContestInput: {
+            /** Format: date */
+            heldOn: string;
+            category: string;
+            targetBfPct: number;
+            goal?: string | null;
+        };
+        PlanBlock: {
+            /** @example Y1 増量 */
+            name: string;
+            months: number;
+            /** @description 1ヶ月あたりの除脂肪体重の増減。**これが設計値** */
+            lbmDeltaKgPerMonth: number;
+            /** @description ブロック終了時点の体脂肪率。途中は等分に動かす */
+            bodyfatPctEnd: number;
+            /** @description そのブロックで何をするか。数字だけでは行動が決まらない */
+            focus?: string | null;
+        };
+        MonthlyTarget: {
+            /** @example 2026-09 */
+            month: string;
+            phase: string;
+            lbmKg: number;
+            bodyfatPct: number;
+            /** @description LBM と体脂肪率から決まる従属変数 */
+            weightKg: number;
+            ffmi: number;
+        };
+        MonthlyTargets: {
+            baseline: {
+                /** @enum {string} */
+                source: "configured" | "measured";
+                weightKg: number;
+                bodyfatPct: number;
+                month: string;
+            };
+            items: components["schemas"]["MonthlyTarget"][];
+            note?: string | null;
+        };
+        /**
+         * @description 基準範囲に対する位置。**基準が無ければ unknown**。
+         *     検査票に書いていない基準を勝手に当てて「異常」と言わない。
+         * @enum {string}
+         */
+        RefFlag: "normal" | "low" | "high" | "unknown";
+        BloodTestItem: {
+            /** @example ヘモグロビン */
+            name: string;
+            /** @description 数値で入らない項目（「陰性」など）は null にして textValue を使う */
+            value?: number | null;
+            textValue?: string | null;
+            /** @example g/dL */
+            unit?: string | null;
+            /** @description 基準範囲の下限。**検査票に書いてある値を入れる** */
+            refLow?: number | null;
+            refHigh?: number | null;
+            /** @description サーバが値と基準範囲から判定して返す（入力では無視される） */
+            readonly flag?: components["schemas"]["RefFlag"];
+        };
+        BloodTest: components["schemas"]["Timestamps"] & {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: date
+             * @description 採血日（JST。ADR-0013）
+             */
+            date: string;
+            clinic?: string | null;
+            note?: string | null;
+            items: components["schemas"]["BloodTestItem"][];
+            /** @description 基準外の項目数。まずここを見る */
+            readonly outOfRangeCount?: number;
+        };
+        BloodTestInput: {
+            /** Format: date */
+            date: string;
+            clinic?: string | null;
+            note?: string | null;
+            items: components["schemas"]["BloodTestItem"][];
+        };
+        /**
+         * @description 写真からの推定結果。**そのまま保存されていない。**
+         *     編集してから POST /v1/meals で記録する。
+         */
+        MealEstimate: {
+            name: string;
+            qty?: string | null;
+            kcal?: number | null;
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
+            /** @description low / medium / high。量が分からないときは low */
+            confidence?: string | null;
+            /** @description 推定の根拠。直すときの手がかりになる */
+            note?: string | null;
+            /** @description 常に ai_estimated。記録するときもこれを保つ */
+            source: components["schemas"]["MealSource"];
+        };
+        /**
+         * @description 正面 / 側面 / 背面
+         * @enum {string}
+         */
+        PhotoPose: "front" | "side" | "back";
+        BodyPhoto: components["schemas"]["Timestamps"] & {
+            /** Format: uuid */
+            id: string;
+            /** Format: date */
+            date: string;
+            pose: components["schemas"]["PhotoPose"];
+            mimeType: string;
+            byteSize: number;
+            /** @description 撮影条件。**条件を固定しないと比較が成立しない** */
+            note?: string | null;
+            /** @description 短期の署名付きURL。公開URLではない（ADR-0008） */
+            url?: string | null;
+        };
+        PhotoUploadInput: {
+            /** Format: date */
+            date: string;
+            pose: components["schemas"]["PhotoPose"];
+            /** @enum {string} */
+            mimeType: "image/jpeg" | "image/png" | "image/heic";
+            byteSize: number;
+            note?: string | null;
+        };
+        PhotoUpload: {
+            photo: components["schemas"]["BodyPhoto"];
+            /** @description ここに PUT する。短期で失効する */
+            uploadUrl: string;
         };
         /** @description RFC 7807 Problem Details */
         Problem: {
@@ -1871,6 +2289,42 @@ export interface operations {
             422: components["responses"]["ValidationFailed"];
         };
     };
+    estimateMeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description jpeg / png / webp / gif
+                     */
+                    image: string;
+                    /** @description 量などの補足。精度が大きく上がる */
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MealEstimate"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
     listMealSuggestions: {
         parameters: {
             query?: {
@@ -2091,6 +2545,393 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             422: components["responses"]["ValidationFailed"];
+        };
+    };
+    listBloodTests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["BloodTest"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createBloodTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BloodTestInput"];
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BloodTest"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    updateBloodTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bloodTestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BloodTestInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BloodTest"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteBloodTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bloodTestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 削除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listContests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Contest"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createContest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContestInput"];
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contest"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteContest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 削除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateContest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContestInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contest"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    listPlanBlocks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["PlanBlock"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    putPlanBlocks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    items: components["schemas"]["PlanBlock"][];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["PlanBlock"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getMonthlyTargets: {
+        parameters: {
+            query?: {
+                /** @description configured = 設定した起点 / measured = 直近の実測 */
+                baseline?: "configured" | "measured";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonthlyTargets"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    listPhotos: {
+        parameters: {
+            query?: {
+                /** @description JST の日付（ADR-0013） */
+                from?: components["parameters"]["DateFrom"];
+                to?: components["parameters"]["DateTo"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["BodyPhoto"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    createPhotoUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhotoUploadInput"];
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhotoUpload"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    deletePhoto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                photoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 削除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getPhotoGuide: {
+        parameters: {
+            query?: {
+                /** @description この日より前の直近を返す。省略時は今日より前 */
+                before?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["BodyPhoto"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getPlan: {

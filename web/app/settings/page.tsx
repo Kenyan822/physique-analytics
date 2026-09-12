@@ -3,20 +3,21 @@ import Link from "next/link";
 import { serverApi } from "@/lib/api/server";
 import { todayJst } from "@/lib/jst";
 
+import { ContestEditor } from "./ContestEditor";
 import { SettingsForm } from "./SettingsForm";
 import { TemplateEditor } from "./TemplateEditor";
 import { savePlan } from "./actions";
+import { createContest, deleteContest } from "./contestActions";
 import { createTemplate, deleteTemplate, updateTemplate } from "./templateActions";
 
 export const metadata = { title: "設定 | physique" };
 
 export default async function SettingsPage() {
   const api = serverApi();
-  const [plan, { items: templates }, { items: exercises }] = await Promise.all([
-    api.getPlan(),
-    api.listTemplates(),
-    api.listExercises({}),
-  ]);
+  const today = todayJst();
+  const [plan, { items: templates }, { items: exercises }, { items: contests }] = await Promise.all(
+    [api.getPlan(), api.listTemplates(), api.listExercises({}), api.listContests()],
+  );
 
   return (
     <main className="mx-auto w-full max-w-md lg:max-w-3xl">
@@ -39,8 +40,14 @@ export default async function SettingsPage() {
             updateTemplate={updateTemplate}
             deleteTemplate={deleteTemplate}
           />
+          <ContestEditor
+            contests={contests}
+            today={today}
+            createContest={createContest}
+            deleteContest={deleteContest}
+          />
         </div>
-        <SettingsForm plan={plan} today={todayJst()} savePlan={savePlan} />
+        <SettingsForm plan={plan} today={today} savePlan={savePlan} />
       </div>
     </main>
   );

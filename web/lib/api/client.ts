@@ -30,6 +30,12 @@ export type MealSetInput = components["schemas"]["MealSetInput"];
 export type Plan = components["schemas"]["Plan"];
 export type PlanInput = components["schemas"]["PlanInput"];
 export type PlanPhase = components["schemas"]["PlanPhase"];
+export type Contest = components["schemas"]["Contest"];
+export type ContestInput = components["schemas"]["ContestInput"];
+export type MonthlyTargets = components["schemas"]["MonthlyTargets"];
+export type BloodTest = components["schemas"]["BloodTest"];
+export type BloodTestInput = components["schemas"]["BloodTestInput"];
+export type BodyPhoto = components["schemas"]["BodyPhoto"];
 export type VolumeRange = components["schemas"]["VolumeRange"];
 export type NutritionSettings = components["schemas"]["NutritionSettings"];
 export type Problem = components["schemas"]["Problem"];
@@ -194,6 +200,27 @@ export function createClient({ baseUrl, token }: ClientOptions) {
 
     getPlan: () => request<Plan>("GET", "/v1/plan"),
     putPlan: (body: PlanInput) => request<Plan>("PUT", "/v1/plan", { body }),
+
+    // 大会（要件 P-04）
+    listContests: () => request<{ items: Contest[] }>("GET", "/v1/contests"),
+    createContest: (body: ContestInput) => request<Contest>("POST", "/v1/contests", { body }),
+    deleteContest: (id: string) => request<void>("DELETE", `/v1/contests/${seg(id)}`),
+
+    // 月次目標（要件 P-02 / P-03）
+    monthlyTargets: (baseline?: "configured" | "measured") =>
+      request<MonthlyTargets>("GET", "/v1/plan/monthly-targets", {
+        query: baseline ? { baseline } : {},
+      }),
+
+    // 血液検査（要件 B-08）
+    listBloodTests: () => request<{ items: BloodTest[] }>("GET", "/v1/blood-tests"),
+    createBloodTest: (body: BloodTestInput) =>
+      request<BloodTest>("POST", "/v1/blood-tests", { body }),
+    deleteBloodTest: (id: string) => request<void>("DELETE", `/v1/blood-tests/${seg(id)}`),
+
+    // 身体写真（要件 B-04 / B-07）
+    listPhotos: (query: DateRangeQuery) =>
+      request<{ items: BodyPhoto[] }>("GET", "/v1/photos", { query }),
   };
 }
 
