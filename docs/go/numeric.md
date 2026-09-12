@@ -54,3 +54,43 @@ if carb < 0 {
 このとき reference の Python 実装も同時に直した。ADR-0011 で
 「出力が一致すること」を受け入れ条件にしているので、片方だけ直すと
 検証基準として使えなくなる。
+
+## 閾値は名前付き定数にして、判定関数には集計済みの値だけ渡す
+
+```go
+const (
+	PlateauSlopeKgWeek = 0.1
+	FatigueMax7d       = 3.5
+)
+
+type StallInput struct {
+	WeightSlopeKgWeek *float64   // 21日回帰の結果
+	Fatigue7dAvg      *float64   // 平均を取るのは呼び出し側
+}
+```
+
+判定関数の中で期間を切ったり平均を取ったりしない。そうすると
+**閾値のテストに時系列データを組み立てる必要が出て**、仕様表
+（docs/03-分析ロジック.md）との対応が読み取れなくなる。
+
+集計と判定を分けておけば、テストは `Fatigue7dAvg: ptrF(3.6)` の1行で済む。
+
+## 境界条件は仕様の日本語をそのまま写す
+
+```go
+// 仕様は「-0.3kg/週 以下」なので境界を含める
+if *in.E1RMSlopeKgWeek <= StrengthDropKgWeek {
+```
+
+「以下」なら `<=`、「未満」なら `<`。書き分けを間違えても
+ほとんどのテストは通ってしまうので、**境界そのものを1ケースとして書く**
+（-0.3 で検知、-0.29 で検知しない）。
+
+## `max` は組み込みなので自分で書かない
+
+```go
+missing := float64(max(in.MissingKcalDays, in.MissingWeightDays))
+```
+
+Go 1.21 から `min` / `max` が組み込みで、順序付きの型なら何でも使える。
+`math.Max` は `float64` 専用なので、int の比較に使うとキャストが増える。

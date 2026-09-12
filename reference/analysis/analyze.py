@@ -520,7 +520,9 @@ def build_report(cfg, daily, wo, measures, plan, asof) -> tuple[str, list[str]]:
             else:
                 judge = "✓ 伸長" if sl > 0.1 else "⚠ 停滞"
             L.append(f"| {ex} | {tr['latest']:.1f} kg | {fmt(sl)} kg/週 | {tr['n_sessions']} | {judge} |")
-            if sl is not None and goal < 0 and sl <= -0.3:
+            # 維持期（goal == 0）も減量期と同じ基準で見る。
+            # goal < 0 に限ると、維持中の筋力低下がどこにも出ない
+            if sl is not None and goal <= 0 and sl <= -0.3:
                 alerts.append(f"**筋力低下**: {ex} が {sl:+.2f} kg/週。減量ペースを -0.25kg/週 に緩める。")
             if sl is not None and goal > 0 and sl <= 0:
                 alerts.append(f"**増量期に {ex} が伸びていない** ({sl:+.2f} kg/週)。"
