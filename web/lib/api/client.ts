@@ -30,6 +30,8 @@ export type MealSetInput = components["schemas"]["MealSetInput"];
 export type Plan = components["schemas"]["Plan"];
 export type PlanInput = components["schemas"]["PlanInput"];
 export type PlanPhase = components["schemas"]["PlanPhase"];
+export type PlanBlock = components["schemas"]["PlanBlock"];
+export type MonthlyTarget = components["schemas"]["MonthlyTarget"];
 export type Contest = components["schemas"]["Contest"];
 export type ContestInput = components["schemas"]["ContestInput"];
 export type MonthlyTargets = components["schemas"]["MonthlyTargets"];
@@ -205,6 +207,11 @@ export function createClient({ baseUrl, token }: ClientOptions) {
     listContests: () => request<{ items: Contest[] }>("GET", "/v1/contests"),
     createContest: (body: ContestInput) => request<Contest>("POST", "/v1/contests", { body }),
     deleteContest: (id: string) => request<void>("DELETE", `/v1/contests/${seg(id)}`),
+
+    // 計画ブロック（要件 P-02）
+    listPlanBlocks: () => request<{ items: PlanBlock[] }>("GET", "/v1/plan/blocks"),
+    putPlanBlocks: (items: PlanBlock[]) =>
+      request<{ items: PlanBlock[] }>("PUT", "/v1/plan/blocks", { body: { items } }),
 
     // 月次目標（要件 P-02 / P-03）
     monthlyTargets: (baseline?: "configured" | "measured") =>

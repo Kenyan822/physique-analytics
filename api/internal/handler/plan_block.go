@@ -63,7 +63,7 @@ func (s *Server) GetMonthlyTargets(ctx context.Context, req openapi.GetMonthlyTa
 	}
 	if len(blocks) == 0 {
 		return monthlyTargetsFailed("blocks",
-			"計画のブロックが登録されていない。設定画面か PUT /v1/plan/blocks で登録する"), nil
+			"計画のブロックが登録されていない。計画画面か PUT /v1/plan/blocks で登録する"), nil
 	}
 	if plan.HeightCm == nil {
 		return monthlyTargetsFailed("heightCm", "身長が未設定。FFMI を出せない"), nil

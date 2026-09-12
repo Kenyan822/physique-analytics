@@ -163,7 +163,7 @@ func TestGetMonthlyTargets_ブロックが無ければ422(t *testing.T) {
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422, body = %s", rec.Code, rec.Body)
 	}
-	if !jsonContains(rec.Body.String(), "設定画面") {
+	if !jsonContains(rec.Body.String(), "計画画面") {
 		t.Errorf("body = %s, want 直し方を含む", rec.Body)
 	}
 }

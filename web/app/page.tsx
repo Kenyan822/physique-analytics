@@ -31,34 +31,24 @@ export default async function Home() {
     <main className="mx-auto w-full max-w-md md:max-w-3xl xl:max-w-5xl">
       <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-bg/95 px-4 py-3 backdrop-blur md:px-6 md:py-4">
         <h1 className="text-lg font-semibold md:text-xl">{formatJstDate(date)}</h1>
-        <div className="flex shrink-0 items-center gap-2">
-          <Link
-            href="/settings"
-            aria-label="設定"
-            className="pressable rounded-full border border-line px-3 py-2 text-sm text-muted"
-          >
-            設定
-          </Link>
-          <Link
-            href="/meals"
-            className="pressable rounded-full border border-line px-3 py-2 text-sm text-muted"
-          >
-            食事
-          </Link>
-          <Link
-            href="/body"
-            className="pressable rounded-full border border-line px-3 py-2 text-sm text-muted"
-          >
-            体組成
-          </Link>
-          <Link
-            href="/log"
-            className="pressable rounded-full bg-accent px-4 py-2 text-sm font-bold text-accent-ink"
-          >
-            記録する
-          </Link>
-        </div>
+        <Link
+          href="/log"
+          className="pressable shrink-0 rounded-full bg-accent px-4 py-2 text-sm font-bold text-accent-ink"
+        >
+          記録する
+        </Link>
       </header>
+
+      {/*
+       * 画面が増えたのでヘッダーから出した。狭い画面では横に流す。
+       * ヘッダーに並べ続けると、一番押す「記録する」が潰れる
+       */}
+      <nav className="flex gap-2 overflow-x-auto border-b border-line px-4 py-2.5 md:px-6">
+        <NavLink href="/meals">食事</NavLink>
+        <NavLink href="/body">体組成</NavLink>
+        <NavLink href="/plan">計画</NavLink>
+        <NavLink href="/settings">設定</NavLink>
+      </nav>
 
       <div className="flex flex-col gap-4 p-4 md:gap-6 md:p-6">
         {byExercise.size === 0 ? (
@@ -103,6 +93,17 @@ export default async function Home() {
         )}
       </div>
     </main>
+  );
+}
+
+function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="pressable shrink-0 rounded-full border border-line bg-surface px-3.5 py-1.5 text-sm text-muted"
+    >
+      {children}
+    </Link>
   );
 }
 
