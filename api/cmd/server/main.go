@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Kenyan822/physique-analytics/api/internal/auth"
 	"github.com/Kenyan822/physique-analytics/api/internal/config"
 	"github.com/Kenyan822/physique-analytics/api/internal/database"
 	"github.com/Kenyan822/physique-analytics/api/internal/handler"
@@ -48,9 +49,25 @@ func run() error {
 	}
 	defer pool.Close()
 
+	// NewRouter は http.Handler を返す。認証ミドルウェアで包み直すので再代入する
+	h := handler.NewRouter(handler.New(
+		pool,
+		repository.NewExercise(pool.DB()),
+		repository.NewWorkout(pool.DB()),
+	))
+
+	if cfg.AuthDisabled {
+		// ローカル開発専用。本番でこのログが出ていたら設定ミス
+		slog.Warn("認証が無効になっている。ローカル開発以外では使わない")
+	} else {
+		// /health は openapi.yaml で security: [] になっている。
+		// keepalive と Cloud Run のスモークテストが叩くため
+		h = auth.Middleware(auth.NewVerifier(cfg.SupabaseJWKSURL), "/health")(h)
+	}
+
 	srv := &http.Server{
 		Addr:    net.JoinHostPort("", strconv.Itoa(cfg.Port)),
-		Handler: handler.NewRouter(handler.New(pool, repository.NewExercise(pool.DB()), repository.NewWorkout(pool.DB()))),
+		Handler: h,
 		// ヘッダを送り切らない接続にワーカーを占有させない
 		ReadHeaderTimeout: 10 * time.Second,
 	}
