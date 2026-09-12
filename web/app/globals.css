@@ -1,26 +1,125 @@
 @import "tailwindcss";
 
+/*
+ * ダーク基調にする。ジムは照明が暗く、夜に触ることも多い。
+ * ライトも用意するが、設計の軸はダーク。
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #0b0b0d;
+  --surface: #151518;
+  --surface-2: #1e1e23;
+  --border: #2a2a31;
+  --text: #f4f4f5;
+  --muted: #8b8b95;
+  /* 主要アクションと達成状態にだけ使う。使いすぎると効かなくなる */
+  --accent: #d4ff3f;
+  --accent-ink: #14160a;
+  --warn: #ffb020;
+  --danger: #ff5f56;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fafafa;
+    --surface: #ffffff;
+    --surface-2: #f2f2f4;
+    --border: #e2e2e6;
+    --text: #18181b;
+    --muted: #6b6b76;
+    /* ダークの蛍光ライムは白地だと見えない。濃くして白文字を載せる */
+    --accent: #4d7c0f;
+    --accent-ink: #ffffff;
+    --warn: #b06a00;
+    --danger: #c53b32;
+  }
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /*
+   * Geist は日本語のグリフを持たない。フォールバックを明示しないと
+   * 環境によっては豆腐（□）になる
+   */
+  font-family:
+    var(--font-geist-sans),
+    system-ui,
+    -apple-system,
+    "Hiragino Kaku Gothic ProN",
+    "Hiragino Sans",
+    "Noto Sans JP",
+    "Yu Gothic",
+    Meiryo,
+    sans-serif;
+  /* iOS でスクロールが弾むと、固定した操作列がずれて見える */
+  overscroll-behavior-y: none;
+}
+
+/* 数字は等幅で。桁が動くと目が追えない */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/*
+ * 押した瞬間に反応させる。ジムでは手袋や汗でタップが滑るので、
+ * 「押せたか」が分からないと二度押しされる。
+ */
+.pressable {
+  transition:
+    transform 80ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.pressable:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+/*
+ * 主要アクション。狭い画面では親指が届く位置に固定し、
+ * 広い画面では列の流れに戻す。固定バーを全幅に伸ばすと、
+ * ボタンと本文が離れすぎて何に対する操作か分からなくなる。
+ */
+.action-bar {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 20;
+  /* 下端は iPhone のホームインジケータに被らせない */
+  padding: 0.75rem 1rem max(1rem, env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: color-mix(in oklab, var(--bg) 95%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+@media (width >= 64rem) {
+  .action-bar {
+    position: static;
+    padding: 0;
+    border-top: 0;
+    background: none;
+    backdrop-filter: none;
+  }
 }

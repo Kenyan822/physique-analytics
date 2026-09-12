@@ -14,55 +14,85 @@ export default async function Home() {
 
   const today = sessions[0];
   const nameById = new Map(exercises.map((e) => [e.id, e.name]));
+  const groupById = new Map(exercises.map((e) => [e.id, e.muscleGroup]));
 
   // 種目ごとにまとめる。セットは setNo 順に並んでいる
-  const byExercise = new Map<string, typeof today.sets>();
+  const byExercise = new Map<string, NonNullable<typeof today>["sets"]>();
   for (const s of today?.sets ?? []) {
     const list = byExercise.get(s.exerciseId) ?? [];
     list.push(s);
     byExercise.set(s.exerciseId, list);
   }
 
-  const totalTonnage = (today?.sets ?? []).reduce((sum, s) => sum + s.weightKg * s.reps, 0);
+  const sets = today?.sets ?? [];
+  const tonnage = sets.reduce((sum, s) => sum + s.weightKg * s.reps, 0);
 
   return (
-    <main className="mx-auto flex max-w-md flex-col gap-6 p-4">
-      <header className="flex items-baseline justify-between">
-        <h1 className="text-xl font-semibold">{formatJstDate(date)}</h1>
+    <main className="mx-auto w-full max-w-md md:max-w-3xl xl:max-w-5xl">
+      <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-bg/95 px-4 py-3 backdrop-blur md:px-6 md:py-4">
+        <h1 className="text-lg font-semibold md:text-xl">{formatJstDate(date)}</h1>
         <Link
           href="/log"
-          className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-gray-900"
+          className="pressable rounded-full bg-accent px-4 py-2 text-sm font-bold text-accent-ink"
         >
           記録する
         </Link>
       </header>
 
-      {byExercise.size === 0 ? (
-        <p className="text-sm text-gray-500">今日はまだ記録が無い。</p>
-      ) : (
-        <>
-          <p className="text-sm text-gray-600 tabular-nums dark:text-gray-400">
-            {byExercise.size} 種目 / {today.sets.length} セット / トン数{" "}
-            {Math.round(totalTonnage).toLocaleString()} kg
-          </p>
+      <div className="flex flex-col gap-4 p-4 md:gap-6 md:p-6">
+        {byExercise.size === 0 ? (
+          <div className="rounded-2xl border border-line bg-surface p-8 text-center">
+            <p className="text-sm text-muted">今日はまだ記録が無い</p>
+            <Link
+              href="/log"
+              className="pressable mt-4 inline-block rounded-xl bg-accent px-5 py-3 text-sm font-bold text-accent-ink"
+            >
+              記録を始める
+            </Link>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-2 md:gap-4">
+              <Stat label="種目" value={String(byExercise.size)} />
+              <Stat label="セット" value={String(sets.length)} />
+              <Stat label="トン数" value={Math.round(tonnage).toLocaleString()} unit="kg" />
+            </div>
 
-          <ul className="flex flex-col gap-4">
-            {[...byExercise].map(([exerciseId, sets]) => (
-              <li key={exerciseId}>
-                <h2 className="mb-1 font-medium">{nameById.get(exerciseId) ?? "（不明な種目）"}</h2>
-                <ul className="flex flex-wrap gap-x-3 gap-y-1 text-sm tabular-nums text-gray-700 dark:text-gray-300">
-                  {sets.map((s) => (
-                    <li key={s.id}>
-                      {s.weightKg}kg×{s.reps}
-                      {s.rir != null && `@${s.rir}`}
-                    </li>
-                  ))}
-                </ul>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+            <ul className="grid gap-3 md:grid-cols-2 md:gap-4 xl:grid-cols-3">
+              {[...byExercise].map(([exerciseId, list]) => (
+                <li key={exerciseId} className="rounded-2xl border border-line bg-surface p-4">
+                  <div className="mb-2 flex items-baseline justify-between gap-2">
+                    <h2 className="truncate font-semibold">
+                      {nameById.get(exerciseId) ?? "（不明な種目）"}
+                    </h2>
+                    <span className="shrink-0 text-xs text-muted">{groupById.get(exerciseId)}</span>
+                  </div>
+                  <ul className="tnum flex flex-wrap gap-2 text-sm">
+                    {list.map((s) => (
+                      <li key={s.id} className="rounded-lg bg-surface-2 px-2 py-1">
+                        {s.weightKg}×{s.reps}
+                        {s.rir != null && <span className="text-muted">@{s.rir}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
     </main>
+  );
+}
+
+function Stat({ label, value, unit }: { label: string; value: string; unit?: string }) {
+  return (
+    <div className="rounded-2xl border border-line bg-surface px-3 py-3 text-center">
+      <div className="text-[11px] text-muted">{label}</div>
+      <div className="tnum text-2xl font-semibold leading-tight">
+        {value}
+        {unit && <span className="ml-0.5 text-sm font-normal text-muted">{unit}</span>}
+      </div>
+    </div>
   );
 }
