@@ -4,14 +4,15 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
+	"github.com/Kenyan822/physique-analytics/api/internal/csvio"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 )
 
@@ -58,16 +59,29 @@ type SyncRepository interface {
 	Push(ctx context.Context, in repository.PushInput) (repository.PushResult, error)
 }
 
-// Server は openapi.StrictServerInterface の実装。
-// 未実装の操作は埋め込んだ Unimplemented が 501 で受ける。
-type Server struct {
-	Unimplemented
+// TransferRepository は CSV の入出力（要件 I-01）。
+type TransferRepository interface {
+	ExportDaily(ctx context.Context, from, to *openapi_types.Date) ([]csvio.DailyRow, error)
+	ExportWorkouts(ctx context.Context, from, to *openapi_types.Date) ([]csvio.WorkoutRow, error)
+	ExportMeasures(ctx context.Context, from, to *openapi_types.Date) ([]csvio.MeasureRow, error)
+	ImportDaily(ctx context.Context, rows []csvio.DailyRow, on repository.OnDuplicate) (repository.ImportResult, error)
+	ImportWorkouts(ctx context.Context, rows []csvio.WorkoutRow, on repository.OnDuplicate) (repository.ImportResult, error)
+	ImportMeasures(ctx context.Context, rows []csvio.MeasureRow, on repository.OnDuplicate) (repository.ImportResult, error)
+}
 
+// Server は openapi.StrictServerInterface の実装。
+//
+// **openapi.yaml の全操作を実装している。** 仕様に操作を足すと
+// StrictServerInterface を満たさなくなりビルドが落ちるので、
+// 「仕様に足したのにサーバ側が追随していない」はコンパイル時に分かる
+// （下の var _ = ... がそれを強制する）。
+type Server struct {
 	db        Pinger
 	exercises ExerciseRepository
 	workouts  WorkoutRepository
 	templates TemplateRepository
 	sync      SyncRepository
+	transfer  TransferRepository
 }
 
 // New は Server を作る。
@@ -77,8 +91,12 @@ func New(
 	workouts WorkoutRepository,
 	templates TemplateRepository,
 	sync SyncRepository,
+	transfer TransferRepository,
 ) *Server {
-	return &Server{db: db, exercises: exercises, workouts: workouts, templates: templates, sync: sync}
+	return &Server{
+		db: db, exercises: exercises, workouts: workouts,
+		templates: templates, sync: sync, transfer: transfer,
+	}
 }
 
 // 埋め込みだけでは満たせていない場合にコンパイルで落とす
@@ -107,12 +125,6 @@ func NewRouter(s openapi.StrictServerInterface) http.Handler {
 }
 
 func handleResponseError(w http.ResponseWriter, r *http.Request, err error) {
-	var ni notImplementedError
-	if errors.As(err, &ni) {
-		writeProblem(w, http.StatusNotImplemented, "未実装", ni.op+" はまだ実装されていない")
-		return
-	}
-
 	// 内部エラーの中身はログにだけ残す。接続先やクエリが応答に混ざるのを避ける
 	slog.ErrorContext(r.Context(), "ハンドラがエラーを返した",
 		slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.Any("error", err))
@@ -143,9 +155,3 @@ func writeProblem(w http.ResponseWriter, status int, title, detail string) {
 		slog.Error("problem の書き込みに失敗", slog.Any("error", err))
 	}
 }
-
-type notImplementedError struct{ op string }
-
-func (e notImplementedError) Error() string { return e.op + " は未実装" }
-
-func notImplemented(op string) error { return notImplementedError{op: op} }

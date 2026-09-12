@@ -77,7 +77,7 @@ func (s *stubWorkouts) DeleteSet(_ context.Context, id uuid.UUID) error {
 }
 
 func workoutServer(w *stubWorkouts) http.Handler {
-	return handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, w, &stubTemplates{}, &stubSync{}))
+	return handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, w, &stubTemplates{}, &stubSync{}, &stubTransfer{}))
 }
 
 func TestCreateWorkoutSession_新規は201(t *testing.T) {

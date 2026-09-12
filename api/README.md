@@ -16,6 +16,8 @@ physique-analytics の API サーバ（Go）。
 | `internal/handler/` | `openapi.StrictServerInterface` の実装 |
 | `internal/timeutil/` | JST 固定（[ADR-0013](../docs/adr/0013-timezone.md)） |
 | `internal/analytics/` | 分析ロジック（[ADR-0011](../docs/adr/0011-go-analytics.md)）。純粋関数だけ |
+| `internal/csvio/` | CSV の読み書き。`data/sample/*.csv` とスキーマを一致させる |
+| `internal/auth/` | Supabase の JWT 検証（ES256 / JWKS） |
 | `internal/mcpserver/` | MCP のツール（[ADR-0010](../docs/adr/0010-mcp-over-analysis-ui.md)） |
 | `gen/openapi/` | openapi.yaml からの生成物。編集しない |
 | `migrations/` | golang-migrate の SQL |
@@ -55,8 +57,9 @@ go generate ./...
 ## 実装状況
 
 `/health` / `exercises` / `workout-sessions` / `workout-sets` / `last-performance` /
-`templates` / `sync`（pull / push）を実装済み。
-残り（CSV の入出力）は `internal/handler/unimplemented.go` が 501 を返す。
+`templates` / `sync`（pull / push）/ `export/csv` / `import/csv`。
+**openapi.yaml の24操作すべてを実装済み。** 仕様に操作を足すと `Server` が
+`StrictServerInterface` を満たさなくなりビルドが落ちるので、追随漏れはコンパイル時に分かる。
 `openapi.yaml` に操作を足すと `Server` がインターフェースを満たさなくなりビルドが落ちるので、
 仕様と実装のずれはコンパイル時に分かる。
 
