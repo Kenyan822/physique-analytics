@@ -264,5 +264,35 @@ jobs:
       - name: pnpm audit
         run: pnpm audit --audit-level high
 
-  # iOS は Phase 2 で追加する。
-  # ios:  runs-on: macos-latest / SwiftLint + xcodebuild test
+  ios:
+    name: ios (Swift)
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: ios
+    steps:
+      - uses: actions/checkout@v7
+
+      # 同梱の Xcode が古いことがある。docs/06-技術選定.md の要求は iOS 26 SDK
+      - name: Xcode を選ぶ
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: バージョンを記録
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # ロジックは Xcode を通さずに回す。速いし、UI に依存しない部分を切り分けられる
+      - name: Test（SPM）
+        run: swift test
+
+      # 画面まで含めてコンパイルが通ることを確かめる
+      - name: Build（シミュレータ）
+        run: |
+          xcodebuild -project Physique.xcodeproj -scheme Physique \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            build | xcbeautify || \
+          xcodebuild -project Physique.xcodeproj -scheme Physique \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+            -derivedDataPath "$RUNNER_TEMP/dd" build

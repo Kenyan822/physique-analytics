@@ -40,3 +40,9 @@ yarn.lock
 *.xcuserstate
 xcuserdata/
 build/
+
+# Swift / Xcode
+ios/.build/
+ios/.swiftpm/
+DerivedData/
+*.xcuserdatap
