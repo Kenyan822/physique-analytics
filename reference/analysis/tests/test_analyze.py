@@ -120,6 +120,11 @@ class TestNutritionTargets:
         intake = 2800 + (-0.5) * 7700 / 7
         assert c == pytest.approx((intake - p * 4 - f * 9) / 4)
 
+    def test_炭水化物が負になっても0で止める(self):
+        # P と F だけで摂取枠を超えるケース。負の目標を出しても意味がない
+        _, _, _, c = analyze.nutrition_targets(self.CFG, 100, 15.0, goal=-1.0, tdee=2100)
+        assert c == 0.0
+
 
 class TestVolRange:
     """MEV/MRV は部位別。間接刺激のある部位は直接種目の基準を下げる"""
