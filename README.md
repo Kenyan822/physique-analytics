@@ -20,6 +20,23 @@ API と分析ロジックは Go（[ADR-0006](docs/adr/0006-go-backend.md) / [ADR
 
 ## 動かしてみる
 
+### 記録してみる
+
+```bash
+docker compose up -d                       # Postgres 17
+docker compose run --rm migrate up         # スキーマ + 種目マスタ49件
+
+# API
+cd api && DATABASE_URL='postgres://physique:dev@localhost:5432/physique?sslmode=disable' \
+  AUTH_DISABLED=true go run ./cmd/server
+
+# Web（別のターミナルで）
+cd web && cp .env.example .env.local && pnpm install && pnpm dev
+```
+
+http://localhost:3000/log で記録できる。**種目を選ぶと前回の重量・レップ・RIR が
+初期値に入る**（要件 T-02）。
+
 ### API を起動する
 
 ```bash
@@ -158,7 +175,7 @@ pytest analysis/tests -v
 | Phase | 内容 | 状態 |
 |---|---|---|
 | **0** | 分析ロジック（Python リファレンス実装） | **完了** |
-| **1** | **API (Go) + DB + Web + MCP**: 記録が回る状態 | **進行中**（API の土台と CD が動作） |
+| **1** | **API (Go) + DB + Web + MCP**: 記録が回る状態 | **進行中**（API 全24操作 / MCP / Web の入力が動作） |
 | 2 | iOS: ジムでの高速入力 + HealthKit 連携 | 未着手 |
 | 3 | 食事記録・周囲長・写真・計画管理 | 未着手 |
 | 4 | Watch 入力・位置情報サジェスト・相関分析 | 未着手 |

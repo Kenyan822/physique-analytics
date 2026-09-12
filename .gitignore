@@ -30,6 +30,10 @@ coverage.out
 # iOS / Web
 node_modules/
 .next/
+next-env.d.ts
+.playwright-mcp/
+# Next.js が生成するルート型。ビルドのたびに作られる
+web/.next/types/
 # pnpm を使う。npm/yarn の lockfile が混入しないようにする（CLAUDE.md）
 package-lock.json
 yarn.lock

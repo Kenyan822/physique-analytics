@@ -44,9 +44,19 @@ updates:
       - dependency-name: "numpy"
         update-types: ["version-update:semver-major"]
 
-  # Web は Phase 1a で追加する（pnpm も package-ecosystem は npm）
-  # - package-ecosystem: npm
-  #   directory: /web
+  # pnpm でも package-ecosystem は npm
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      web:
+        patterns: ["*"]
+        # メジャーは破壊的変更を含むのでまとめず個別に見る
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
     directory: /
