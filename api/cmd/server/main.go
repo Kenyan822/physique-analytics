@@ -49,7 +49,8 @@ func run() error {
 	}
 	defer pool.Close()
 
-	var h http.Handler = handler.NewRouter(handler.New(
+	// NewRouter は http.Handler を返す。認証ミドルウェアで包み直すので再代入する
+	h := handler.NewRouter(handler.New(
 		pool,
 		repository.NewExercise(pool.DB()),
 		repository.NewWorkout(pool.DB()),

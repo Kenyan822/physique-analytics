@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
-	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,18 +23,22 @@ const testKID = "test-key-1"
 func jwksServer(t *testing.T, pub *ecdsa.PublicKey) *httptest.Server {
 	t.Helper()
 
-	b64 := func(i *big.Int) string {
-		// P-256 は 32 バイト固定。左ゼロ埋めしないと鍵が壊れる
-		buf := make([]byte, 32)
-		i.FillBytes(buf)
-		return base64.RawURLEncoding.EncodeToString(buf)
+	// 非圧縮形式（0x04 || X || Y）から座標を取り出す。
+	// PublicKey.X / .Y は Go 1.26 で非推奨
+	raw, err := pub.Bytes()
+	if err != nil {
+		t.Fatalf("公開鍵を符号化できない: %v", err)
 	}
+	if len(raw) != 1+2*32 {
+		t.Fatalf("公開鍵の長さが想定外: %d", len(raw))
+	}
+	b64 := func(b []byte) string { return base64.RawURLEncoding.EncodeToString(b) }
 
 	body, err := json.Marshal(map[string]any{
 		"keys": []map[string]string{{
 			"kty": "EC", "crv": "P-256", "alg": "ES256", "use": "sig",
 			"kid": testKID,
-			"x":   b64(pub.X), "y": b64(pub.Y),
+			"x":   b64(raw[1:33]), "y": b64(raw[33:]),
 		}},
 	})
 	if err != nil {

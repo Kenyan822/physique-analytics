@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"net/http"
 	"strings"
 	"sync"
@@ -153,6 +152,9 @@ type jwk struct {
 	Y   string `json:"y"`
 }
 
+// p256CoordLen は P-256 の座標1つ分のバイト数。
+const p256CoordLen = 32
+
 func (k jwk) publicKey() (*ecdsa.PublicKey, error) {
 	if k.Kty != "EC" || k.Crv != "P-256" {
 		return nil, fmt.Errorf("対応していない鍵: kty=%q crv=%q", k.Kty, k.Crv)
@@ -166,12 +168,24 @@ func (k jwk) publicKey() (*ecdsa.PublicKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("y を解釈できない: %w", err)
 	}
+	if len(x) != p256CoordLen || len(y) != p256CoordLen {
+		return nil, fmt.Errorf("座標の長さが不正: x=%d y=%d", len(x), len(y))
+	}
 
-	return &ecdsa.PublicKey{
-		Curve: elliptic.P256(),
-		X:     new(big.Int).SetBytes(x),
-		Y:     new(big.Int).SetBytes(y),
-	}, nil
+	// ecdsa.PublicKey の X / Y は Go 1.26 で非推奨になった。
+	// 非圧縮形式（0x04 || X || Y）を渡す。**曲線上の点かどうかも検証される**ので、
+	// 座標を直接詰めるより安全。
+	buf := make([]byte, 1+2*p256CoordLen)
+	buf[0] = 4
+	copy(buf[1:], x)
+	copy(buf[1+p256CoordLen:], y)
+
+	pub, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), buf)
+	if err != nil {
+		return nil, fmt.Errorf("公開鍵として解釈できない: %w", err)
+	}
+
+	return pub, nil
 }
 
 // --- context ---
