@@ -75,6 +75,10 @@ jobs:
   api-image:
     name: api (コンテナイメージ)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Trivy の結果を Security → Code scanning に上げるために必要
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 
@@ -90,8 +94,31 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ベースイメージと同梱物の脆弱性。Go の依存だけ見ても OS 側の穴は塞げない
-      - name: Trivy でイメージをスキャン
+      # ベースイメージと同梱物の脆弱性。Go の依存だけ見ても OS 側の穴は塞げない。
+      #
+      # 2回に分けているのは、目的が違うため:
+      #   1回目 … 全 severity を SARIF で出して Security タブに上げる（履歴を残す）
+      #   2回目 … CRITICAL/HIGH でビルドを落とす（マージのゲート）
+      # 1回目で exit-code を立てると、落ちた時点でアップロードまで到達しない。
+      - name: Trivy でスキャン（SARIF 出力）
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: physique-api:ci
+          format: sarif
+          output: trivy-results.sarif
+          # ここでは落とさない。ゲートは次のステップ
+          exit-code: "0"
+          ignore-unfixed: true
+
+      # スキャンが落ちても結果は残す
+      - name: SARIF をアップロード
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image
+
+      - name: CRITICAL / HIGH があれば失敗させる
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: physique-api:ci
@@ -99,6 +126,10 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           severity: CRITICAL,HIGH
+        env:
+          # 1回目で取得済みの DB を使い回す
+          TRIVY_SKIP_DB_UPDATE: "true"
+          TRIVY_SKIP_JAVA_DB_UPDATE: "true"
 
   reference:
     # Phase 0 のプロトタイプ（Python）。Go 移植の検証基準として機能させるため、
