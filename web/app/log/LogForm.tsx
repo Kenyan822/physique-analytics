@@ -2,12 +2,12 @@
 
 import { useCallback, useState, useTransition } from "react";
 
+import type { Exercise, Template } from "@/lib/api/client";
 import { useOfflineQueue } from "@/lib/offline/useOfflineQueue";
 
-import type { Exercise, Template } from "@/lib/api/client";
-
-import { clampReps, clampWeight, SetInput, type SetValue } from "./SetInput";
+import { ExercisePicker } from "./ExercisePicker";
 import { RestTimer } from "./RestTimer";
+import { clampReps, clampWeight, SetInput, type SetValue } from "./SetInput";
 import { nextRestSeconds } from "./rest";
 import type { LastPerformance, RecordSetResult } from "./actions";
 
@@ -39,7 +39,14 @@ export type Logged = {
 
 const EMPTY: SetValue = { weightKg: 20, reps: 8, rir: 2 };
 
-export function LogForm({ exercises, templates, loadLast, recordSet, date, recorded }: Props) {
+export function LogForm({
+  exercises,
+  templates,
+  loadLast,
+  recordSet,
+  date,
+  recorded,
+}: Props) {
   const [templateId, setTemplateId] = useState("");
   const [exerciseId, setExerciseId] = useState("");
   const [value, setValue] = useState<SetValue>(EMPTY);
@@ -61,7 +68,9 @@ export function LogForm({ exercises, templates, loadLast, recordSet, date, recor
     }) => {
       const res = await recordSet(item);
 
-      return res.ok ? ({ ok: true } as const) : ({ ok: false, message: res.message } as const);
+      return res.ok
+        ? ({ ok: true } as const)
+        : ({ ok: false, message: res.message } as const);
     },
     [recordSet],
   );
@@ -72,22 +81,24 @@ export function LogForm({ exercises, templates, loadLast, recordSet, date, recor
   const template = templates.find((t) => t.id === templateId);
 
   // テンプレートを選ぶと、その日の種目だけに絞る（要件 T-06）。
-  // 1日4種目という前提（要件 T-05）なので、49種目から毎回探す必要がない
+  // 1日4種目という前提なので、49種目から毎回探す必要がない
   const choices = template
     ? template.items
         .map((it) => byId.get(it.exerciseId))
         .filter((e): e is Exercise => e !== undefined)
     : exercises;
 
-  /** その種目で今日すでに記録したセット数 */
-  const doneCount = (id: string) => logged.filter((l) => l.exerciseId === id).length;
+  const doneCount = (id: string) =>
+    logged.filter((l) => l.exerciseId === id).length;
 
   /**
    * 次のセット番号。**件数ではなく最大値 + 1** にする。
    * 途中のセットを消したあとに件数で決めると、既存の番号と衝突する
    */
   const nextSetNo = (id: string) =>
-    logged.filter((l) => l.exerciseId === id).reduce((max, l) => Math.max(max, l.setNo), 0) + 1;
+    logged
+      .filter((l) => l.exerciseId === id)
+      .reduce((max, l) => Math.max(max, l.setNo), 0) + 1;
 
   function selectExercise(id: string) {
     setExerciseId(id);
@@ -106,7 +117,11 @@ export function LogForm({ exercises, templates, loadLast, recordSet, date, recor
         const top = res.sets?.[0];
         setValue(
           top
-            ? { weightKg: clampWeight(top.weightKg), reps: clampReps(top.reps), rir: top.rir ?? null }
+            ? {
+                weightKg: clampWeight(top.weightKg),
+                reps: clampReps(top.reps),
+                rir: top.rir ?? null,
+              }
             : EMPTY,
         );
       } catch (e) {
@@ -141,95 +156,110 @@ export function LogForm({ exercises, templates, loadLast, recordSet, date, recor
   }
 
   const restSec = exercise ? nextRestSeconds(exercise) : 0;
+  const todayTonnage = logged.reduce((sum, l) => sum + l.weightKg * l.reps, 0);
 
   return (
-    <div className="flex flex-col gap-6">
-      {(!online || pendingCount > 0) && (
-        <p className="rounded-lg bg-amber-100 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
-          {online
-            ? `未送信 ${pendingCount} 件。再送を待っている`
-            : `オフライン。記録は端末に残る（未送信 ${pendingCount} 件）`}
-        </p>
-      )}
+    /*
+     * 画面が広いときは「入力」と「今日の記録」を横に並べる。
+     * 入力側を 28rem で止めているのは、ボタンや数字が広がると
+     * ジムで使う縦画面とサイズ感がずれて、目測で押せなくなるため
+     */
+    <div className="px-4 pb-40 lg:grid lg:grid-cols-[28rem_minmax(0,1fr)] lg:items-start lg:gap-8 lg:px-6 lg:pb-12">
+      <div className="flex flex-col gap-4">
+        {(!online || pendingCount > 0) && (
+          <p className="rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">
+            {online
+              ? `未送信 ${pendingCount} 件。再送を待っている`
+              : `オフライン。記録は端末に残る（未送信 ${pendingCount} 件）`}
+          </p>
+        )}
 
-      {templates.length > 0 && (
-        <label className="flex flex-col gap-2">
-          <span className="text-sm text-gray-600 dark:text-gray-400">メニュー</span>
-          <select
-            value={templateId}
-            onChange={(e) => {
-              setTemplateId(e.target.value);
-              setExerciseId("");
-              setLast(null);
-            }}
-            className="h-12 rounded-lg border border-gray-300 bg-transparent px-3 text-base dark:border-gray-700"
-          >
-            <option value="">指定しない（全種目）</option>
+        {templates.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto">
+            <MenuChip
+              active={templateId === ""}
+              onClick={() => setTemplateId("")}
+            >
+              全種目
+            </MenuChip>
             {templates.map((t) => (
-              <option key={t.id} value={t.id}>
+              <MenuChip
+                key={t.id}
+                active={templateId === t.id}
+                onClick={() => {
+                  setTemplateId(templateId === t.id ? "" : t.id);
+                  setExerciseId("");
+                  setLast(null);
+                }}
+              >
                 {t.name}
-              </option>
+              </MenuChip>
             ))}
-          </select>
-        </label>
-      )}
+          </div>
+        )}
 
-      <label className="flex flex-col gap-2">
-        <span className="text-sm text-gray-600 dark:text-gray-400">種目</span>
-        <select
-          value={exerciseId}
-          onChange={(e) => selectExercise(e.target.value)}
-          className="h-12 rounded-lg border border-gray-300 bg-transparent px-3 text-base dark:border-gray-700"
-        >
-          <option value="">選ぶ</option>
-          {choices.map((e) => {
-            const n = doneCount(e.id);
+        <ExercisePicker
+          exercises={choices}
+          selected={exercise}
+          doneCount={doneCount}
+          onSelect={selectExercise}
+        />
 
-            return (
-              <option key={e.id} value={e.id}>
-                {e.name}（{e.muscleGroup}）{n > 0 ? ` ✓${n}` : ""}
-              </option>
-            );
-          })}
-        </select>
-      </label>
-
-      {exercise && <LastPerformanceView last={last} pending={pending} />}
-
-      {exercise && (
-        <>
+        {exercise && <LastPerformanceView last={last} pending={pending} />}
+        {exercise && (
           <SetInput value={value} onChange={setValue} disabled={pending} />
+        )}
+        {exercise && <RestTimer seconds={restSec} startedAt={restStartedAt} />}
 
-          <button
-            type="button"
-            onClick={submit}
-            disabled={pending}
-            className="h-14 rounded-lg bg-gray-900 text-lg font-semibold text-white disabled:opacity-40 dark:bg-white dark:text-gray-900"
+        {error && (
+          <p
+            role="alert"
+            className="rounded-xl border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
           >
-            {pending ? "記録中…" : `${nextSetNo(exerciseId)} セット目を記録`}
-          </button>
+            {error}
+          </p>
+        )}
 
-          <RestTimer seconds={restSec} startedAt={restStartedAt} />
-        </>
-      )}
-
-      {error && (
-        <p
-          role="alert"
-          className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300"
-        >
-          {error}
-        </p>
-      )}
+        {/* 狭い画面では親指が届く位置に固定される（.action-bar） */}
+        {exercise && (
+          <div className="action-bar">
+            <button
+              type="button"
+              onClick={submit}
+              disabled={pending}
+              className="pressable h-16 w-full rounded-2xl bg-accent text-lg font-bold text-accent-ink disabled:opacity-50"
+            >
+              {pending ? "記録中…" : `${nextSetNo(exerciseId)} セット目を記録`}
+            </button>
+          </div>
+        )}
+      </div>
 
       {logged.length > 0 && (
-        <section>
-          <h2 className="mb-2 text-sm text-gray-600 dark:text-gray-400">今日の記録</h2>
-          <ul className="flex flex-col gap-1">
+        <section className="mt-4 rounded-2xl border border-line bg-surface p-4 lg:sticky lg:top-24 lg:mt-0">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-sm font-medium">今日の記録</h2>
+            <span className="tnum text-xs text-muted">
+              {logged.length} セット /{" "}
+              {Math.round(todayTonnage).toLocaleString()} kg
+            </span>
+          </div>
+          <ul className="flex flex-col gap-1.5">
             {logged.map((s) => (
-              <li key={`${s.exerciseId}-${s.setNo}`} className="text-sm tabular-nums">
-                {byId.get(s.exerciseId)?.name ?? "?"} {s.setNo}セット目 {s.weightKg}kg × {s.reps}回
-                {s.rir !== null && ` @RIR${s.rir}`}
+              <li
+                key={`${s.exerciseId}-${s.setNo}`}
+                className="flex items-baseline justify-between gap-3 text-sm"
+              >
+                <span className="min-w-0 truncate text-muted">
+                  {byId.get(s.exerciseId)?.name ?? "?"}
+                  <span className="tnum ml-1.5 text-xs">#{s.setNo}</span>
+                </span>
+                <span className="tnum shrink-0">
+                  {s.weightKg}kg × {s.reps}
+                  {s.rir !== null && (
+                    <span className="text-muted"> @{s.rir}</span>
+                  )}
+                </span>
               </li>
             ))}
           </ul>
@@ -239,32 +269,73 @@ export function LogForm({ exercises, templates, loadLast, recordSet, date, recor
   );
 }
 
+function MenuChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`pressable shrink-0 rounded-full border px-3.5 py-2 text-sm ${
+        active
+          ? "border-accent bg-accent font-semibold text-accent-ink"
+          : "border-line bg-surface text-muted"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 /** 前回の実施内容（要件 T-02 / T-09）。その場で超えられるか判断できるようにする。 */
-function LastPerformanceView({ last, pending }: { last: LastPerformance | null; pending: boolean }) {
+function LastPerformanceView({
+  last,
+  pending,
+}: {
+  last: LastPerformance | null;
+  pending: boolean;
+}) {
   if (pending && !last) {
-    return <p className="text-sm text-gray-500">前回値を取得中…</p>;
+    return (
+      <div className="rounded-2xl border border-line bg-surface p-4 text-sm text-muted">
+        前回値を取得中…
+      </div>
+    );
   }
   if (!last) return null;
 
   if (!last.date) {
-    return <p className="text-sm text-gray-500">この種目は初回。記録が貯まると前回値が出る</p>;
+    return (
+      <div className="rounded-2xl border border-line bg-surface p-4 text-sm text-muted">
+        この種目は初回。記録が貯まると前回値が出る
+      </div>
+    );
   }
 
   return (
-    <section className="rounded-lg bg-gray-100 p-3 text-sm dark:bg-gray-900">
-      <div className="mb-1 flex items-baseline justify-between">
-        <span className="text-gray-600 dark:text-gray-400">前回 {last.date}</span>
+    <section className="rounded-2xl border border-line bg-surface p-4">
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="text-xs text-muted">前回 {last.date}</span>
         {last.estimatedOneRm != null && (
-          <span className="tabular-nums text-gray-600 dark:text-gray-400">
-            推定1RM {last.estimatedOneRm.toFixed(1)}kg
+          <span className="tnum text-xs text-muted">
+            推定1RM{" "}
+            <span className="text-ink">{last.estimatedOneRm.toFixed(1)}</span>{" "}
+            kg
           </span>
         )}
       </div>
-      <ul className="flex flex-wrap gap-x-3 gap-y-1 tabular-nums">
+      <ul className="tnum flex flex-wrap gap-x-2 gap-y-1.5 text-sm">
         {(last.sets ?? []).map((s) => (
-          <li key={s.id}>
-            {s.weightKg}kg×{s.reps}
-            {s.rir != null && `@${s.rir}`}
+          <li key={s.id} className="rounded-lg bg-surface-2 px-2 py-1">
+            {s.weightKg}×{s.reps}
+            {s.rir != null && <span className="text-muted">@{s.rir}</span>}
           </li>
         ))}
       </ul>
