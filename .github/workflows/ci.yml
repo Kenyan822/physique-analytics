@@ -218,9 +218,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # pnpm は corepack 経由で入れる。package.json の packageManager が
-      # バージョンを固定しているので、ここでバージョンを書かない
+      # バージョンは web/package.json の packageManager が決める。
+      # この action は既定でリポジトリルートの package.json を見るので、
+      # monorepo では package_json_file の指定が要る
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
 
       - uses: actions/setup-node@v7
         with:
