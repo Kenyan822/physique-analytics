@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# GITHUB_TOKEN の権限を絞る。CI は読むだけで、書き込む必要がない。
+# 既定は書き込み可能なので、明示しないとサードパーティ Action に
+# リポジトリへの書き込み権を渡すことになる
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
