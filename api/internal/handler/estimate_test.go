@@ -33,7 +33,7 @@ func (s *stubEstimator) Estimate(_ context.Context, req vision.Request) (vision.
 func estimateServer(e *stubEstimator) http.Handler {
 	return handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{},
 		&stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{},
-		&stubPlan{}, &stubSeries{}, &stubMealSets{}, &stubContests{}, &stubBlood{}, e))
+		&stubPlan{}, &stubSeries{}, &stubMealSets{}, &stubContests{}, &stubBlood{}, e, &stubPhotos{}, &stubBlobs{}))
 }
 
 func imageForm(t *testing.T, note string) (*bytes.Buffer, string) {

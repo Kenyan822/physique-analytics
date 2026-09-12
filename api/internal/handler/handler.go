@@ -140,6 +140,21 @@ type FoodEstimator interface {
 	Estimate(ctx context.Context, req vision.Request) (vision.Estimate, error)
 }
 
+// PhotoRepository は身体写真のメタデータへのアクセス（要件 B-04 / B-05 / B-07）。
+type PhotoRepository interface {
+	List(ctx context.Context, from, to *openapi_types.Date) ([]repository.PhotoRow, error)
+	Guide(ctx context.Context, before openapi_types.Date) ([]repository.PhotoRow, error)
+	Create(ctx context.Context, in repository.PhotoInput) (repository.PhotoRow, error)
+	SoftDelete(ctx context.Context, id uuid.UUID) error
+}
+
+// BlobStore は写真の置き場。**画像は API を経由させない**（ADR-0008）。
+type BlobStore interface {
+	Enabled() bool
+	PresignGet(key string, expiry time.Duration, now time.Time) (string, error)
+	PresignPut(key string, expiry time.Duration, now time.Time) (string, error)
+}
+
 // Server は openapi.StrictServerInterface の実装。
 //
 // **openapi.yaml の全操作を実装している。** 仕様に操作を足すと
@@ -162,6 +177,9 @@ type Server struct {
 	blood     BloodTestRepository
 	// estimator は nil でもよい。未設定なら推定だけが使えない
 	estimator FoodEstimator
+	photos    PhotoRepository
+	// blobs も nil でよい。未設定なら写真だけが使えない
+	blobs BlobStore
 }
 
 // New は Server を作る。
@@ -180,12 +198,15 @@ func New(
 	contests ContestRepository,
 	blood BloodTestRepository,
 	estimator FoodEstimator,
+	photos PhotoRepository,
+	blobs BlobStore,
 ) *Server {
 	return &Server{
 		db: db, exercises: exercises, workouts: workouts,
 		templates: templates, sync: sync, transfer: transfer,
 		body: body, meals: meals, plan: plan, series: series,
 		mealSets: mealSets, contests: contests, blood: blood, estimator: estimator,
+		photos: photos, blobs: blobs,
 	}
 }
 

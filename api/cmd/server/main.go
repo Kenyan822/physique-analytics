@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Kenyan822/physique-analytics/api/internal/auth"
+	"github.com/Kenyan822/physique-analytics/api/internal/blobstore"
 	"github.com/Kenyan822/physique-analytics/api/internal/config"
 	"github.com/Kenyan822/physique-analytics/api/internal/database"
 	"github.com/Kenyan822/physique-analytics/api/internal/handler"
@@ -71,6 +72,14 @@ func run() error {
 			Model:    cfg.VisionModel,
 			Endpoint: cfg.VisionEndpoint,
 		}, nil),
+		repository.NewPhoto(pool.DB()),
+		// 写真も任意。未設定なら 503 を返すだけ
+		blobstore.NewR2(blobstore.Config{
+			AccountID:       cfg.R2AccountID,
+			Bucket:          cfg.R2Bucket,
+			AccessKeyID:     cfg.R2AccessKeyID,
+			SecretAccessKey: cfg.R2SecretAccessKey,
+		}),
 	))
 
 	if cfg.AuthDisabled {

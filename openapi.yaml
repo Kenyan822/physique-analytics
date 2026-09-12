@@ -1117,6 +1117,103 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
 
+  /v1/photos:
+    get:
+      operationId: listPhotos
+      tags: [body]
+      summary: 写真の一覧
+      description: |
+        要件 B-04 / B-07。撮影日の降順。**短期の署名付きURL**を添えて返す
+        （ADR-0008。公開URLは作らない）。
+      parameters:
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/BodyPhoto" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+    post:
+      operationId: createPhotoUpload
+      tags: [body]
+      summary: アップロード用のURLを発行する
+      description: |
+        要件 B-04。**画像は API を経由させない。** 4MB の画像を Cloud Run に
+        通すとメモリもリクエスト時間も無駄になるので、署名付きURLに直接
+        アップロードさせる。
+
+        アップロードが終わったら `PUT /v1/photos/{photoId}/complete` を呼ぶ。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PhotoUploadInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PhotoUpload" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
+  /v1/photos/{photoId}:
+    parameters:
+      - name: photoId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      operationId: deletePhoto
+      tags: [body]
+      summary: 写真の削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/photos/guide:
+    get:
+      operationId: getPhotoGuide
+      tags: [body]
+      summary: 撮影ガイド用の前回写真
+      description: |
+        要件 B-05。**同じ距離・角度・ポーズを再現する**ために、撮影時に
+        前回の写真を重ねて表示する。条件を固定しないと比較が成立しない
+        （docs/02-データモデル.md）。
+
+        向きごとに直近の1枚を返す。
+      parameters:
+        - name: before
+          in: query
+          schema: { type: string, format: date }
+          description: この日より前の直近を返す。省略時は今日より前
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/BodyPhoto" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
   /v1/plan:
     get:
       operationId: getPlan
@@ -2075,6 +2172,51 @@ components:
           allOf:
             - $ref: "#/components/schemas/MealSource"
           description: 常に ai_estimated。記録するときもこれを保つ
+
+    PhotoPose:
+      type: string
+      description: 正面 / 側面 / 背面
+      enum: [front, side, back]
+      x-enum-varnames: [PoseFront, PoseSide, PoseBack]
+
+    BodyPhoto:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, date, pose, mimeType, byteSize]
+          properties:
+            id: { type: string, format: uuid }
+            date: { type: string, format: date }
+            pose: { $ref: "#/components/schemas/PhotoPose" }
+            mimeType: { type: string }
+            byteSize: { type: integer }
+            note:
+              type: [string, "null"]
+              description: 撮影条件。**条件を固定しないと比較が成立しない**
+            url:
+              type: [string, "null"]
+              description: 短期の署名付きURL。公開URLではない（ADR-0008）
+
+    PhotoUploadInput:
+      type: object
+      required: [date, pose, mimeType, byteSize]
+      properties:
+        date: { type: string, format: date }
+        pose: { $ref: "#/components/schemas/PhotoPose" }
+        mimeType:
+          type: string
+          enum: [image/jpeg, image/png, image/heic]
+        byteSize: { type: integer, minimum: 1, maximum: 20971520 }
+        note: { type: [string, "null"], maxLength: 500 }
+
+    PhotoUpload:
+      type: object
+      required: [photo, uploadUrl]
+      properties:
+        photo: { $ref: "#/components/schemas/BodyPhoto" }
+        uploadUrl:
+          type: string
+          description: ここに PUT する。短期で失効する
 
     Problem:
       type: object

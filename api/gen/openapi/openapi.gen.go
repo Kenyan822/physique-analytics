@@ -131,6 +131,48 @@ func (e MuscleGroup) Valid() bool {
 	}
 }
 
+// Defines values for PhotoPose.
+const (
+	PoseBack  PhotoPose = "back"
+	PoseFront PhotoPose = "front"
+	PoseSide  PhotoPose = "side"
+)
+
+// Valid indicates whether the value is a known member of the PhotoPose enum.
+func (e PhotoPose) Valid() bool {
+	switch e {
+	case PoseBack:
+		return true
+	case PoseFront:
+		return true
+	case PoseSide:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PhotoUploadInputMimeType.
+const (
+	Imageheic PhotoUploadInputMimeType = "image/heic"
+	Imagejpeg PhotoUploadInputMimeType = "image/jpeg"
+	Imagepng  PhotoUploadInputMimeType = "image/png"
+)
+
+// Valid indicates whether the value is a known member of the PhotoUploadInputMimeType enum.
+func (e PhotoUploadInputMimeType) Valid() bool {
+	switch e {
+	case Imageheic:
+		return true
+	case Imagejpeg:
+		return true
+	case Imagepng:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RefFlag.
 const (
 	RefHigh    RefFlag = "high"
@@ -348,6 +390,30 @@ type BodyMeasurementInput struct {
 	ThighRCm     *float32           `json:"thighRCm,omitempty"`
 	UpdatedAt    *time.Time         `json:"updatedAt,omitempty"`
 	WaistNavelCm *float32           `json:"waistNavelCm,omitempty"`
+}
+
+// BodyPhoto defines model for BodyPhoto.
+type BodyPhoto struct {
+	ByteSize  int                `json:"byteSize"`
+	CreatedAt time.Time          `json:"createdAt"`
+	Date      openapi_types.Date `json:"date"`
+
+	// DeletedAt 論理削除。物理削除しない（ADR-0014）
+	DeletedAt *time.Time         `json:"deletedAt,omitempty"`
+	Id        openapi_types.UUID `json:"id"`
+	MimeType  string             `json:"mimeType"`
+
+	// Note 撮影条件。**条件を固定しないと比較が成立しない**
+	Note *string `json:"note,omitempty"`
+
+	// Pose 正面 / 側面 / 背面
+	Pose PhotoPose `json:"pose"`
+
+	// UpdatedAt 競合解決に使う（ADR-0014）
+	UpdatedAt time.Time `json:"updatedAt"`
+
+	// Url 短期の署名付きURL。公開URLではない（ADR-0008）
+	Url *string `json:"url,omitempty"`
 }
 
 // Contest defines model for Contest.
@@ -711,6 +777,31 @@ type NutritionSettings struct {
 	DeepCutBfThreshold float32 `json:"deepCutBfThreshold"`
 }
 
+// PhotoPose 正面 / 側面 / 背面
+type PhotoPose string
+
+// PhotoUpload defines model for PhotoUpload.
+type PhotoUpload struct {
+	Photo BodyPhoto `json:"photo"`
+
+	// UploadUrl ここに PUT する。短期で失効する
+	UploadUrl string `json:"uploadUrl"`
+}
+
+// PhotoUploadInput defines model for PhotoUploadInput.
+type PhotoUploadInput struct {
+	ByteSize int                      `json:"byteSize"`
+	Date     openapi_types.Date       `json:"date"`
+	MimeType PhotoUploadInputMimeType `json:"mimeType"`
+	Note     *string                  `json:"note,omitempty"`
+
+	// Pose 正面 / 側面 / 背面
+	Pose PhotoPose `json:"pose"`
+}
+
+// PhotoUploadInputMimeType defines model for PhotoUploadInput.MimeType.
+type PhotoUploadInputMimeType string
+
 // Plan defines model for Plan.
 type Plan struct {
 	BaselineBodyfatPct *float32 `json:"baselineBodyfatPct,omitempty"`
@@ -1048,6 +1139,19 @@ type ListMeasurementsParams struct {
 	To   *DateTo   `form:"to,omitempty" json:"to,omitempty"`
 }
 
+// ListPhotosParams defines parameters for ListPhotos.
+type ListPhotosParams struct {
+	// From JST の日付（ADR-0013）
+	From *DateFrom `form:"from,omitempty" json:"from,omitempty"`
+	To   *DateTo   `form:"to,omitempty" json:"to,omitempty"`
+}
+
+// GetPhotoGuideParams defines parameters for GetPhotoGuide.
+type GetPhotoGuideParams struct {
+	// Before この日より前の直近を返す。省略時は今日より前
+	Before *openapi_types.Date `form:"before,omitempty" json:"before,omitempty"`
+}
+
 // PutPlanBlocksJSONBody defines parameters for PutPlanBlocks.
 type PutPlanBlocksJSONBody struct {
 	Items []PlanBlock `json:"items"`
@@ -1141,6 +1245,9 @@ type UpdateMealJSONRequestBody = MealInput
 
 // PutMeasurementJSONRequestBody defines body for PutMeasurement for application/json ContentType.
 type PutMeasurementJSONRequestBody = BodyMeasurementInput
+
+// CreatePhotoUploadJSONRequestBody defines body for CreatePhotoUpload for application/json ContentType.
+type CreatePhotoUploadJSONRequestBody = PhotoUploadInput
 
 // PutPlanJSONRequestBody defines body for PutPlan for application/json ContentType.
 type PutPlanJSONRequestBody = PlanInput
@@ -1279,6 +1386,18 @@ type ServerInterface interface {
 	// GetLatestMeasurement 直近の周囲長
 	// (GET /v1/measurements/latest)
 	GetLatestMeasurement(w http.ResponseWriter, r *http.Request)
+	// ListPhotos 写真の一覧
+	// (GET /v1/photos)
+	ListPhotos(w http.ResponseWriter, r *http.Request, params ListPhotosParams)
+	// CreatePhotoUpload アップロード用のURLを発行する
+	// (POST /v1/photos)
+	CreatePhotoUpload(w http.ResponseWriter, r *http.Request)
+	// GetPhotoGuide 撮影ガイド用の前回写真
+	// (GET /v1/photos/guide)
+	GetPhotoGuide(w http.ResponseWriter, r *http.Request, params GetPhotoGuideParams)
+	// DeletePhoto 写真の削除（論理削除）
+	// (DELETE /v1/photos/{photoId})
+	DeletePhoto(w http.ResponseWriter, r *http.Request, photoId openapi_types.UUID)
 	// GetPlan 計画の設定を取得
 	// (GET /v1/plan)
 	GetPlan(w http.ResponseWriter, r *http.Request)
@@ -2242,6 +2361,125 @@ func (siw *ServerInterfaceWrapper) GetLatestMeasurement(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// ListPhotos operation middleware
+func (siw *ServerInterfaceWrapper) ListPhotos(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListPhotosParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPhotos(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreatePhotoUpload operation middleware
+func (siw *ServerInterfaceWrapper) CreatePhotoUpload(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreatePhotoUpload(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPhotoGuide operation middleware
+func (siw *ServerInterfaceWrapper) GetPhotoGuide(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetPhotoGuideParams
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPhotoGuide(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeletePhoto operation middleware
+func (siw *ServerInterfaceWrapper) DeletePhoto(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "photoId" -------------
+	var photoId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "photoId", r.PathValue("photoId"), &photoId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "photoId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeletePhoto(w, r, photoId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetPlan operation middleware
 func (siw *ServerInterfaceWrapper) GetPlan(w http.ResponseWriter, r *http.Request) {
 
@@ -2923,6 +3161,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/plan/blocks", wrapper.ListPlanBlocks)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/plan/blocks", wrapper.PutPlanBlocks)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/plan/monthly-targets", wrapper.GetMonthlyTargets)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/photos", wrapper.ListPhotos)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/photos", wrapper.CreatePhotoUpload)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/photos/{photoId}", wrapper.DeletePhoto)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/photos/guide", wrapper.GetPhotoGuide)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/plan", wrapper.GetPlan)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/plan", wrapper.PutPlan)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/sync", wrapper.PullSync)
@@ -4913,6 +5155,252 @@ func (response GetLatestMeasurement401ApplicationProblemPlusJSONResponse) VisitG
 	return err
 }
 
+type ListPhotosRequestObject struct {
+	Params ListPhotosParams
+}
+
+type ListPhotosResponseObject interface {
+	VisitListPhotosResponse(w http.ResponseWriter) error
+}
+
+type ListPhotos200JSONResponse struct {
+	Items []BodyPhoto `json:"items"`
+}
+
+func (response ListPhotos200JSONResponse) VisitListPhotosResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPhotos401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPhotos401ApplicationProblemPlusJSONResponse) VisitListPhotosResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPhotos503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response ListPhotos503ApplicationProblemPlusJSONResponse) VisitListPhotosResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePhotoUploadRequestObject struct {
+	Body *CreatePhotoUploadJSONRequestBody
+}
+
+type CreatePhotoUploadResponseObject interface {
+	VisitCreatePhotoUploadResponse(w http.ResponseWriter) error
+}
+
+type CreatePhotoUpload201JSONResponse PhotoUpload
+
+func (response CreatePhotoUpload201JSONResponse) VisitCreatePhotoUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePhotoUpload400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePhotoUpload400ApplicationProblemPlusJSONResponse) VisitCreatePhotoUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePhotoUpload401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePhotoUpload401ApplicationProblemPlusJSONResponse) VisitCreatePhotoUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePhotoUpload422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePhotoUpload422ApplicationProblemPlusJSONResponse) VisitCreatePhotoUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreatePhotoUpload503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response CreatePhotoUpload503ApplicationProblemPlusJSONResponse) VisitCreatePhotoUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPhotoGuideRequestObject struct {
+	Params GetPhotoGuideParams
+}
+
+type GetPhotoGuideResponseObject interface {
+	VisitGetPhotoGuideResponse(w http.ResponseWriter) error
+}
+
+type GetPhotoGuide200JSONResponse struct {
+	Items []BodyPhoto `json:"items"`
+}
+
+func (response GetPhotoGuide200JSONResponse) VisitGetPhotoGuideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPhotoGuide401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetPhotoGuide401ApplicationProblemPlusJSONResponse) VisitGetPhotoGuideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetPhotoGuide503ApplicationProblemPlusJSONResponse struct {
+	ServiceUnavailableApplicationProblemPlusJSONResponse
+}
+
+func (response GetPhotoGuide503ApplicationProblemPlusJSONResponse) VisitGetPhotoGuideResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePhotoRequestObject struct {
+	PhotoId openapi_types.UUID `json:"photoId"`
+}
+
+type DeletePhotoResponseObject interface {
+	VisitDeletePhotoResponse(w http.ResponseWriter) error
+}
+
+type DeletePhoto204Response struct {
+}
+
+func (response DeletePhoto204Response) VisitDeletePhotoResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeletePhoto401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeletePhoto401ApplicationProblemPlusJSONResponse) VisitDeletePhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeletePhoto404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeletePhoto404ApplicationProblemPlusJSONResponse) VisitDeletePhotoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetPlanRequestObject struct {
 }
 
@@ -6052,6 +6540,18 @@ type StrictServerInterface interface {
 	// GetLatestMeasurement 直近の周囲長
 	// (GET /v1/measurements/latest)
 	GetLatestMeasurement(ctx context.Context, request GetLatestMeasurementRequestObject) (GetLatestMeasurementResponseObject, error)
+	// ListPhotos 写真の一覧
+	// (GET /v1/photos)
+	ListPhotos(ctx context.Context, request ListPhotosRequestObject) (ListPhotosResponseObject, error)
+	// CreatePhotoUpload アップロード用のURLを発行する
+	// (POST /v1/photos)
+	CreatePhotoUpload(ctx context.Context, request CreatePhotoUploadRequestObject) (CreatePhotoUploadResponseObject, error)
+	// GetPhotoGuide 撮影ガイド用の前回写真
+	// (GET /v1/photos/guide)
+	GetPhotoGuide(ctx context.Context, request GetPhotoGuideRequestObject) (GetPhotoGuideResponseObject, error)
+	// DeletePhoto 写真の削除（論理削除）
+	// (DELETE /v1/photos/{photoId})
+	DeletePhoto(ctx context.Context, request DeletePhotoRequestObject) (DeletePhotoResponseObject, error)
 	// GetPlan 計画の設定を取得
 	// (GET /v1/plan)
 	GetPlan(ctx context.Context, request GetPlanRequestObject) (GetPlanResponseObject, error)
@@ -7167,6 +7667,115 @@ func (sh *strictHandler) GetLatestMeasurement(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetLatestMeasurementResponseObject); ok {
 		if err := validResponse.VisitGetLatestMeasurementResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListPhotos operation middleware
+func (sh *strictHandler) ListPhotos(w http.ResponseWriter, r *http.Request, params ListPhotosParams) {
+	var request ListPhotosRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPhotos(ctx, request.(ListPhotosRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPhotos")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPhotosResponseObject); ok {
+		if err := validResponse.VisitListPhotosResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreatePhotoUpload operation middleware
+func (sh *strictHandler) CreatePhotoUpload(w http.ResponseWriter, r *http.Request) {
+	var request CreatePhotoUploadRequestObject
+
+	var body CreatePhotoUploadJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreatePhotoUpload(ctx, request.(CreatePhotoUploadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreatePhotoUpload")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreatePhotoUploadResponseObject); ok {
+		if err := validResponse.VisitCreatePhotoUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetPhotoGuide operation middleware
+func (sh *strictHandler) GetPhotoGuide(w http.ResponseWriter, r *http.Request, params GetPhotoGuideParams) {
+	var request GetPhotoGuideRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetPhotoGuide(ctx, request.(GetPhotoGuideRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetPhotoGuide")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetPhotoGuideResponseObject); ok {
+		if err := validResponse.VisitGetPhotoGuideResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeletePhoto operation middleware
+func (sh *strictHandler) DeletePhoto(w http.ResponseWriter, r *http.Request, photoId openapi_types.UUID) {
+	var request DeletePhotoRequestObject
+
+	request.PhotoId = photoId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeletePhoto(ctx, request.(DeletePhotoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeletePhoto")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeletePhotoResponseObject); ok {
+		if err := validResponse.VisitDeletePhotoResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

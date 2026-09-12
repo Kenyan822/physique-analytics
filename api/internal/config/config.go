@@ -40,6 +40,14 @@ type Config struct {
 	// 確かめるため。** 偽のサーバを立てて手元で通す。
 	VisionEndpoint string
 
+	// R2* は写真の置き場（要件 B-04、ADR-0008）。
+	//
+	// **未設定でも起動する。** 写真の機能だけが 503 を返す。
+	R2AccountID       string
+	R2Bucket          string
+	R2AccessKeyID     string
+	R2SecretAccessKey string
+
 	// AuthDisabled は認証を無効にする。ローカル開発専用。
 	//
 	// **既定で無効にはしない。** JWKS の設定を忘れたときに黙って認証なしで
@@ -92,6 +100,12 @@ func Load(lookup LookupEnv) (Config, error) {
 	if v, ok := lookup("VISION_ENDPOINT"); ok {
 		cfg.VisionEndpoint = v
 	}
+
+	// 写真も任意。設定しなければ使えないだけ
+	cfg.R2AccountID, _ = lookup("R2_ACCOUNT_ID")
+	cfg.R2Bucket, _ = lookup("R2_BUCKET")
+	cfg.R2AccessKeyID, _ = lookup("R2_ACCESS_KEY_ID")
+	cfg.R2SecretAccessKey, _ = lookup("R2_SECRET_ACCESS_KEY")
 
 	if jwks, ok := lookup("SUPABASE_JWKS_URL"); ok && jwks != "" {
 		cfg.SupabaseJWKSURL = jwks

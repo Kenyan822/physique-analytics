@@ -55,7 +55,7 @@ func (s *stubContests) SoftDelete(_ context.Context, id uuid.UUID) error {
 func contestServer(c *stubContests) http.Handler {
 	return handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{},
 		&stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{},
-		&stubPlan{}, &stubSeries{}, &stubMealSets{}, c, &stubBlood{}, &stubEstimator{}))
+		&stubPlan{}, &stubSeries{}, &stubMealSets{}, c, &stubBlood{}, &stubEstimator{}, &stubPhotos{}, &stubBlobs{}))
 }
 
 func validContest() map[string]any {
