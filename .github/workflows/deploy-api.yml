@@ -1,33 +1,45 @@
-name: Deploy API
+# API（Go）を Cloud Run にデプロイする。
+#
+# 認証は Workload Identity（docs/05-インフラ設計.md §6）。
+# サービスアカウントキーはリポジトリに置かない。
+#
+# DB マイグレーションはここでは流さない。migrate-db.yml で別に実行する。
+# 分離している理由は docs/05-インフラ設計.md §7 —— 自動適用にすると失敗時に
+# 「アプリが起動しない」と「スキーマ不整合」が同時に起きて切り分けられなくなる。
+name: deploy-api
 
-# api/ か openapi.yaml が変わったときだけ発火する。
-# ドキュメントや web/ の変更でデプロイが走らないようにするため。
 on:
   push:
     branches: [main]
+    # ドキュメントや web/ の変更でデプロイを走らせない
     paths:
       - "api/**"
       - "openapi.yaml"
       - ".github/workflows/deploy-api.yml"
-  workflow_dispatch: {}   # 手動実行（ロールバック後の再デプロイなど）
+  # ロールバック後の再デプロイなどに使う
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # WIF の OIDC トークンを取得するために必要
+  id-token: write
+
+# デプロイ中に次のデプロイが始まると新旧が競合する。
+# CI と違い cancel-in-progress にしない（途中で止めると中途半端な状態が残る）
+concurrency:
+  group: deploy-api
+  cancel-in-progress: false
 
 env:
-  REGION: asia-northeast1
   SERVICE: physique-api
   REPOSITORY: physique
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write     # Workload Identity 連携に必要
-
     steps:
       - uses: actions/checkout@v7
 
-      # サービスアカウントキーをリポジトリに置かない。
-      # 短命のトークンを GitHub の OIDC から取得する。
       - id: auth
         uses: google-github-actions/auth@v3
         with:
@@ -36,28 +48,79 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v3
 
-      - name: Build and push image
-        run: |
-          IMAGE="${REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${REPOSITORY}/${SERVICE}:${GITHUB_SHA}"
-          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
-          docker build -t "${IMAGE}" api/
-          docker push "${IMAGE}"
-          echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
+      - name: Artifact Registry に docker 認証を通す
+        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
 
-      # DB マイグレーションはここで実行しない（手動）。
-      # 自動適用にすると、失敗時に「アプリが起動しない」と
-      # 「スキーマ不整合」が同時に起きて切り分けが難しくなるため。
-      - name: Deploy to Cloud Run
-        run: |
-          gcloud run deploy "${SERVICE}" \
-            --image "${IMAGE}" \
-            --region "${REGION}" \
-            --platform managed \
-            --min-instances 0 \
-            --port 8080 \
-            --quiet
+      - uses: docker/setup-buildx-action@v4
 
-      - name: Show revision
+      # タグは commit SHA。latest は使わない。
+      # どのコミットが動いているかを Cloud Run のリビジョンから一意に辿れるようにする
+      - name: イメージ名を決める
+        id: image
         run: |
-          gcloud run services describe "${SERVICE}" --region "${REGION}" \
-            --format='value(status.latestReadyRevisionName)'
+          echo "uri=${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${REPOSITORY}/${SERVICE}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build & Push
+        uses: docker/build-push-action@v7
+        with:
+          context: ./api
+          push: true
+          tags: ${{ steps.image.outputs.uri }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
+
+      - id: deploy
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ secrets.GCP_REGION }}
+          image: ${{ steps.image.outputs.uri }}
+          # Secret Manager の値を読めるのはこの SA だけ。デプロイ用 SA とは別にしている
+          flags: >-
+            --service-account=physique-api-runtime@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+            --min-instances=0
+            --max-instances=5
+            --memory=256Mi
+            --cpu=1
+            --timeout=30s
+            --allow-unauthenticated
+          secrets: |
+            DATABASE_URL=supabase-pooler-url:latest
+          env_vars: |
+            DATABASE_MAX_CONNS=5
+            TZ=Asia/Tokyo
+
+      # デプロイできたことと、実際に応答することは別。DB まで到達する /healthz で確認する
+      - name: スモークテスト
+        run: |
+          url="${{ steps.deploy.outputs.url }}/healthz"
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /tmp/health.json -w '%{http_code}' "$url" || true)
+            if [ "$code" = "200" ]; then
+              echo "OK: $(cat /tmp/health.json)"
+              exit 0
+            fi
+            echo "attempt $i: HTTP $code"
+            sleep 5
+          done
+          echo "::error::/healthz が 200 を返さない"
+          cat /tmp/health.json || true
+          exit 1
+
+      - name: デプロイ結果
+        run: |
+          {
+            echo "### デプロイ完了"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| URL | ${{ steps.deploy.outputs.url }} |"
+            echo "| コミット | \`${GITHUB_SHA}\` |"
+            echo ""
+            echo "ロールバックは Cloud Run のトラフィック切り替えで行う（再デプロイ不要）:"
+            echo '```'
+            echo "gcloud run revisions list --service ${SERVICE} --region <REGION>"
+            echo "gcloud run services update-traffic ${SERVICE} --region <REGION> --to-revisions <REVISION>=100"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

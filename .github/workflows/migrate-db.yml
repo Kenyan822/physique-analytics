@@ -1,0 +1,107 @@
+# DB マイグレーションを本番（Supabase）に適用する。
+#
+# デプロイ（deploy-api.yml）とは分離した手動実行（docs/05-インフラ設計.md §7）。
+# 自動適用にすると、失敗時に「アプリが起動しない」と「スキーマ不整合」が
+# 同時に起きて切り分けられなくなる。
+#
+# ロールバックが traffic 切り替えで数秒なのに対し、スキーマは戻せない。
+# 「コードだけ戻せば復旧する」状態を保つために、スキーマは常にコードより
+# 後から進める（= デプロイ前に流す）。
+name: migrate-db
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "実行するコマンド"
+        required: true
+        type: choice
+        default: version
+        options:
+          - version
+          - up
+          - down
+      steps:
+        description: "down のときに戻す数（up / version では無視される）"
+        required: false
+        type: string
+        default: "1"
+
+permissions:
+  contents: read
+  id-token: write
+
+# 同時に2つ流すと advisory lock を奪い合う
+concurrency:
+  group: migrate-db
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      # Transaction pooler（6543）ではなく Session pooler（5432）を使う。
+      # golang-migrate は pg_advisory_lock で多重実行を防いでおり、この lock は
+      # セッションスコープ。transaction mode では接続が返却された時点で失われる。
+      #
+      # Direct connection（db.<ref>.supabase.co）を使わないのは、Supabase の
+      # direct が IPv6 のみで、GitHub Actions の runner が IPv4 しか持たないため。
+      - name: 接続文字列を Secret Manager から取る
+        run: |
+          gcloud secrets versions access latest \
+            --secret=supabase-session-url \
+            --project='${{ secrets.GCP_PROJECT_ID }}' > /tmp/dsn
+          chmod 600 /tmp/dsn
+          # 値はログに出さない。形式だけ確認する
+          grep -q ':5432/' /tmp/dsn || { echo '::error::session pooler (5432) ではない'; exit 1; }
+
+      - name: 適用前のバージョン
+        run: |
+          docker run --rm -v "$PWD/api/migrations:/migrations:ro" \
+            -e DSN="$(cat /tmp/dsn)" \
+            migrate/migrate:v4.19.0 \
+            -path=/migrations -database="$DSN" version 2>&1 | tee /tmp/before.txt || true
+
+      - name: マイグレーション実行
+        if: inputs.command != 'version'
+        run: |
+          args="${{ inputs.command }}"
+          if [ "${{ inputs.command }}" = "down" ]; then
+            args="down ${{ inputs.steps }}"
+          fi
+          # down は破壊的なので、何を流すかをログに残す
+          echo "実行: migrate $args"
+          docker run --rm -v "$PWD/api/migrations:/migrations:ro" \
+            -e DSN="$(cat /tmp/dsn)" \
+            migrate/migrate:v4.19.0 \
+            -path=/migrations -database="$DSN" $args
+
+      - name: 適用後の状態
+        if: always()
+        run: |
+          [ -f /tmp/dsn ] || exit 0
+          after=$(docker run --rm -v "$PWD/api/migrations:/migrations:ro" \
+            -e DSN="$(cat /tmp/dsn)" \
+            migrate/migrate:v4.19.0 \
+            -path=/migrations -database="$DSN" version 2>&1 || true)
+          {
+            echo "### migrate ${{ inputs.command }}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| 実行前 | \`$(cat /tmp/before.txt 2>/dev/null | tr -d '\n')\` |"
+            echo "| 実行後 | \`${after}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 後始末
+        if: always()
+        run: rm -f /tmp/dsn /tmp/before.txt
