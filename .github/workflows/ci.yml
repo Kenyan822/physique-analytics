@@ -46,10 +46,13 @@ jobs:
           git diff --exit-code -- gen/ \
             || { echo '::error::openapi.yaml と生成物がずれている。api/ で go generate ./... を実行してコミットすること'; exit 1; }
 
+      # v8 以降が golangci-lint v2 系（.golangci.yaml の version: "2"）に対応する。
+      # version を latest にすると action が v1 系を落としてきて
+      # 「go1.24 でビルドされた golangci-lint が go 1.27 を対象にできない」で落ちる
       - name: Lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.13.2
           working-directory: api
 
       - name: Build
@@ -83,7 +86,7 @@ jobs:
 
       # ベースイメージと同梱物の脆弱性。Go の依存だけ見ても OS 側の穴は塞げない
       - name: Trivy でイメージをスキャン
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           image-ref: physique-api:ci
           format: table
