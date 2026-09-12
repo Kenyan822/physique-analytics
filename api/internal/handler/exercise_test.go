@@ -64,7 +64,7 @@ func TestListExercises_一覧を返す(t *testing.T) {
 		{Id: uuid.New(), Name: "ベンチプレス", MuscleGroup: openapi.Chest},
 	}}
 	rec := httptest.NewRecorder()
-	handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{})).
+	handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{})).
 		ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/exercises", nil))
 
 	if rec.Code != http.StatusOK {
@@ -87,7 +87,7 @@ func TestListExercises_クエリパラメータが絞り込み条件に渡る(t 
 
 	stub := &stubExercises{}
 	rec := httptest.NewRecorder()
-	handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{})).ServeHTTP(rec,
+	handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{})).ServeHTTP(rec,
 		httptest.NewRequestWithContext(t.Context(), http.MethodGet,
 			"/v1/exercises?muscleGroup=%E8%83%B8&includeDeleted=true", nil))
 
@@ -111,7 +111,7 @@ func TestListExercises_includeDeleted未指定ならfalse(t *testing.T) {
 
 	stub := &stubExercises{}
 	rec := httptest.NewRecorder()
-	handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{})).
+	handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{})).
 		ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/exercises", nil))
 
 	if stub.gotFilter == nil {
@@ -127,7 +127,7 @@ func TestGetExercise_存在しなければ404とProblem(t *testing.T) {
 
 	stub := &stubExercises{getErr: repository.ErrNotFound}
 	rec := httptest.NewRecorder()
-	handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{})).ServeHTTP(rec,
+	handler.NewRouter(handler.New(stubPinger{}, stub, &stubWorkouts{}, &stubTemplates{}, &stubSync{})).ServeHTTP(rec,
 		httptest.NewRequestWithContext(t.Context(), http.MethodGet,
 			"/v1/exercises/"+uuid.New().String(), nil))
 
@@ -151,7 +151,7 @@ func TestGetExercise_UUIDでないIDは400(t *testing.T) {
 	t.Parallel()
 
 	rec := httptest.NewRecorder()
-	handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{})).ServeHTTP(rec,
+	handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{}, &stubTemplates{}, &stubSync{})).ServeHTTP(rec,
 		httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/exercises/not-a-uuid", nil))
 
 	if rec.Code != http.StatusBadRequest {

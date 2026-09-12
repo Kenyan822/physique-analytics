@@ -36,6 +36,11 @@ type SetInput struct {
 	// RIR は nil を許す。過去データの取り込み（要件 I-01）では欠損がありうる。
 	// ただし無いと推定1RMが計算できない
 	RIR *int
+
+	// SessionID と UpdatedAt は同期（/v1/sync）でのみ使う。
+	// 通常の CreateSet はパスからセッションを受け取る
+	SessionID *uuid.UUID
+	UpdatedAt *time.Time
 }
 
 // SessionInput はセッション作成の入力。
@@ -48,6 +53,10 @@ type SessionInput struct {
 
 	// Sets は一括登録するセット。空でもよい（後から足せる）
 	Sets []SetInput
+
+	// UpdatedAt は同期でのみ使う。クライアントが保持する更新時刻で、
+	// サーバ側がこれより新しければ競合として扱う（ADR-0014）
+	UpdatedAt *time.Time
 }
 
 // SessionUpdate はセッション更新の入力。nil のフィールドは変更しない。

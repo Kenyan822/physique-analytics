@@ -54,8 +54,9 @@ go generate ./...
 
 ## 実装状況
 
-`/health` / `exercises`（CRUD）/ `workout-sessions`（CRUD）/ `workout-sets`（CRUD）/ `last-performance` を実装済み。
-残り（templates / sync / CSV）は `internal/handler/unimplemented.go` が 501 を返す。
+`/health` / `exercises` / `workout-sessions` / `workout-sets` / `last-performance` /
+`templates` / `sync`（pull / push）を実装済み。
+残り（CSV の入出力）は `internal/handler/unimplemented.go` が 501 を返す。
 `openapi.yaml` に操作を足すと `Server` がインターフェースを満たさなくなりビルドが落ちるので、
 仕様と実装のずれはコンパイル時に分かる。
 
