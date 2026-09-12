@@ -152,7 +152,7 @@ jobs:
       # スキャンが落ちても結果は残す
       - name: SARIF をアップロード
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
           category: trivy-image
@@ -221,7 +221,7 @@ jobs:
       # バージョンは web/package.json の packageManager が決める。
       # この action は既定でリポジトリルートの package.json を見るので、
       # monorepo では package_json_file の指定が要る
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: web/package.json
 
