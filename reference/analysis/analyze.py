@@ -221,7 +221,13 @@ def nutrition_targets(cfg: dict, bw: float, bf: float | None, goal: float,
     carb = None
     if tdee is not None:
         intake = tdee + goal * KCAL_PER_KG_FAT / 7
-        carb = (intake - prot * 4 - fat * 9) / 4
+        # **下限を当てたあとの摂取量から残余を出す。** 理論値のまま計算すると、
+        # レポートが表示する摂取量（下限で止めた値）と PFC の合計が食い違う
+        if goal < 0:
+            intake = max(intake, bw * FLOOR_KCAL_PER_KG)
+        # P と F だけで摂取枠を超えることがある。負の目標は指示にならないので
+        # 0 で止める。この時点で炭水化物の下限警告が出る
+        carb = max(0.0, (intake - prot * 4 - fat * 9) / 4)
     return key, prot, fat, carb
 
 

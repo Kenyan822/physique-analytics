@@ -54,6 +54,7 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 | [tdd.md](tdd.md) | **TDD の実際の流れ**。Red の見方、層ごとのテスト方針、詰まったときの切り分け |
 | [database.md](database.md) | pgx、トランザクションでのテスト隔離、`DBTX` インターフェース、部分インデックスへの upsert |
 | [mcp.md](mcp.md) | MCP サーバ。ツールの説明文の書き方、読み取り専用 SQL の守り方 |
+| [numeric.md](numeric.md) | 定数と引数の切り分け、`*float64` で「未測定」を表す、従属変数のクランプ |
 
 ## 想定しているトピック
 
@@ -63,4 +64,3 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 - `interfaces.md` — 小さいインターフェース、受け手側で定義する慣習
 - `context.md` — キャンセル伝播、タイムアウト、値の受け渡し
 - `concurrency.md` — goroutine とチャネル、`sync` パッケージ、レースの検出
-- `numeric.md` — 浮動小数点の扱い、単位を型で表現する方法（分析ロジックで必要になる）
