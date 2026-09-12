@@ -48,6 +48,7 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 | トピック | 内容 |
 |---|---|
 | [project-layout.md](project-layout.md) | `go.mod` の `go` と `toolchain`、`internal/`、`go tool` によるツール管理 |
+| [directory-layout.md](directory-layout.md) | **api/ の構成**。各パッケージの役割、依存の向き、ファイルの分け方 |
 | [http-server.md](http-server.md) | `ServeMux`、タイムアウト、グレースフルシャットダウン、`log/slog` |
 | [testing.md](testing.md) | `_test` パッケージ、`t.Context()`、インターフェースを使ったスタブ |
 | [tdd.md](tdd.md) | **TDD の実際の流れ**。Red の見方、層ごとのテスト方針、詰まったときの切り分け |

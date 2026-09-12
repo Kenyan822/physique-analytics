@@ -18,9 +18,27 @@ func TestExerciseList_シードされた種目が全部返る(t *testing.T) {
 		t.Fatalf("List: %v", err)
 	}
 
-	// マイグレーション 000002 で入れた件数
-	if len(got) != 49 {
-		t.Errorf("件数 = %d, want 49", len(got))
+	// 件数の完全一致では検証しない。利用者が追加した種目（createExercise）も
+	// 同じテーブルに入るので、実データがあると壊れる。
+	// マイグレーション 000002 が入れたものが全部あることを見る
+	if len(got) < 49 {
+		t.Errorf("件数 = %d, シードの 49 件を下回っている", len(got))
+	}
+
+	byName := map[string]openapi.Exercise{}
+	groups := map[openapi.MuscleGroup]bool{}
+	for _, e := range got {
+		byName[e.Name] = e
+		groups[e.MuscleGroup] = true
+	}
+	// 13部位すべてに種目が無いと、部位別の MEV/MRV 判定が機能しない
+	if len(groups) < 13 {
+		t.Errorf("部位が %d 種類しかない, want 13", len(groups))
+	}
+	for _, name := range []string{"ベンチプレス", "スクワット", "デッドリフト", "懸垂", "カーフレイズ"} {
+		if _, ok := byName[name]; !ok {
+			t.Errorf("%q がシードに無い", name)
+		}
 	}
 }
 
@@ -35,8 +53,8 @@ func TestExerciseList_部位で絞れる(t *testing.T) {
 		t.Fatalf("List: %v", err)
 	}
 
-	if len(got) != 8 {
-		t.Errorf("胸の件数 = %d, want 8", len(got))
+	if len(got) < 8 {
+		t.Errorf("胸の件数 = %d, シードの 8 件を下回っている", len(got))
 	}
 	for _, e := range got {
 		if e.MuscleGroup != openapi.Chest {
