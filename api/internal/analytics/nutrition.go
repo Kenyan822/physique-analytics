@@ -98,6 +98,9 @@ type MacroTarget struct {
 // 炭水化物を先に決めると、摂取を絞ったときにタンパク質から削れてしまい、
 // 減量期に一番守りたい LBM が落ちる。
 //
+// **intakeKcal には RecommendedIntake の RecommendedKcal を渡す。**
+// 理論値（TheoreticalKcal）を渡すと、提示する摂取量と PFC の合計が食い違う。
+//
 // bodyfatPct が nil のときは cut として扱う。測れていない値で
 // タンパク質を上げる判断をしない。
 func MacroTargets(

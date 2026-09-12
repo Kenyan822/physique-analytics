@@ -120,9 +120,17 @@ class TestNutritionTargets:
         intake = 2800 + (-0.5) * 7700 / 7
         assert c == pytest.approx((intake - p * 4 - f * 9) / 4)
 
+    def test_下限を当てたあとの摂取量から残余を出す(self):
+        # 理論値は 1000kcal だが下限（100kg × 24）で 2400kcal に止まる。
+        # レポートが表示する摂取量と PFC の合計が食い違わないようにする
+        _, p, f, c = analyze.nutrition_targets(self.CFG, 100, 15.0, goal=-1.0, tdee=2100)
+        assert c == pytest.approx(168.75)
+        assert p * 4 + f * 9 + c * 4 == pytest.approx(2400)
+
     def test_炭水化物が負になっても0で止める(self):
-        # P と F だけで摂取枠を超えるケース。負の目標を出しても意味がない
-        _, _, _, c = analyze.nutrition_targets(self.CFG, 100, 15.0, goal=-1.0, tdee=2100)
+        # 下限を当てない維持期に、P と F だけで摂取枠を超えるケース。
+        # 実在しない入力だが、負の目標を出さないことを保証する
+        _, _, _, c = analyze.nutrition_targets(self.CFG, 100, 15.0, goal=0.0, tdee=1000)
         assert c == 0.0
 
 
