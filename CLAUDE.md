@@ -238,9 +238,12 @@ gh pr merge --squash --delete-branch
 型は `openapi.yaml` が唯一の正（[ADR-0007](docs/adr/0007-openapi-schema-driven.md)）。**Go / TypeScript / Swift の型を手で書かない。**
 
 1. `openapi.yaml` を編集
-2. コード生成を実行（Go / TS / Swift）
+2. コード生成を実行（Go は `cd api && go generate ./...`。TypeScript / Swift は各 Phase で追加）
 3. 生成物をコミット（CI が最新性を検証する）
 4. DB スキーマが変わるなら `api/migrations/` にマイグレーションを追加
+
+enum の値が日本語のときは `x-enum-varnames` で定数名を明示する。
+書かないと生成される Go の定数が `N1` `N2` … になり読めなくなる。
 
 ## よく使うコマンド
 
@@ -257,11 +260,22 @@ cd infra && terraform apply      # 手動実行。CI では plan のみ
 cd web && pnpm install
 cd web && pnpm dev
 
-# API（Phase 1a 以降）
-cd api && go run ./cmd/server
+# API（Go）
+cd api && go generate ./...                    # openapi.yaml → gen/openapi/
 cd api && go test ./... -race -cover
 cd api && go test ./internal/analytics -run TestE1RM -v   # 単一テスト
 cd api && golangci-lint run ./...
+
+# API をローカルで起動（先に docker compose up -d が必要）
+cd api && DATABASE_URL='postgres://physique:dev@localhost:5432/physique?sslmode=disable' go run ./cmd/server
+
+# 本番と同じコンテナで動かす
+docker compose --profile full up api
+
+# DB マイグレーション（golang-migrate の公式イメージ）
+docker compose run --rm migrate up
+docker compose run --rm migrate down 1
+docker compose run --rm migrate version
 
 # リファレンス実装（Phase 0 の Python プロトタイプ。Go 移植の検証基準）
 cd reference && pytest analysis/tests -v

@@ -35,6 +35,25 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # マイグレーション。Go の依存には入れない（golang-migrate の CLI は全 DB ドライバを
+  # 引き込むため、api の go.mod が肥大化する）。公式イメージをその都度実行する。
+  #
+  #   docker compose run --rm migrate up        # 最新まで適用
+  #   docker compose run --rm migrate down 1    # 1つ戻す
+  #   docker compose run --rm migrate version   # 現在のバージョン
+  migrate:
+    image: migrate/migrate:v4.19.0
+    profiles: [tools]
+    volumes:
+      - ./api/migrations:/migrations:ro
+    entrypoint:
+      - migrate
+      - -path=/migrations
+      - -database=postgres://physique:dev@db:5432/physique?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+
   # 本番と同じイメージで動作を確認したいときだけ起動する。
   #   docker compose --profile full up
   # 通常の開発では `go run ./cmd/server` を使う（ビルド時間を挟まないため）。

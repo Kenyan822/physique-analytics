@@ -1,0 +1,47 @@
+# CodeRabbit（AI コードレビュー）の設定。public リポジトリは Pro プランが無料。
+# https://docs.coderabbit.ai/guides/configure-coderabbit
+language: ja-JP
+
+reviews:
+  profile: assertive
+  # 「LGTM」だけのレビューは価値がないので、指摘がないときは黙らせる
+  review_status: false
+  # PR の冒頭に要約を書かせる。レビュー依頼時に本文を読む手間を減らす
+  high_level_summary: true
+  poem: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+
+  path_filters:
+    # 生成物はレビュー対象外。直す先は openapi.yaml か生成設定
+    - "!api/gen/**"
+    - "!**/*.gen.go"
+    # 個人データは元々コミットされないが、二重に除外しておく
+    - "!private/**"
+
+  path_instructions:
+    - path: "api/**/*.go"
+      instructions: |
+        - エラーを握りつぶしていないか（`_ =` での破棄、ログだけで先に進む処理）。
+        - 外部に返すエラー本文に DB 接続先やクエリが混ざっていないか。
+        - 時刻を扱うコードが time.Now() を直接呼んでいないか。
+          このアプリは JST 固定で、internal/timeutil.Now() を使う（ADR-0013）。
+        - context.Context を引き回しているか。DB / HTTP 呼び出しで捨てていないか。
+    - path: "api/migrations/*.sql"
+      instructions: |
+        - 物理削除していないか。このアプリは deleted_at による論理削除（ADR-0014）。
+        - down マイグレーションが up を正しく打ち消すか。
+        - 既存行がある状態で流せるか（NOT NULL 追加に default があるか等）。
+    - path: "openapi.yaml"
+      instructions: |
+        - 破壊的変更（必須プロパティの追加、enum 値の削除、型の変更）になっていないか。
+          このファイルから Go / TypeScript / Swift の3言語が生成される（ADR-0007）。
+        - 新しい操作に operationId があるか。ないと生成される関数名が壊れる。
+    - path: "**/*.md"
+      instructions: |
+        - 相対日付（「来週」「先月」）を使っていないか。絶対日付で書く。
+
+chat:
+  auto_reply: true

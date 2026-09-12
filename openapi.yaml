@@ -639,6 +639,22 @@ components:
         - 臀部
         - ふくらはぎ
         - 腹
+      # 値が日本語のため、コード生成器が識別子を導出できず N1..N12 のような
+      # 意味のない定数名になる。生成物を読める状態に保つため名前を明示する。
+      x-enum-varnames:
+        - Chest
+        - Lats
+        - Traps
+        - FrontDelts
+        - SideDelts
+        - RearDelts
+        - Biceps
+        - Triceps
+        - Quads
+        - Hamstrings
+        - Glutes
+        - Calves
+        - Abs
 
     Timestamps:
       type: object
