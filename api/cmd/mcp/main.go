@@ -54,6 +54,7 @@ func run() error {
 		// config.json から移すには `go run ./cmd/planimport` を使う
 		Plan:     repository.NewPlan(pool.DB()),
 		Contests: repository.NewContest(pool.DB()),
+		Body:     repository.NewBody(pool.DB()),
 	})
 
 	slog.Info("MCP サーバを開始")

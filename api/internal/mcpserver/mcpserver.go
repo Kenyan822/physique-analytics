@@ -39,6 +39,8 @@ type Deps struct {
 
 	// Contests は次の大会（要件 A-10）。nil なら大会の情報が出ないだけ
 	Contests *repository.Contest
+	// Body は直近の周囲長（要件 A-11）
+	Body *repository.Body
 }
 
 // New は MCP サーバを組み立てる。

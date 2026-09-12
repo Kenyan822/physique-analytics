@@ -18,6 +18,9 @@ func (s *Server) GetDailyTargets(ctx context.Context, req openapi.GetDailyTarget
 	if s.contests != nil {
 		deps.Contests = s.contests
 	}
+	if s.body != nil {
+		deps.Measurements = s.body
+	}
 
 	sum, err := weekly.Build(ctx, deps, req.Date.Time)
 	if errors.Is(err, weekly.ErrNoPhases) {

@@ -46,6 +46,13 @@ type contestOut struct {
 	TooFast        bool     `json:"tooFast"`
 }
 
+type taperOut struct {
+	Date           string   `json:"date"`
+	NavyBodyfatPct *float64 `json:"navyBodyfatPct,omitempty"`
+	ShoulderWaist  *float64 `json:"shoulderWaistRatio,omitempty"`
+	VTaper         *bool    `json:"vTaper,omitempty"`
+}
+
 type deviationOut struct {
 	Month      string  `json:"month"`
 	Phase      string  `json:"phase"`
@@ -70,6 +77,7 @@ type weeklyActionsOut struct {
 	SlopeKgWeek   *float64      `json:"weightSlopeKgPerWeek,omitempty"`
 	LbmKg         *float64      `json:"lbmKg,omitempty"`
 	Ffmi          *float64      `json:"ffmi,omitempty"`
+	Taper         *taperOut     `json:"measurement,omitempty"`
 	Deviation     *deviationOut `json:"deviationFromPlan,omitempty"`
 	Contest       *contestOut   `json:"contest,omitempty"`
 	Actions       []actionOut   `json:"actions"`
@@ -115,6 +123,9 @@ func weeklyActions(ctx context.Context, d Deps, in weeklyActionsIn) (weeklyActio
 	if d.Contests != nil {
 		deps.Contests = d.Contests
 	}
+	if d.Body != nil {
+		deps.Measurements = d.Body
+	}
 
 	sum, err := weekly.Build(ctx, deps, asof)
 	if err != nil {
@@ -137,6 +148,13 @@ func weeklyActions(ctx context.Context, d Deps, in weeklyActionsIn) (weeklyActio
 	}
 	if c := sum.Composition; c != nil {
 		out.LbmKg, out.Ffmi = &c.LbmKg, &c.Ffmi
+	}
+	if tp := sum.Taper; tp != nil {
+		to := &taperOut{Date: tp.Date.Format(time.DateOnly), NavyBodyfatPct: tp.NavyBodyfatPct}
+		if sw := tp.ShoulderWaist; sw != nil {
+			to.ShoulderWaist, to.VTaper = &sw.Ratio, &sw.VTaper
+		}
+		out.Taper = to
 	}
 	if dv := sum.Deviation; dv != nil {
 		out.Deviation = &deviationOut{

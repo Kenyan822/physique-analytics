@@ -10,6 +10,7 @@ import (
 
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
 	"github.com/Kenyan822/physique-analytics/api/internal/analytics"
+	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 	"github.com/Kenyan822/physique-analytics/api/internal/weekly"
 )
 
@@ -184,5 +185,83 @@ func TestBuild_LBMが遅れていればアクションに出る(t *testing.T) {
 	}
 	if !got.ActionContext().LbmBehind {
 		t.Error("ActionContext に伝わっていない")
+	}
+}
+
+type stubMeasurements struct {
+	m   openapi.BodyMeasurement
+	err error
+}
+
+func (s *stubMeasurements) LatestMeasurement(context.Context) (openapi.BodyMeasurement, error) {
+	return s.m, s.err
+}
+
+func measurement(neck, shoulder, waist float64) openapi.BodyMeasurement {
+	return openapi.BodyMeasurement{
+		Date:         openapi_types.Date{Time: asof},
+		NeckCm:       f32(neck),
+		ShoulderCm:   f32(shoulder),
+		WaistNavelCm: f32(waist),
+	}
+}
+
+func TestBuild_周囲長から海軍式と肩ウエスト比を出す(t *testing.T) {
+	t.Parallel()
+
+	got, err := weekly.Build(t.Context(), weekly.Deps{
+		Plan:         &stubPlan{plan: plan()},
+		Series:       &stubSeries{points: series(21, 74, 20, 2100)},
+		Measurements: &stubMeasurements{m: measurement(39, 120, 75)},
+	}, asof)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	if got.Taper == nil {
+		t.Fatal("Taper = nil")
+	}
+	if got.Taper.NavyBodyfatPct == nil {
+		t.Error("NavyBodyfatPct = nil")
+	}
+	if got.Taper.ShoulderWaist == nil || !got.Taper.ShoulderWaist.VTaper {
+		t.Errorf("ShoulderWaist = %+v, want VTaper（120/75 = 1.6）", got.Taper.ShoulderWaist)
+	}
+}
+
+func TestBuild_周囲長が無ければ出さない(t *testing.T) {
+	t.Parallel()
+
+	got, err := weekly.Build(t.Context(), weekly.Deps{
+		Plan:         &stubPlan{plan: plan()},
+		Series:       &stubSeries{points: series(21, 74, 20, 2100)},
+		Measurements: &stubMeasurements{err: repository.ErrNotFound},
+	}, asof)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// 周囲長は週1回の記録。無い週があるのは正常
+	if got.Taper != nil {
+		t.Errorf("Taper = %+v, want nil", got.Taper)
+	}
+}
+
+func TestBuild_首だけでは海軍式を出さない(t *testing.T) {
+	t.Parallel()
+
+	m := openapi.BodyMeasurement{Date: openapi_types.Date{Time: asof}, NeckCm: f32(39)}
+	got, err := weekly.Build(t.Context(), weekly.Deps{
+		Plan:         &stubPlan{plan: plan()},
+		Series:       &stubSeries{points: series(21, 74, 20, 2100)},
+		Measurements: &stubMeasurements{m: m},
+	}, asof)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// どちらも出せないなら持たせない。日付だけ返しても読み手が困る
+	if got.Taper != nil {
+		t.Errorf("Taper = %+v, want nil", got.Taper)
 	}
 }

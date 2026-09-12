@@ -34,6 +34,11 @@ type ContestReader interface {
 	Next(ctx context.Context, asof openapi_types.Date) (openapi.Contest, error)
 }
 
+// MeasurementReader は直近の周囲長の読み取り。
+type MeasurementReader interface {
+	LatestMeasurement(ctx context.Context) (openapi.BodyMeasurement, error)
+}
+
 // SeriesReader は日次記録の読み取り。
 type SeriesReader interface {
 	DailySeries(ctx context.Context, from, to openapi_types.Date) ([]analytics.DailyPoint, error)
@@ -45,6 +50,8 @@ type Deps struct {
 	Series SeriesReader
 	// Contests は nil でもよい。大会を登録していなければカウントダウンが出ないだけ
 	Contests ContestReader
+	// Measurements も nil でよい。周囲長を測っていなければ A-11 が出ないだけ
+	Measurements MeasurementReader
 }
 
 // Summary は基準日における「今どうなっているか」。
@@ -72,11 +79,26 @@ type Summary struct {
 	// Deviation は月次目標との乖離（要件 A-09）。目標を出せなければ nil
 	Deviation *analytics.Deviation
 
+	// Taper は直近の周囲長から出す指標（要件 A-11）。無ければ nil
+	Taper *TaperInsight
+
 	// Contest は次の大会と必要ペース（要件 A-10）。無ければ nil
 	Contest *Countdown
 
 	// Note は数字を出せなかった理由
 	Note string
+}
+
+// TaperInsight は周囲長から出す指標（要件 A-11）。
+//
+// **体組成計とは独立した推定なので、両者が同方向に動けば信頼度が上がる**
+// （docs/03-分析ロジック.md 分析2）。
+type TaperInsight struct {
+	Date openapi_types.Date
+	// NavyBodyfatPct は海軍式の推定。出せなければ nil
+	NavyBodyfatPct *float64
+	// ShoulderWaist は肩/ウエスト比。出せなければ nil
+	ShoulderWaist *analytics.Taper
 }
 
 // Countdown は次の大会までの残りと、必要な減量ペース（要件 A-10）。
@@ -139,6 +161,9 @@ func Build(ctx context.Context, d Deps, asof time.Time) (Summary, error) {
 	out.WeightSlopeKgWeek = stat.WeightSlopeKgWeek
 
 	out.withComposition(plan, asof)
+	if err := out.withTaper(ctx, d, plan); err != nil {
+		return Summary{}, err
+	}
 	if err := out.withDeviation(ctx, d, plan, asof); err != nil {
 		return Summary{}, err
 	}
@@ -195,6 +220,45 @@ func (s *Summary) withComposition(plan openapi.Plan, _ time.Time) {
 	if c, ok := analytics.Composition(*s.WeightKg7dAvg, *s.BodyfatPct7dAvg, float64(*plan.HeightCm)); ok {
 		s.Composition = &c
 	}
+}
+
+// withTaper は直近の周囲長から海軍式推定と肩/ウエスト比を足す（要件 A-11）。
+//
+// 測っていなければ何もしない。周囲長は週1回の記録なので、
+// 無い週があるのは正常。
+func (s *Summary) withTaper(ctx context.Context, d Deps, plan openapi.Plan) error {
+	if d.Measurements == nil {
+		return nil
+	}
+
+	m, err := d.Measurements.LatestMeasurement(ctx)
+	if errors.Is(err, repository.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	out := &TaperInsight{Date: m.Date}
+	if m.WaistNavelCm != nil && m.NeckCm != nil && plan.HeightCm != nil {
+		if v, ok := analytics.NavyBodyfatSafe(float64(*m.WaistNavelCm), float64(*m.NeckCm),
+			float64(*plan.HeightCm)); ok {
+			out.NavyBodyfatPct = &v
+		}
+	}
+	if m.ShoulderCm != nil && m.WaistNavelCm != nil {
+		if t, ok := analytics.ShoulderWaistRatio(float64(*m.ShoulderCm), float64(*m.WaistNavelCm)); ok {
+			out.ShoulderWaist = &t
+		}
+	}
+
+	// どちらも出せないなら持たせない。日付だけ返しても読み手が困る
+	if out.NavyBodyfatPct == nil && out.ShoulderWaist == nil {
+		return nil
+	}
+	s.Taper = out
+
+	return nil
 }
 
 // withDeviation は月次目標との乖離を足す（要件 A-09）。
