@@ -92,7 +92,7 @@ jobs:
 
       # ベースイメージと同梱物の脆弱性。Go の依存だけ見ても OS 側の穴は塞げない
       - name: Trivy でイメージをスキャン
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: physique-api:ci
           format: table
