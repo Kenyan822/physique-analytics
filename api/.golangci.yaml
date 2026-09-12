@@ -1,0 +1,34 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - bodyclose      # レスポンスボディの閉じ忘れは接続リークになる
+    - errorlint      # errors.Is / errors.As を使わない型判定を検出
+    - gosec          # 公開リポジトリなので静的に拾えるものは拾う
+    - misspell
+    - revive
+    - sqlclosecheck  # rows の閉じ忘れ
+    - unconvert
+    - noctx          # context を渡さない HTTP / DB 呼び出しを検出
+  exclusions:
+    rules:
+      # 生成物は対象外。直す先は openapi.yaml か生成設定であって生成コードではない
+      - path: gen/
+        linters: [revive, gosec, errorlint, misspell, unconvert, noctx, staticcheck]
+      # StrictServerInterface から機械的に導出した 501 スタブ。
+      # 「未実装」以外に書くことがなく、同じコメントを24個並べても情報量がない
+      - path: internal/handler/unimplemented\.go
+        linters: [revive]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/Kenyan822/physique-analytics/api

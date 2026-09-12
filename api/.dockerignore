@@ -1,0 +1,7 @@
+# ビルドコンテキストを小さくし、秘密情報がイメージに混ざるのを防ぐ
+.git
+.gitignore
+*_test.go
+Dockerfile
+.dockerignore
+migrations

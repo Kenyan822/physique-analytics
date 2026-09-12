@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# GITHUB_TOKEN の権限を絞る。CI は読むだけで、書き込む必要がない。
+# 既定は書き込み可能なので、明示しないとサードパーティ Action に
+# リポジトリへの書き込み権を渡すことになる
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -23,13 +29,76 @@ jobs:
       - name: Lint OpenAPI spec
         run: npx --yes @redocly/cli@latest lint openapi.yaml --format stylish
 
-  # 分析ロジックの正は Go（api/internal/analytics）。Phase 1a で追加する。
-  # api:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - golangci-lint run ./...
-  #     - go test ./... -race -cover
-  #     - oapi-codegen の生成物が最新か検証（差分があれば失敗）
+  api:
+    name: api (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # バージョンを二重管理しない。go.mod の go / toolchain に従う
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+
+      # openapi.yaml が型の唯一の正（ADR-0007）。生成物をコミットしているので、
+      # 「spec を変えたのに生成し直していない」状態をここで落とす
+      - name: 生成物が最新か検証
+        run: |
+          go generate ./...
+          git diff --exit-code -- gen/ \
+            || { echo '::error::openapi.yaml と生成物がずれている。api/ で go generate ./... を実行してコミットすること'; exit 1; }
+
+      # v8 以降が golangci-lint v2 系（.golangci.yaml の version: "2"）に対応する。
+      # version を latest にすると action が v1 系を落としてきて
+      # 「go1.24 でビルドされた golangci-lint が go 1.27 を対象にできない」で落ちる
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.13.2
+          working-directory: api
+
+      - name: Build
+        run: go build ./...
+
+      # -race: 並行処理のデータ競合は本番でしか再現しないことが多い
+      - name: Test
+        run: go test ./... -race -cover
+
+      # 依存の既知脆弱性。呼び出し到達性まで見るので pnpm audit より誤検知が少ない
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  api-image:
+    name: api (コンテナイメージ)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api
+          push: false
+          load: true
+          tags: physique-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ベースイメージと同梱物の脆弱性。Go の依存だけ見ても OS 側の穴は塞げない
+      - name: Trivy でイメージをスキャン
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: physique-api:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
 
   reference:
     # Phase 0 のプロトタイプ（Python）。Go 移植の検証基準として機能させるため、

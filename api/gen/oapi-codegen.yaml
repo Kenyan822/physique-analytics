@@ -1,0 +1,13 @@
+# openapi.yaml から Go のモデルとサーバインターフェースを生成する設定（ADR-0007）。
+# 生成物はコミットする。CI が「再生成して差分が出ないか」を検証する。
+package: openapi
+output: openapi/openapi.gen.go
+generate:
+  models: true
+  std-http-server: true
+  # strict-server: ハンドラが型付きの request を受け取り型付きの response を返す。
+  # 素の http.HandlerFunc と違い、仕様にない形のレスポンスがコンパイルで弾かれる。
+  strict-server: true
+  # embedded-spec は有効にしない。
+  # 生成物に spec を埋め込むと kin-openapi が本番バイナリにリンクされる。
+  # 実行時のリクエスト検証を入れるまで不要で、入れるときに改めて検討する。

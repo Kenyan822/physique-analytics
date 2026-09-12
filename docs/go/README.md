@@ -45,10 +45,11 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 
 ## 索引
 
-まだエントリはない。Phase 1a（API 実装）から書き始める。
-
 | トピック | 内容 |
 |---|---|
+| [project-layout.md](project-layout.md) | `go.mod` の `go` と `toolchain`、`internal/`、`go tool` によるツール管理 |
+| [http-server.md](http-server.md) | `ServeMux`、タイムアウト、グレースフルシャットダウン、`log/slog` |
+| [testing.md](testing.md) | `_test` パッケージ、`t.Context()`、インターフェースを使ったスタブ |
 
 ## 想定しているトピック
 
@@ -58,7 +59,5 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 - `interfaces.md` — 小さいインターフェース、受け手側で定義する慣習
 - `context.md` — キャンセル伝播、タイムアウト、値の受け渡し
 - `concurrency.md` — goroutine とチャネル、`sync` パッケージ、レースの検出
-- `testing.md` — テーブル駆動テスト、`t.Parallel()`、golden file
-- `project-layout.md` — `internal/` の意味、パッケージ分割の考え方
 - `database.md` — sqlc の生成物、`pgx`、トランザクションの扱い
 - `numeric.md` — 浮動小数点の扱い、単位を型で表現する方法（分析ロジックで必要になる）
