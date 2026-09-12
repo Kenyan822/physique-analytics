@@ -183,3 +183,28 @@ func TestWeeklyStats_体組成の7日平均(t *testing.T) {
 		t.Errorf("MeanKcal21d = %v, want 2100", got.MeanKcal21d)
 	}
 }
+
+func TestInWindow_左端を含めない(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		date time.Time
+		want bool
+	}{
+		{"asof は含む", asof, true},
+		{"asof の翌日は含まない", asof.AddDate(0, 0, 1), false},
+		{"asof - 6日 は含む", asof.AddDate(0, 0, -6), true},
+		// **ここが境界**。含めると点が1つ増えて傾きが変わる
+		{"asof - 7日 は含まない", asof.AddDate(0, 0, -7), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := analytics.InWindow(tt.date, asof, 7); got != tt.want {
+				t.Errorf("InWindow = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

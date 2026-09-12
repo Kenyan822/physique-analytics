@@ -124,13 +124,22 @@ func weightSlope(points []DailyPoint, asof time.Time) *float64 {
 	return SlopePerWeek(days, values)
 }
 
-// within は `asof - days < date <= asof` の点だけを返す。
-func within(points []DailyPoint, asof time.Time, days int) []DailyPoint {
-	from := asof.AddDate(0, 0, -days)
+// InWindow は date が `asof - days < date <= asof` に入るかを返す。
+//
+// **左端を含めない。** reference/analysis/analyze.py の window() と同じ規則で、
+// ここがずれると同じデータでも傾きが変わる（実際に e1RM の傾きが
+// -0.84kg/週 から -0.31kg/週 になり、検知の文面が変わった）。
+//
+// 日次以外の系列（種目ごとの e1RM など）でも同じ規則を使うため公開している。
+func InWindow(date, asof time.Time, days int) bool {
+	return date.After(asof.AddDate(0, 0, -days)) && !date.After(asof)
+}
 
+// within は窓に入る点だけを返す。
+func within(points []DailyPoint, asof time.Time, days int) []DailyPoint {
 	out := make([]DailyPoint, 0, len(points))
 	for _, p := range points {
-		if p.Date.After(from) && !p.Date.After(asof) {
+		if InWindow(p.Date, asof, days) {
 			out = append(out, p)
 		}
 	}

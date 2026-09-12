@@ -173,7 +173,12 @@ func worstKeyExerciseSlope(ctx context.Context, d Deps, asof time.Time) (*float6
 		days := make([]float64, 0, len(points))
 		values := make([]float64, 0, len(points))
 		for _, p := range points {
-			days = append(days, p.Date.Sub(asof).Hours()/24)
+			// ExerciseHistory は from を含むが、窓の規則は左端を含めない。
+			// ここを揃えないと1点多く入り、傾きが変わる
+			if !analytics.InWindow(p.Date.Time, asof, analytics.E1RMWindowDays) {
+				continue
+			}
+			days = append(days, p.Date.Time.Sub(asof).Hours()/24)
 			values = append(values, p.BestE1RM)
 		}
 
