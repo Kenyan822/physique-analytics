@@ -29,6 +29,18 @@ type ExerciseRepository interface {
 	SoftDelete(ctx context.Context, id uuid.UUID) error
 }
 
+// WorkoutRepository はトレーニング記録へのアクセス。
+type WorkoutRepository interface {
+	ListSessions(ctx context.Context, f repository.SessionFilter) ([]openapi.WorkoutSession, error)
+	CreateSessionIdempotent(ctx context.Context, in repository.SessionInput) (openapi.WorkoutSession, bool, error)
+	GetSession(ctx context.Context, id uuid.UUID) (openapi.WorkoutSession, error)
+	UpdateSession(ctx context.Context, id uuid.UUID, up repository.SessionUpdate) (openapi.WorkoutSession, error)
+	DeleteSession(ctx context.Context, id uuid.UUID) error
+	CreateSet(ctx context.Context, sessionID uuid.UUID, in repository.SetInput) (openapi.WorkoutSet, error)
+	UpdateSet(ctx context.Context, id uuid.UUID, in repository.SetInput) (openapi.WorkoutSet, error)
+	DeleteSet(ctx context.Context, id uuid.UUID) error
+}
+
 // Server は openapi.StrictServerInterface の実装。
 // 未実装の操作は埋め込んだ Unimplemented が 501 で受ける。
 type Server struct {
@@ -36,11 +48,12 @@ type Server struct {
 
 	db        Pinger
 	exercises ExerciseRepository
+	workouts  WorkoutRepository
 }
 
 // New は Server を作る。
-func New(db Pinger, exercises ExerciseRepository) *Server {
-	return &Server{db: db, exercises: exercises}
+func New(db Pinger, exercises ExerciseRepository, workouts WorkoutRepository) *Server {
+	return &Server{db: db, exercises: exercises, workouts: workouts}
 }
 
 // 埋め込みだけでは満たせていない場合にコンパイルで落とす
