@@ -1794,7 +1794,25 @@ components:
         carbBelowFloor:
           type: boolean
           description: 炭水化物の目標が下限を割っているか（要件 A-03）
+        suggestions:
+          type: array
+          description: |
+            残量を埋める食品の候補（要件 N-07）。**履歴から作る**ので、
+            食べたことのないものは出ない。目標を超えていれば空。
+          items: { $ref: "#/components/schemas/FoodSuggestion" }
         note: { type: [string, "null"] }
+
+    FoodSuggestion:
+      type: object
+      required: [name, fits, fillsProteinPct]
+      properties:
+        name: { type: string }
+        fits:
+          type: boolean
+          description: 残りのカロリーに収まるか
+        fillsProteinPct:
+          type: number
+          description: タンパク質の不足を何%埋めるか
 
     MealSetItem:
       type: object

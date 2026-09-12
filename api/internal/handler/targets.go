@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
+	"github.com/Kenyan822/physique-analytics/api/internal/analytics"
 	"github.com/Kenyan822/physique-analytics/api/internal/weekly"
 )
 
@@ -86,6 +87,12 @@ func (s *Server) GetDailyTargets(ctx context.Context, req openapi.GetDailyTarget
 		out.Remaining = &remaining
 		out.IntakeFloorHit = &t.IntakeFloorHit
 		out.CarbBelowFloor = &t.CarbBelowFloor
+
+		suggestions, err := s.suggestFoods(ctx, remaining)
+		if err != nil {
+			return nil, err
+		}
+		out.Suggestions = &suggestions
 	}
 
 	return openapi.GetDailyTargets200JSONResponse(out), nil
@@ -120,4 +127,65 @@ func targetsValidationFailed(field, message string) openapi.GetDailyTargets422Ap
 		ValidationFailedApplicationProblemPlusJSONResponse: openapi.ValidationFailedApplicationProblemPlusJSONResponse(
 			validationProblem(field, message)),
 	}
+}
+
+// maxFoodSuggestions は提案する件数。多く出しても選べない
+const maxFoodSuggestions = 5
+
+// suggestFoods は残量を埋める食品を履歴から提案する（要件 N-07）。
+//
+// **食品マスタは持たない**ので、候補は自分の記録履歴から来る。
+// 食べたことのないものは提案しない。
+func (s *Server) suggestFoods(ctx context.Context, remaining openapi.Macros) ([]openapi.FoodSuggestion, error) {
+	// 候補は多めに取る。PFC の無い記録が混ざるため
+	history, err := s.meals.Suggestions(ctx, "", maxFoodSuggestions*10)
+	if err != nil {
+		return nil, err
+	}
+
+	candidates := make([]analytics.FoodCandidate, 0, len(history))
+	for _, h := range history {
+		candidates = append(candidates, analytics.FoodCandidate{
+			Name:     h.Name,
+			Count:    h.Count,
+			Kcal:     floatOf(h.Kcal),
+			ProteinG: float32Of(h.ProteinG),
+			FatG:     float32Of(h.FatG),
+			CarbG:    float32Of(h.CarbG),
+		})
+	}
+
+	rem := analytics.Remaining{
+		Kcal:     float64(remaining.Kcal),
+		ProteinG: float64(remaining.ProteinG),
+		FatG:     float64(remaining.FatG),
+		CarbG:    float64(remaining.CarbG),
+	}
+
+	out := make([]openapi.FoodSuggestion, 0, maxFoodSuggestions)
+	for _, sg := range analytics.SuggestFoods(rem, candidates, maxFoodSuggestions) {
+		out = append(out, openapi.FoodSuggestion{
+			Name:            sg.Name,
+			Fits:            sg.Fits,
+			FillsProteinPct: float32(sg.FillsProteinPct),
+		})
+	}
+
+	return out, nil
+}
+
+func floatOf(v *int) float64 {
+	if v == nil {
+		return 0
+	}
+
+	return float64(*v)
+}
+
+func float32Of(v *float32) float64 {
+	if v == nil {
+		return 0
+	}
+
+	return float64(*v)
 }

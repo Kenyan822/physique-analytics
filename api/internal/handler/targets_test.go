@@ -197,3 +197,35 @@ func ptr32i(v int) *int        { return &v }
 func parseDay(s string) (time.Time, error) {
 	return time.Parse(time.DateOnly, s)
 }
+
+func TestGetDailyTargets_残量を埋める食品を提案する(t *testing.T) {
+	t.Parallel()
+
+	// **履歴から作る。** 食べたことのないものは提案しない（要件 N-07）
+	meals := &stubMeals{suggestions: []openapi.MealSuggestion{
+		{Name: "サラダチキン", Count: 20, Kcal: ptr32i(114), ProteinG: ptr32(24.1)},
+		{Name: "カツ丼", Count: 2, Kcal: ptr32i(900), ProteinG: ptr32(30)},
+	}}
+	srv := targetsServer(&stubPlan{plan: planWithPhase()},
+		&stubSeries{points: series(21, "2026-10-31", 75, 2100)}, meals)
+
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(),
+		http.MethodGet, "/v1/targets/2026-10-31", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+
+	var got openapi.DailyTargets
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	if got.Suggestions == nil || len(*got.Suggestions) == 0 {
+		t.Fatalf("提案が空。remaining = %+v", got.Remaining)
+	}
+	// タンパク質を埋める方が先
+	if (*got.Suggestions)[0].Name != "サラダチキン" {
+		t.Errorf("先頭 = %q, want サラダチキン", (*got.Suggestions)[0].Name)
+	}
+}

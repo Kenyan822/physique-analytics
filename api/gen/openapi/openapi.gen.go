@@ -462,6 +462,10 @@ type DailyTargets struct {
 	// Remaining 目標 − 実績。target が無ければ null
 	Remaining *Macros `json:"remaining,omitempty"`
 
+	// Suggestions 残量を埋める食品の候補（要件 N-07）。**履歴から作る**ので、
+	// 食べたことのないものは出ない。目標を超えていれば空。
+	Suggestions *[]FoodSuggestion `json:"suggestions,omitempty"`
+
 	// Target 摂取目標。TDEE を推定できないときは null
 	Target   *Macros  `json:"target,omitempty"`
 	TdeeKcal *float32 `json:"tdeeKcal,omitempty"`
@@ -500,6 +504,16 @@ type ExerciseInput struct {
 	// MuscleGroup 部位。肩は前部/中部/後部、背中は広背筋/僧帽筋に分ける
 	MuscleGroup MuscleGroup `json:"muscleGroup"`
 	Name        string      `json:"name"`
+}
+
+// FoodSuggestion defines model for FoodSuggestion.
+type FoodSuggestion struct {
+	// FillsProteinPct タンパク質の不足を何%埋めるか
+	FillsProteinPct float32 `json:"fillsProteinPct"`
+
+	// Fits 残りのカロリーに収まるか
+	Fits bool   `json:"fits"`
+	Name string `json:"name"`
 }
 
 // ImportError 取り込めなかった行。**1行のミスで全部止めない**ので、
