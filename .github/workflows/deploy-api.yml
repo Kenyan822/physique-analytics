@@ -90,6 +90,7 @@ jobs:
           env_vars: |
             DATABASE_MAX_CONNS=5
             TZ=Asia/Tokyo
+            SUPABASE_JWKS_URL=${{ secrets.SUPABASE_JWKS_URL }}
 
       # デプロイできたことと、実際に応答することは別。DB まで到達する /health で確認する
       - name: スモークテスト

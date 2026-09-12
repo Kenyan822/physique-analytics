@@ -14,7 +14,10 @@ func TestLoad_必須のDATABASE_URLがなければエラー(t *testing.T) {
 }
 
 func TestLoad_既定値(t *testing.T) {
-	env := map[string]string{"DATABASE_URL": "postgres://localhost:5432/physique"}
+	env := map[string]string{
+		"DATABASE_URL":      "postgres://localhost:5432/physique",
+		"SUPABASE_JWKS_URL": "https://example.supabase.co/auth/v1/.well-known/jwks.json",
+	}
 	cfg, err := config.Load(lookup(env))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -31,8 +34,9 @@ func TestLoad_既定値(t *testing.T) {
 
 func TestLoad_PORTを環境変数から読む(t *testing.T) {
 	env := map[string]string{
-		"DATABASE_URL": "postgres://localhost:5432/physique",
-		"PORT":         "3000",
+		"DATABASE_URL":      "postgres://localhost:5432/physique",
+		"SUPABASE_JWKS_URL": "https://example.supabase.co/auth/v1/.well-known/jwks.json",
+		"PORT":              "3000",
 	}
 	cfg, err := config.Load(lookup(env))
 	if err != nil {
@@ -45,8 +49,9 @@ func TestLoad_PORTを環境変数から読む(t *testing.T) {
 
 func TestLoad_PORTが数値でなければエラー(t *testing.T) {
 	env := map[string]string{
-		"DATABASE_URL": "postgres://localhost:5432/physique",
-		"PORT":         "http",
+		"DATABASE_URL":      "postgres://localhost:5432/physique",
+		"SUPABASE_JWKS_URL": "https://example.supabase.co/auth/v1/.well-known/jwks.json",
+		"PORT":              "http",
 	}
 	if _, err := config.Load(lookup(env)); err == nil {
 		t.Fatal("エラーを期待したが nil")
@@ -78,5 +83,40 @@ func TestLoadForMCP_DATABASE_URLだけで足りる(t *testing.T) {
 func TestLoadForMCP_DATABASE_URLが無ければエラー(t *testing.T) {
 	if _, err := config.LoadForMCP(func(string) (string, bool) { return "", false }); err == nil {
 		t.Fatal("エラーを期待したが nil")
+	}
+}
+
+// 認証の設定を忘れたまま起動できてしまうと、本番が開いたまま動き続ける
+func TestLoad_JWKSもAUTH_DISABLEDも無ければエラー(t *testing.T) {
+	env := map[string]string{"DATABASE_URL": "postgres://localhost:5432/physique"}
+	if _, err := config.Load(lookup(env)); err == nil {
+		t.Fatal("エラーを期待したが nil")
+	}
+}
+
+func TestLoad_AUTH_DISABLEDならJWKSは不要(t *testing.T) {
+	env := map[string]string{
+		"DATABASE_URL":  "postgres://localhost:5432/physique",
+		"AUTH_DISABLED": "true",
+	}
+	cfg, err := config.Load(lookup(env))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.AuthDisabled {
+		t.Error("AuthDisabled が false")
+	}
+}
+
+// "1" や "yes" では無効にならない。取り違えて本番を開けないようにする
+func TestLoad_AUTH_DISABLEDはtrueだけを受け付ける(t *testing.T) {
+	for _, v := range []string{"1", "yes", "TRUE", "on"} {
+		env := map[string]string{
+			"DATABASE_URL":  "postgres://localhost:5432/physique",
+			"AUTH_DISABLED": v,
+		}
+		if _, err := config.Load(lookup(env)); err == nil {
+			t.Errorf("AUTH_DISABLED=%q で認証が無効になった", v)
+		}
 	}
 }

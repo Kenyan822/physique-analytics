@@ -27,7 +27,8 @@ docker compose up -d                      # リポジトリルートで Postgres
 docker compose run --rm migrate up        # マイグレーション適用
 
 cd api
-DATABASE_URL='postgres://physique:dev@localhost:5432/physique?sslmode=disable' go run ./cmd/server
+DATABASE_URL='postgres://physique:dev@localhost:5432/physique?sslmode=disable' \
+  AUTH_DISABLED=true go run ./cmd/server
 curl -s localhost:8080/health
 ```
 
@@ -40,6 +41,8 @@ curl -s localhost:8080/health
 | `DATABASE_URL` | （必須） | Postgres の接続文字列。本番は Supavisor（port 6543） |
 | `PORT` | `8080` | Cloud Run が注入する |
 | `DATABASE_MAX_CONNS` | `5` | 1インスタンスが張る接続数の上限 |
+| `SUPABASE_JWKS_URL` | （必須） | JWT 検証用の公開鍵。`https://<ref>.supabase.co/auth/v1/.well-known/jwks.json` |
+| `AUTH_DISABLED` | `false` | `true` で認証を切る。**ローカル開発専用** |
 
 ## コード生成
 
@@ -51,7 +54,8 @@ go generate ./...
 
 ## 実装状況
 
-`/health` のみ実装済み。他の操作は `internal/handler/unimplemented.go` が 501 を返す。
+`/health` / `exercises`（CRUD）/ `workout-sessions`（CRUD）/ `workout-sets`（CRUD）/ `last-performance` を実装済み。
+残り（templates / sync / CSV）は `internal/handler/unimplemented.go` が 501 を返す。
 `openapi.yaml` に操作を足すと `Server` がインターフェースを満たさなくなりビルドが落ちるので、
 仕様と実装のずれはコンパイル時に分かる。
 

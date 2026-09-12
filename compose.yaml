@@ -71,6 +71,9 @@ services:
       PORT: "8080"
       ENV: local
       TZ: Asia/Tokyo
+      # ローカルは Supabase の JWT を持っていないので認証を切る。
+      # 本番でこれを設定すると API が開いたままになる
+      AUTH_DISABLED: "true"
     ports:
       - "8080:8080"
     depends_on:
