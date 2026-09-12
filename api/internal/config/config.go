@@ -18,6 +18,17 @@ type Config struct {
 	// DatabaseMaxConns は1インスタンスが張る接続数の上限。
 	// Cloud Run のインスタンス数 × この値が Supavisor の上限を超えないようにする。
 	DatabaseMaxConns int32
+
+	// SupabaseJWKSURL は JWT の検証に使う公開鍵の取得先。
+	// https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json
+	// シークレットではない（公開鍵なので）。
+	SupabaseJWKSURL string
+
+	// AuthDisabled は認証を無効にする。ローカル開発専用。
+	//
+	// **既定で無効にはしない。** JWKS の設定を忘れたときに黙って認証なしで
+	// 起動すると、本番が開いたまま動き続ける。明示的に指定させる。
+	AuthDisabled bool
 }
 
 // LookupEnv は os.LookupEnv と同じ形。テストで差し替えるために引数で受ける。
@@ -42,6 +53,16 @@ func Load(lookup LookupEnv) (Config, error) {
 			return Config{}, fmt.Errorf("PORT が数値ではない: %q", v)
 		}
 		cfg.Port = port
+	}
+
+	if v, ok := lookup("AUTH_DISABLED"); ok && v == "true" {
+		cfg.AuthDisabled = true
+	}
+
+	if jwks, ok := lookup("SUPABASE_JWKS_URL"); ok && jwks != "" {
+		cfg.SupabaseJWKSURL = jwks
+	} else if !cfg.AuthDisabled {
+		return Config{}, errors.New("SUPABASE_JWKS_URL が設定されていない（ローカル開発なら AUTH_DISABLED=true）")
 	}
 
 	if v, ok := lookup("DATABASE_MAX_CONNS"); ok && v != "" {
