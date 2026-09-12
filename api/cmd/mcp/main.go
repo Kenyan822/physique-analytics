@@ -52,7 +52,8 @@ func run() error {
 		Analysis:  repository.NewAnalysis(pool.DB()),
 		// 計画の設定は DB を正とする（要件 P-05）。
 		// config.json から移すには `go run ./cmd/planimport` を使う
-		Plan: repository.NewPlan(pool.DB()),
+		Plan:     repository.NewPlan(pool.DB()),
+		Contests: repository.NewContest(pool.DB()),
 	})
 
 	slog.Info("MCP サーバを開始")

@@ -181,3 +181,49 @@ func TestWeeklyActions_文面が空にならない(t *testing.T) {
 		})
 	}
 }
+
+func TestWeeklyActions_大会のペースが速すぎる(t *testing.T) {
+	t.Parallel()
+
+	got := analytics.WeeklyActions(nil, analytics.ActionContext{
+		GoalKgPerWeek:         -0.5,
+		ContestPaceTooFast:    true,
+		ContestWeeksLeft:      8,
+		ContestPacePctPerWeek: 1.2,
+	})
+
+	if len(got) == 0 {
+		t.Fatal("アクションが空")
+	}
+	if got[0].Kind != analytics.ActionContestPace {
+		t.Errorf("先頭 = %v, want contest_pace", got[0].Kind)
+	}
+	// **数字を出す。** 「速すぎる」だけでは何週ぶん前倒せばいいか分からない
+	if !strings.Contains(got[0].Text, "1.20") || !strings.Contains(got[0].Text, "8週") {
+		t.Errorf("Text = %q, want 残り週数と必要ペースを含む", got[0].Text)
+	}
+}
+
+func TestWeeklyActions_大会のペースは回復の次(t *testing.T) {
+	t.Parallel()
+
+	// 疲労を抱えたまま減量を速めるのは最悪の組み合わせなので、回復が先
+	got := analytics.WeeklyActions(
+		[]analytics.Detection{{Kind: analytics.StallFatigue}, {Kind: analytics.StallWeightPlateau}},
+		analytics.ActionContext{GoalKgPerWeek: -0.5, ContestPaceTooFast: true, ContestWeeksLeft: 8},
+	)
+
+	kinds := make([]analytics.StallKind, 0, len(got))
+	for _, a := range got {
+		kinds = append(kinds, a.Kind)
+	}
+	if len(kinds) < 3 {
+		t.Fatalf("アクション = %v", kinds)
+	}
+	if kinds[0] != analytics.StallFatigue {
+		t.Errorf("先頭 = %v, want fatigue", kinds[0])
+	}
+	if kinds[1] != analytics.ActionContestPace {
+		t.Errorf("2番目 = %v, want contest_pace", kinds[1])
+	}
+}

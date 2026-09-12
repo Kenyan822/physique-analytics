@@ -28,6 +28,11 @@ type PlanReader interface {
 	Get(ctx context.Context) (openapi.Plan, error)
 }
 
+// ContestReader は次の大会の読み取り。
+type ContestReader interface {
+	Next(ctx context.Context, asof openapi_types.Date) (openapi.Contest, error)
+}
+
 // SeriesReader は日次記録の読み取り。
 type SeriesReader interface {
 	DailySeries(ctx context.Context, from, to openapi_types.Date) ([]analytics.DailyPoint, error)
@@ -37,6 +42,8 @@ type SeriesReader interface {
 type Deps struct {
 	Plan   PlanReader
 	Series SeriesReader
+	// Contests は nil でもよい。大会を登録していなければカウントダウンが出ないだけ
+	Contests ContestReader
 }
 
 // Summary は基準日における「今どうなっているか」。
@@ -59,8 +66,19 @@ type Summary struct {
 	Points []analytics.DailyPoint
 	// Nutrition は適用した栄養パラメータ
 	Nutrition analytics.NutritionConfig
+	// Contest は次の大会と必要ペース（要件 A-10）。無ければ nil
+	Contest *Countdown
+
 	// Note は数字を出せなかった理由
 	Note string
+}
+
+// Countdown は次の大会までの残りと、必要な減量ペース（要件 A-10）。
+type Countdown struct {
+	Contest   openapi.Contest
+	WeeksLeft float64
+	// Target は必要ペース。体重か体脂肪率が無いときは nil
+	Target *analytics.ContestTarget
 }
 
 // Targets は1日の摂取目標（要件 A-02 / N-05）。
@@ -114,6 +132,10 @@ func Build(ctx context.Context, d Deps, asof time.Time) (Summary, error) {
 	out.BodyfatPct7dAvg = stat.BodyfatPct7dAvg
 	out.WeightSlopeKgWeek = stat.WeightSlopeKgWeek
 
+	if err := out.withContest(ctx, d, asof); err != nil {
+		return Summary{}, err
+	}
+
 	// **推定できないのに数字を出さない。** 根拠の無い目標は判断を誤らせる
 	if stat.MeanKcal21d == nil || stat.WeightSlopeKgWeek == nil || stat.KcalDays21d < TDEEMinDays {
 		if out.Note == "" {
@@ -151,9 +173,43 @@ func Build(ctx context.Context, d Deps, asof time.Time) (Summary, error) {
 	return out, nil
 }
 
+// withContest は次の大会と必要ペースを足す（要件 A-10）。
+//
+// 大会を登録していなければ何もしない。計画に大会が無いのは正常な状態で、
+// エラーにするようなことではない。
+func (s *Summary) withContest(ctx context.Context, d Deps, asof time.Time) error {
+	if d.Contests == nil {
+		return nil
+	}
+
+	c, err := d.Contests.Next(ctx, openapi_types.Date{Time: asof})
+	if errors.Is(err, repository.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	cd := &Countdown{Contest: c, WeeksLeft: analytics.WeeksUntil(asof, c.HeldOn.Time)}
+	if s.WeightKg7dAvg != nil && s.BodyfatPct7dAvg != nil {
+		if t, ok := analytics.ContestPace(*s.WeightKg7dAvg, *s.BodyfatPct7dAvg,
+			float64(c.TargetBfPct), cd.WeeksLeft); ok {
+			cd.Target = &t
+		}
+	}
+	s.Contest = cd
+
+	return nil
+}
+
 // ActionContext は停滞検知の文脈（要件 A-08）に渡す形を作る。
 func (s Summary) ActionContext() analytics.ActionContext {
 	ctx := analytics.ActionContext{GoalKgPerWeek: s.GoalKgPerWeek}
+	if s.Contest != nil && s.Contest.Target != nil && s.Contest.Target.TooFast {
+		ctx.ContestPaceTooFast = true
+		ctx.ContestWeeksLeft = s.Contest.WeeksLeft
+		ctx.ContestPacePctPerWeek = s.Contest.Target.PacePctPerWeek
+	}
 	if s.Targets != nil {
 		ctx.IntakeFloorHit = s.Targets.IntakeFloorHit
 		ctx.CarbBelowFloor = s.Targets.CarbBelowFloor

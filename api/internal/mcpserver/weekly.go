@@ -35,6 +35,17 @@ type actionOut struct {
 	Text     string `json:"text"`
 }
 
+type contestOut struct {
+	HeldOn         string   `json:"heldOn"`
+	Category       string   `json:"category"`
+	TargetBfPct    float64  `json:"targetBfPct"`
+	WeeksLeft      float64  `json:"weeksLeft"`
+	StageWeightKg  *float64 `json:"stageWeightKg,omitempty"`
+	NeedLossKg     *float64 `json:"needLossKg,omitempty"`
+	PacePctPerWeek *float64 `json:"pacePctPerWeek,omitempty"`
+	TooFast        bool     `json:"tooFast"`
+}
+
 type weeklyActionsOut struct {
 	AsOf          string      `json:"asOf"`
 	Phase         string      `json:"phase,omitempty"`
@@ -47,6 +58,7 @@ type weeklyActionsOut struct {
 	WeightKg      *float64    `json:"weightKg7dAvg,omitempty"`
 	BodyfatPct    *float64    `json:"bodyfatPct7dAvg,omitempty"`
 	SlopeKgWeek   *float64    `json:"weightSlopeKgPerWeek,omitempty"`
+	Contest       *contestOut `json:"contest,omitempty"`
 	Actions       []actionOut `json:"actions"`
 	Note          string      `json:"note,omitempty"`
 }
@@ -83,7 +95,14 @@ func weeklyActions(ctx context.Context, d Deps, in weeklyActionsIn) (weeklyActio
 
 	// 集計と目標の組み立ては API と共通（internal/weekly）。
 	// 同じ計算を2か所に書くと、片方だけ直したときに値が食い違う
-	sum, err := weekly.Build(ctx, weekly.Deps{Plan: d.Plan, Series: d.Analysis}, asof)
+	deps := weekly.Deps{Plan: d.Plan, Series: d.Analysis}
+	// **nil のポインタを interface に入れない。** 入れると interface 自体は
+	// 非 nil になり、weekly 側の nil チェックをすり抜けて panic する
+	if d.Contests != nil {
+		deps.Contests = d.Contests
+	}
+
+	sum, err := weekly.Build(ctx, deps, asof)
 	if err != nil {
 		return weeklyActionsOut{}, err
 	}
@@ -101,6 +120,19 @@ func weeklyActions(ctx context.Context, d Deps, in weeklyActionsIn) (weeklyActio
 	out.GoalKgPerWeek = &goal
 	if t := sum.Targets; t != nil {
 		out.IntakeKcal, out.ProteinG, out.FatG, out.CarbG = &t.KcalTarget, &t.ProteinG, &t.FatG, &t.CarbG
+	}
+	if c := sum.Contest; c != nil {
+		co := &contestOut{
+			HeldOn:      c.Contest.HeldOn.Format(time.DateOnly),
+			Category:    c.Contest.Category,
+			TargetBfPct: float64(c.Contest.TargetBfPct),
+			WeeksLeft:   c.WeeksLeft,
+		}
+		if t := c.Target; t != nil {
+			co.StageWeightKg, co.NeedLossKg = &t.StageWeightKg, &t.NeedLossKg
+			co.PacePctPerWeek, co.TooFast = &t.PacePctPerWeek, t.TooFast
+		}
+		out.Contest = co
 	}
 
 	e1rm, err := worstKeyExerciseSlope(ctx, d, asof)

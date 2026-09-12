@@ -36,6 +36,9 @@ type Deps struct {
 	// Plan は3年計画の設定。**DB を正とする**（要件 P-05）。
 	// nil でも他のツールは動く。weekly_actions だけが要求する
 	Plan *repository.Plan
+
+	// Contests は次の大会（要件 A-10）。nil なら大会の情報が出ないだけ
+	Contests *repository.Contest
 }
 
 // New は MCP サーバを組み立てる。

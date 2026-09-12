@@ -14,7 +14,7 @@ import (
 )
 
 func lastPerformanceServer(e *stubExercises, w *stubWorkouts) http.Handler {
-	return handler.NewRouter(handler.New(stubPinger{}, e, w, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}))
+	return handler.NewRouter(handler.New(stubPinger{}, e, w, &stubTemplates{}, &stubSync{}, &stubTransfer{}, &stubBody{}, &stubMeals{}, &stubPlan{}, &stubSeries{}, &stubMealSets{}, &stubContests{}))
 }
 
 func TestGetLastPerformance_推定1RMを添えて返す(t *testing.T) {

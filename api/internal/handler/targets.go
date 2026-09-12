@@ -13,7 +13,13 @@ import (
 // 計算は internal/weekly と共有している。MCP の週次レポート（A-08）と
 // 同じ値を出すため、ここで計算し直さない。
 func (s *Server) GetDailyTargets(ctx context.Context, req openapi.GetDailyTargetsRequestObject) (openapi.GetDailyTargetsResponseObject, error) {
-	sum, err := weekly.Build(ctx, weekly.Deps{Plan: s.plan, Series: s.series}, req.Date.Time)
+	deps := weekly.Deps{Plan: s.plan, Series: s.series}
+	// nil のポインタを interface に入れると非 nil になり、nil チェックをすり抜ける
+	if s.contests != nil {
+		deps.Contests = s.contests
+	}
+
+	sum, err := weekly.Build(ctx, deps, req.Date.Time)
 	if errors.Is(err, weekly.ErrNoPhases) {
 		return targetsValidationFailed("phases", err.Error()), nil
 	}
@@ -43,6 +49,21 @@ func (s *Server) GetDailyTargets(ctx context.Context, req openapi.GetDailyTarget
 	if sum.Note != "" {
 		note := sum.Note
 		out.Note = &note
+	}
+
+	if c := sum.Contest; c != nil {
+		cd := openapi.ContestCountdown{
+			HeldOn:      c.Contest.HeldOn,
+			Category:    c.Contest.Category,
+			TargetBfPct: c.Contest.TargetBfPct,
+			WeeksLeft:   float32(c.WeeksLeft),
+		}
+		if t := c.Target; t != nil {
+			stage, loss, pace := float32(t.StageWeightKg), float32(t.NeedLossKg), float32(t.PacePctPerWeek)
+			cd.StageWeightKg, cd.NeedLossKg, cd.PacePctPerWeek = &stage, &loss, &pace
+			cd.TooFast = &t.TooFast
+		}
+		out.Contest = &cd
 	}
 
 	if t := sum.Targets; t != nil {

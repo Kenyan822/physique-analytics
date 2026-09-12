@@ -241,6 +241,50 @@ type BodyMeasurementInput struct {
 	WaistNavelCm *float32           `json:"waistNavelCm,omitempty"`
 }
 
+// Contest defines model for Contest.
+type Contest struct {
+	// Category Examples: サマスタ スタイリッシュガイ
+	Category  string    `json:"category"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// DeletedAt 論理削除。物理削除しない（ADR-0014）
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	// Goal その大会での位置づけ（完走・入賞など）
+	Goal *string `json:"goal,omitempty"`
+
+	// HeldOn 開催日。日付が決まる前は**その月の末日**を入れる。
+	// 月内では最終日が一番遠く、必要ペースを過小評価しない
+	HeldOn openapi_types.Date `json:"heldOn"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// TargetBfPct ステージ体脂肪率の目標
+	TargetBfPct float32 `json:"targetBfPct"`
+
+	// UpdatedAt 競合解決に使う（ADR-0014）
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// ContestCountdown defines model for ContestCountdown.
+type ContestCountdown struct {
+	Category       string             `json:"category"`
+	HeldOn         openapi_types.Date `json:"heldOn"`
+	NeedLossKg     *float32           `json:"needLossKg,omitempty"`
+	PacePctPerWeek *float32           `json:"pacePctPerWeek,omitempty"`
+	StageWeightKg  *float32           `json:"stageWeightKg,omitempty"`
+	TargetBfPct    float32            `json:"targetBfPct"`
+	TooFast        *bool              `json:"tooFast,omitempty"`
+	WeeksLeft      float32            `json:"weeksLeft"`
+}
+
+// ContestInput defines model for ContestInput.
+type ContestInput struct {
+	Category    string             `json:"category"`
+	Goal        *string            `json:"goal,omitempty"`
+	HeldOn      openapi_types.Date `json:"heldOn"`
+	TargetBfPct float32            `json:"targetBfPct"`
+}
+
 // DailyMetrics defines model for DailyMetrics.
 type DailyMetrics struct {
 	BodyfatPct *float32  `json:"bodyfatPct,omitempty"`
@@ -293,10 +337,13 @@ type DailyMetricsInput struct {
 // DailyTargets defines model for DailyTargets.
 type DailyTargets struct {
 	// CarbBelowFloor 炭水化物の目標が下限を割っているか（要件 A-03）
-	CarbBelowFloor *bool              `json:"carbBelowFloor,omitempty"`
-	Consumed       Macros             `json:"consumed"`
-	Date           openapi_types.Date `json:"date"`
-	GoalKgPerWeek  *float32           `json:"goalKgPerWeek,omitempty"`
+	CarbBelowFloor *bool  `json:"carbBelowFloor,omitempty"`
+	Consumed       Macros `json:"consumed"`
+
+	// Contest 次の大会と必要ペース（要件 A-10）
+	Contest       *ContestCountdown  `json:"contest,omitempty"`
+	Date          openapi_types.Date `json:"date"`
+	GoalKgPerWeek *float32           `json:"goalKgPerWeek,omitempty"`
 
 	// IntakeFloorHit 摂取が下限（体重×24kcal）に達しているか（要件 A-03）
 	IntakeFloorHit *bool   `json:"intakeFloorHit,omitempty"`
@@ -824,6 +871,12 @@ type UpdateWorkoutSessionJSONBody struct {
 	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
 }
 
+// CreateContestJSONRequestBody defines body for CreateContest for application/json ContentType.
+type CreateContestJSONRequestBody = ContestInput
+
+// UpdateContestJSONRequestBody defines body for UpdateContest for application/json ContentType.
+type UpdateContestJSONRequestBody = ContestInput
+
 // PutDailyMetricsJSONRequestBody defines body for PutDailyMetrics for application/json ContentType.
 type PutDailyMetricsJSONRequestBody = DailyMetricsInput
 
@@ -886,6 +939,18 @@ type ServerInterface interface {
 	// GetHealth ヘルスチェック
 	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
+	// ListContests 大会の一覧
+	// (GET /v1/contests)
+	ListContests(w http.ResponseWriter, r *http.Request)
+	// CreateContest 大会の登録
+	// (POST /v1/contests)
+	CreateContest(w http.ResponseWriter, r *http.Request)
+	// DeleteContest 大会の削除（論理削除）
+	// (DELETE /v1/contests/{contestId})
+	DeleteContest(w http.ResponseWriter, r *http.Request, contestId openapi_types.UUID)
+	// UpdateContest 大会の更新
+	// (PATCH /v1/contests/{contestId})
+	UpdateContest(w http.ResponseWriter, r *http.Request, contestId openapi_types.UUID)
 	// ListDailyMetrics 日次記録の一覧
 	// (GET /v1/daily)
 	ListDailyMetrics(w http.ResponseWriter, r *http.Request, params ListDailyMetricsParams)
@@ -1034,6 +1099,86 @@ func (siw *ServerInterfaceWrapper) GetHealth(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetHealth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListContests operation middleware
+func (siw *ServerInterfaceWrapper) ListContests(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListContests(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateContest operation middleware
+func (siw *ServerInterfaceWrapper) CreateContest(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateContest(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteContest operation middleware
+func (siw *ServerInterfaceWrapper) DeleteContest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "contestId" -------------
+	var contestId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "contestId", r.PathValue("contestId"), &contestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "contestId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteContest(w, r, contestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateContest operation middleware
+func (siw *ServerInterfaceWrapper) UpdateContest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "contestId" -------------
+	var contestId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "contestId", r.PathValue("contestId"), &contestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "contestId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateContest(w, r, contestId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2352,6 +2497,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/meal-sets/{mealSetId}", wrapper.UpdateMealSet)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/meal-sets/{mealSetId}/apply", wrapper.ApplyMealSet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/targets/{date}", wrapper.GetDailyTargets)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/contests", wrapper.ListContests)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/contests", wrapper.CreateContest)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/contests/{contestId}", wrapper.DeleteContest)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/contests/{contestId}", wrapper.UpdateContest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/plan", wrapper.GetPlan)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/plan", wrapper.PutPlan)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/sync", wrapper.PullSync)
@@ -2410,6 +2559,234 @@ func (response GetHealth503ApplicationProblemPlusJSONResponse) VisitGetHealthRes
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(503)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListContestsRequestObject struct {
+}
+
+type ListContestsResponseObject interface {
+	VisitListContestsResponse(w http.ResponseWriter) error
+}
+
+type ListContests200JSONResponse struct {
+	Items []Contest `json:"items"`
+}
+
+func (response ListContests200JSONResponse) VisitListContestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListContests401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListContests401ApplicationProblemPlusJSONResponse) VisitListContestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateContestRequestObject struct {
+	Body *CreateContestJSONRequestBody
+}
+
+type CreateContestResponseObject interface {
+	VisitCreateContestResponse(w http.ResponseWriter) error
+}
+
+type CreateContest201JSONResponse Contest
+
+func (response CreateContest201JSONResponse) VisitCreateContestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateContest400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateContest400ApplicationProblemPlusJSONResponse) VisitCreateContestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateContest401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateContest401ApplicationProblemPlusJSONResponse) VisitCreateContestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateContest422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateContest422ApplicationProblemPlusJSONResponse) VisitCreateContestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteContestRequestObject struct {
+	ContestId openapi_types.UUID `json:"contestId"`
+}
+
+type DeleteContestResponseObject interface {
+	VisitDeleteContestResponse(w http.ResponseWriter) error
+}
+
+type DeleteContest204Response struct {
+}
+
+func (response DeleteContest204Response) VisitDeleteContestResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteContest401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteContest401ApplicationProblemPlusJSONResponse) VisitDeleteContestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteContest404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteContest404ApplicationProblemPlusJSONResponse) VisitDeleteContestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateContestRequestObject struct {
+	ContestId openapi_types.UUID `json:"contestId"`
+	Body      *UpdateContestJSONRequestBody
+}
+
+type UpdateContestResponseObject interface {
+	VisitUpdateContestResponse(w http.ResponseWriter) error
+}
+
+type UpdateContest200JSONResponse Contest
+
+func (response UpdateContest200JSONResponse) VisitUpdateContestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateContest401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateContest401ApplicationProblemPlusJSONResponse) VisitUpdateContestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateContest404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateContest404ApplicationProblemPlusJSONResponse) VisitUpdateContestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateContest422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateContest422ApplicationProblemPlusJSONResponse) VisitUpdateContestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -4653,6 +5030,18 @@ type StrictServerInterface interface {
 	// GetHealth ヘルスチェック
 	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
+	// ListContests 大会の一覧
+	// (GET /v1/contests)
+	ListContests(ctx context.Context, request ListContestsRequestObject) (ListContestsResponseObject, error)
+	// CreateContest 大会の登録
+	// (POST /v1/contests)
+	CreateContest(ctx context.Context, request CreateContestRequestObject) (CreateContestResponseObject, error)
+	// DeleteContest 大会の削除（論理削除）
+	// (DELETE /v1/contests/{contestId})
+	DeleteContest(ctx context.Context, request DeleteContestRequestObject) (DeleteContestResponseObject, error)
+	// UpdateContest 大会の更新
+	// (PATCH /v1/contests/{contestId})
+	UpdateContest(ctx context.Context, request UpdateContestRequestObject) (UpdateContestResponseObject, error)
 	// ListDailyMetrics 日次記録の一覧
 	// (GET /v1/daily)
 	ListDailyMetrics(ctx context.Context, request ListDailyMetricsRequestObject) (ListDailyMetricsResponseObject, error)
@@ -4843,6 +5232,120 @@ func (sh *strictHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetHealthResponseObject); ok {
 		if err := validResponse.VisitGetHealthResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListContests operation middleware
+func (sh *strictHandler) ListContests(w http.ResponseWriter, r *http.Request) {
+	var request ListContestsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListContests(ctx, request.(ListContestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListContests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListContestsResponseObject); ok {
+		if err := validResponse.VisitListContestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateContest operation middleware
+func (sh *strictHandler) CreateContest(w http.ResponseWriter, r *http.Request) {
+	var request CreateContestRequestObject
+
+	var body CreateContestJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateContest(ctx, request.(CreateContestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateContest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateContestResponseObject); ok {
+		if err := validResponse.VisitCreateContestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteContest operation middleware
+func (sh *strictHandler) DeleteContest(w http.ResponseWriter, r *http.Request, contestId openapi_types.UUID) {
+	var request DeleteContestRequestObject
+
+	request.ContestId = contestId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteContest(ctx, request.(DeleteContestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteContest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteContestResponseObject); ok {
+		if err := validResponse.VisitDeleteContestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateContest operation middleware
+func (sh *strictHandler) UpdateContest(w http.ResponseWriter, r *http.Request, contestId openapi_types.UUID) {
+	var request UpdateContestRequestObject
+
+	request.ContestId = contestId
+
+	var body UpdateContestJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateContest(ctx, request.(UpdateContestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateContest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateContestResponseObject); ok {
+		if err := validResponse.VisitUpdateContestResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

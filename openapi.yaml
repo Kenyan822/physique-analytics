@@ -44,7 +44,7 @@ tags:
   - name: nutrition
     description: 食事記録
   - name: plan
-    description: 計画の設定
+    description: 計画の設定・大会
   - name: sync
     description: オフライン同期
   - name: transfer
@@ -841,6 +841,79 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
 
+  /v1/contests:
+    get:
+      operationId: listContests
+      tags: [plan]
+      summary: 大会の一覧
+      description: |
+        要件 P-04。開催日の昇順で返す。カウントダウンと必要ペース判定
+        （要件 A-10）の入力になる。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Contest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createContest
+      tags: [plan]
+      summary: 大会の登録
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContestInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Contest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/contests/{contestId}:
+    parameters:
+      - name: contestId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateContest
+      tags: [plan]
+      summary: 大会の更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContestInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Contest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      operationId: deleteContest
+      tags: [plan]
+      summary: 大会の削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/plan:
     get:
       operationId: getPlan
@@ -1543,6 +1616,11 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Macros"
             - type: "null"
+        contest:
+          description: 次の大会と必要ペース（要件 A-10）
+          oneOf:
+            - $ref: "#/components/schemas/ContestCountdown"
+            - type: "null"
         intakeFloorHit:
           type: boolean
           description: 摂取が下限（体重×24kcal）に達しているか（要件 A-03）
@@ -1586,6 +1664,51 @@ components:
           minItems: 1
           maxItems: 30
           items: { $ref: "#/components/schemas/MealSetItem" }
+
+    ContestCountdown:
+      type: object
+      required: [heldOn, category, targetBfPct, weeksLeft]
+      properties:
+        heldOn: { type: string, format: date }
+        category: { type: string }
+        targetBfPct: { type: number }
+        weeksLeft: { type: number }
+        stageWeightKg: { type: [number, "null"] }
+        needLossKg: { type: [number, "null"] }
+        pacePctPerWeek: { type: [number, "null"] }
+        tooFast: { type: boolean }
+
+    Contest:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, heldOn, category, targetBfPct]
+          properties:
+            id: { type: string, format: uuid }
+            heldOn:
+              type: string
+              format: date
+              description: |
+                開催日。日付が決まる前は**その月の末日**を入れる。
+                月内では最終日が一番遠く、必要ペースを過小評価しない
+            category: { type: string, examples: [サマスタ スタイリッシュガイ] }
+            targetBfPct:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 50
+              description: ステージ体脂肪率の目標
+            goal:
+              type: [string, "null"]
+              description: その大会での位置づけ（完走・入賞など）
+
+    ContestInput:
+      type: object
+      required: [heldOn, category, targetBfPct]
+      properties:
+        heldOn: { type: string, format: date }
+        category: { type: string, minLength: 1, maxLength: 200 }
+        targetBfPct: { type: number, exclusiveMinimum: 0, maximum: 50 }
+        goal: { type: [string, "null"], maxLength: 200 }
 
     Problem:
       type: object
