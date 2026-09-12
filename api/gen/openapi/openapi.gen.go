@@ -478,7 +478,7 @@ type UpdateWorkoutSetJSONRequestBody = WorkoutSetInput
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// GetHealth ヘルスチェック
-	// (GET /healthz)
+	// (GET /health)
 	GetHealth(w http.ResponseWriter, r *http.Request)
 	// ListExercises 種目の一覧
 	// (GET /v1/exercises)
@@ -1326,7 +1326,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/healthz", wrapper.GetHealth)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/health", wrapper.GetHealth)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/exercises", wrapper.ListExercises)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/exercises", wrapper.CreateExercise)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/exercises/{exerciseId}", wrapper.DeleteExercise)
@@ -2470,7 +2470,7 @@ func (response UpdateWorkoutSet409ApplicationProblemPlusJSONResponse) VisitUpdat
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// GetHealth ヘルスチェック
-	// (GET /healthz)
+	// (GET /health)
 	GetHealth(ctx context.Context, request GetHealthRequestObject) (GetHealthResponseObject, error)
 	// ListExercises 種目の一覧
 	// (GET /v1/exercises)

@@ -29,7 +29,7 @@ func TestGetHealth_DBが応答すれば200を返す(t *testing.T) {
 	t.Parallel()
 
 	rec := httptest.NewRecorder()
-	newTestServer(t, stubPinger{}).ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil))
+	newTestServer(t, stubPinger{}).ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/health", nil))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body=%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -55,7 +55,7 @@ func TestGetHealth_時刻をJSTで返す(t *testing.T) {
 	t.Parallel()
 
 	rec := httptest.NewRecorder()
-	newTestServer(t, stubPinger{}).ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil))
+	newTestServer(t, stubPinger{}).ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/health", nil))
 
 	var body struct {
 		Time string `json:"time"`
@@ -81,7 +81,7 @@ func TestGetHealth_DBが応答しなければ503とProblemを返す(t *testing.T
 
 	rec := httptest.NewRecorder()
 	srv := newTestServer(t, stubPinger{err: errors.New("connection refused")})
-	srv.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil))
+	srv.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/health", nil))
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want %d (body=%s)", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
