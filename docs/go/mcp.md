@@ -116,3 +116,61 @@ slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 `fmt.Println` を1つ入れるだけで JSON-RPC のストリームが壊れる。
 API サーバ（`cmd/server`）は stdout に JSON ログを出すので、逆になっている。
+
+## 個人設定は任意の依存にする
+
+```go
+type Deps struct {
+	Exercises *repository.Exercise
+	Analysis  *repository.Analysis
+
+	// nil でも他のツールは動く。weekly_actions だけが要求する
+	Plan *plan.Plan
+}
+```
+
+`weekly_actions`（要件 A-08）は目標ペースと PFC 係数が要るが、これらは
+`private/config.json` にある個人データ（[ADR-0002](../adr/0002-separate-personal-data.md)）。
+起動時に必須にすると、設定を持たない環境（CI・他人の手元）で
+MCP 自体が立ち上がらなくなる。
+
+**nil を許して、使うツールの中でエラーにする。**
+
+```go
+if d.Plan == nil {
+	return weeklyActionsOut{}, fmt.Errorf(
+		"計画の設定が読めていない。PHYSIQUE_CONFIG に config.json のパスを設定する")
+}
+```
+
+エラーメッセージに**直し方**を書く。MCP のエラーは Claude が読んで
+利用者に伝えるので、「設定が無い」だけでは次の行動が決まらない。
+
+## 内部テストでツールの中身を検証する
+
+```go
+// 内部テストにしているのは、weeklyActions を MCP のセッションを張らずに呼ぶため
+package mcpserver
+
+func TestWeeklyActions_記録が無ければ記録を促す(t *testing.T) {
+	d, _ := fixture(t, true)
+	got, err := weeklyActions(t.Context(), d, weeklyActionsIn{AsOf: "2028-06-15"})
+	...
+}
+```
+
+`mcp.AddTool` に渡すクロージャを直接テストしようとすると、クライアント
+セッションを張る必要が出る。**登録の薄い層と中身を分けて**、中身だけを
+内部テスト（`package mcpserver`）から呼ぶ。
+
+テストのためだけに関数を export しないで済むのが内部テストの利点。
+`_test` パッケージを既定にするのは公開APIの使い勝手を確かめるためなので、
+その目的が無いならこちらでよい。
+
+## テストの日付は「実データと重ならない年」を選ぶ
+
+手元の DB にはサンプルデータがコミットされている。`testdb.Begin` は
+トランザクションで隔離するが、**コミット済みの行は見える**。
+
+2026-09〜10 にサンプルがあるなら、テストは 2028 年で書く。
+「記録が無いときの挙動」を確かめるテストが、手元でだけ落ちるのを防ぐ。

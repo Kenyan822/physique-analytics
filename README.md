@@ -51,7 +51,27 @@ curl -s localhost:8080/health
 ### 分析を動かす
 
 サンプルデータ（架空の記録55日分）が同梱されているので、clone してすぐ実行できる。
-分析ロジックは Go へ移植中で、現時点では Python のリファレンス実装が動く唯一の経路。
+経路は2つあり、**Go が正**（[ADR-0011](docs/adr/0011-go-analytics.md)）。
+Python は移植の検証基準として残してある。
+
+#### MCP から（Go / 本番経路）
+
+```bash
+cd api && go build -o /tmp/physique-mcp ./cmd/mcp
+claude mcp add physique -- /tmp/physique-mcp
+```
+
+環境変数は2つ。
+
+| 変数 | 用途 |
+|---|---|
+| `DATABASE_URL` | Postgres の接続文字列 |
+| `PHYSIQUE_CONFIG` | `config.json` のパス。目標ペースと PFC 係数を読む |
+
+`weekly_actions` ツールが「今週のアクション」を返す。`PHYSIQUE_CONFIG` が
+無くても他のツール（`weekly_volume` / `exercise_progress` / `query`）は動く。
+
+#### Python から（リファレンス実装）
 
 ```bash
 cd reference
