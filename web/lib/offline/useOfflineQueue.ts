@@ -5,6 +5,9 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { flushPending, type SendResult } from "./flush";
 import { LocalStore, PendingQueue, type PendingSet } from "./queue";
 
+/** 未送信が残っている間の再送間隔 */
+const RETRY_INTERVAL_MS = 30_000;
+
 type Options = {
   send: (item: PendingSet) => Promise<SendResult>;
 };
@@ -69,6 +72,21 @@ export function useOfflineQueue({ send }: Options) {
 
     void flush();
   }, [online, flush]);
+
+  /**
+   * 残っている間は定期的に再送する。
+   *
+   * **`online` イベントだけでは足りない。** 電波はあるがサーバ側が落ちている、
+   * ジムの Wi-Fi がキャプティブポータルで塞がれている、といった場合は
+   * `navigator.onLine` が true のままなので、再送の契機が無くなる。
+   */
+  useEffect(() => {
+    if (!online || pendingCount === 0) return;
+
+    const id = setInterval(() => void flush(), RETRY_INTERVAL_MS);
+
+    return () => clearInterval(id);
+  }, [online, pendingCount, flush]);
 
   /** 記録を積んで、可能ならすぐ送る。戻り値は「今サーバに届いたか」。 */
   const record = useCallback(

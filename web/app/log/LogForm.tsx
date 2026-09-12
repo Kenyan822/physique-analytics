@@ -147,7 +147,7 @@ export function LogForm({ exercises, templates, loadLast, recordSet, date, recor
       {(!online || pendingCount > 0) && (
         <p className="rounded-lg bg-amber-100 p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">
           {online
-            ? `未送信 ${pendingCount} 件。送信中…`
+            ? `未送信 ${pendingCount} 件。再送を待っている`
             : `オフライン。記録は端末に残る（未送信 ${pendingCount} 件）`}
         </p>
       )}
