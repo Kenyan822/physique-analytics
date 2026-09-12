@@ -50,7 +50,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:    net.JoinHostPort("", strconv.Itoa(cfg.Port)),
-		Handler: handler.NewRouter(handler.New(pool, repository.NewExercise(pool.DB()))),
+		Handler: handler.NewRouter(handler.New(pool, repository.NewExercise(pool.DB()), repository.NewWorkout(pool.DB()))),
 		// ヘッダを送り切らない接続にワーカーを占有させない
 		ReadHeaderTimeout: 10 * time.Second,
 	}

@@ -17,7 +17,7 @@ func TestUnimplemented_未実装の操作は501とProblemを返す(t *testing.T)
 	t.Parallel()
 
 	rec := httptest.NewRecorder()
-	srv := handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}))
+	srv := handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{}))
 	srv.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/templates", nil))
 
 	if rec.Code != http.StatusNotImplemented {
@@ -41,7 +41,7 @@ func TestRouter_未定義のパスは404(t *testing.T) {
 	t.Parallel()
 
 	rec := httptest.NewRecorder()
-	srv := handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}))
+	srv := handler.NewRouter(handler.New(stubPinger{}, &stubExercises{}, &stubWorkouts{}))
 	srv.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/unknown", nil))
 
 	if rec.Code != http.StatusNotFound {
