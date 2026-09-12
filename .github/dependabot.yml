@@ -1,5 +1,28 @@
 version: 2
 updates:
+  - package-ecosystem: gomod
+    directory: /api
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      go:
+        patterns: ["*"]
+        # メジャーは破壊的変更を含むので、まとめず個別に見る
+        update-types: ["minor", "patch"]
+
+  # Dockerfile のベースイメージ（golang / distroless）。
+  # Go の依存だけ見ても、ベースイメージ側の CVE は塞げない
+  - package-ecosystem: docker
+    directory: /api
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "chore(deps)"
+
   - package-ecosystem: pip
     directory: /reference/analysis
     schedule:
@@ -11,13 +34,15 @@ updates:
     groups:
       python:
         patterns: ["*"]
-
-  # Go は Phase 1a で追加する
-  # - package-ecosystem: gomod
-  #   directory: /api
-  #   groups:
-  #     go:
-  #       update-types: ["minor", "patch"]
+    # reference/ は Go 移植の検証基準（ADR-0011）。「Go の出力がこれと一致すること」を
+    # 受け入れ条件にしているので、**基準側が動くと比較にならない**。
+    # pandas 2→3 / numpy 1→2 は数値の扱いに差が出うるため、メジャーは上げない。
+    # セキュリティ修正（patch / minor）は受け入れる。
+    ignore:
+      - dependency-name: "pandas"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "numpy"
+        update-types: ["version-update:semver-major"]
 
   # Web は Phase 1a で追加する（pnpm も package-ecosystem は npm）
   # - package-ecosystem: npm
