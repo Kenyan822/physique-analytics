@@ -37,13 +37,23 @@ gcloud config set project "$PROJECT_ID" >/dev/null
 PROJECT_NUM=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 
 # --- 2. 課金 --------------------------------------------------------------
+# 請求先アカウントには紐付けられるプロジェクト数の上限がある。
+# 超えていると FAILED_PRECONDITION / "Cloud billing quota exceeded" で失敗する。
+# 別の請求先を使うか、上限緩和を申請する:
+#   https://support.google.com/code/contact/billing_quota_increase
 log "課金アカウントの紐付け"
 if [[ "$(gcloud billing projects describe "$PROJECT_ID" --format='value(billingEnabled)' 2>/dev/null)" == "True" ]]; then
   skip "課金は有効"
 else
   gcloud billing accounts list
   read -rp "    紐付ける BILLING_ACCOUNT_ID: " BILLING_ACCOUNT_ID
-  gcloud billing projects link "$PROJECT_ID" --billing-account="$BILLING_ACCOUNT_ID"
+  if ! gcloud billing projects link "$PROJECT_ID" --billing-account="$BILLING_ACCOUNT_ID"; then
+    echo
+    echo "  紐付けに失敗した。'Cloud billing quota exceeded' なら、この請求先が"
+    echo "  紐付けられるプロジェクト数の上限に達している。別の請求先を選ぶか、"
+    echo "  https://support.google.com/code/contact/billing_quota_increase で緩和を申請する。"
+    exit 1
+  fi
 fi
 
 # --- 3. API ---------------------------------------------------------------
@@ -77,9 +87,15 @@ else
 fi
 
 # 権限は最小限に絞る。roles/editor のような広い権限は付けない
+# 連続で叩くと etag が競合して一部が黙って失敗する。
+# 失敗したら少し待って1回だけやり直す
 for role in roles/run.admin roles/artifactregistry.writer roles/iam.serviceAccountUser; do
-  gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-    --member="serviceAccount:${SA}" --role="$role" --condition=None >/dev/null
+  if ! gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+       --member="serviceAccount:${SA}" --role="$role" --condition=None >/dev/null 2>&1; then
+    sleep 3
+    gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+      --member="serviceAccount:${SA}" --role="$role" --condition=None >/dev/null
+  fi
   printf '    付与: %s\n' "$role"
 done
 
