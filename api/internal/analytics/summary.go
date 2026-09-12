@@ -33,6 +33,9 @@ type DailyPoint struct {
 	WeightKg     *float64
 	BodyfatPct   *float64
 	Kcal         *float64
+	ProteinG     *float64
+	FatG         *float64
+	CarbG        *float64
 	SleepH       *float64
 	Steps        *float64
 	Fatigue      *float64

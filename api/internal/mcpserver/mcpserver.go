@@ -54,6 +54,7 @@ func New(d Deps) *mcp.Server {
 	registerWorkoutTools(s, d)
 	registerAnalysisTools(s, d)
 	registerWeeklyTools(s, d)
+	registerCorrelationTools(s, d)
 
 	return s
 }

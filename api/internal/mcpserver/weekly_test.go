@@ -205,3 +205,39 @@ func TestWeeklyReport_フェーズが無ければエラー(t *testing.T) {
 		t.Error("エラーにならない")
 	}
 }
+
+func TestCorrelations_サンプルが足りなければ示す(t *testing.T) {
+	t.Parallel()
+	d, _ := fixture(t, true)
+
+	got, err := correlations(t.Context(), d, correlationsIn{Days: 365})
+	if err != nil {
+		t.Fatalf("correlations: %v", err)
+	}
+
+	if len(got.Items) != 5 {
+		t.Fatalf("項目 = %d, want 5", len(got.Items))
+	}
+	// 手元のサンプルは55日ぶんしかない。**足りないことが分かる形で返す**
+	for _, i := range got.Items {
+		if i.Enough {
+			t.Errorf("%s: enough = true（n=%d）。90日に満たないはず", i.Label, i.N)
+		}
+	}
+	if got.Note == "" {
+		t.Error("Note が空。なぜ使えないかが分からない")
+	}
+}
+
+func TestCorrelations_期間を指定できる(t *testing.T) {
+	t.Parallel()
+	d, _ := fixture(t, true)
+
+	got, err := correlations(t.Context(), d, correlationsIn{Days: 30})
+	if err != nil {
+		t.Fatalf("correlations: %v", err)
+	}
+	if got.From == "" || got.To == "" {
+		t.Errorf("期間が空: %+v", got)
+	}
+}

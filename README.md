@@ -71,6 +71,7 @@ claude mcp add physique -- /tmp/physique-mcp
 | `weekly_actions` | 同じ内容を構造化して返す。個々の数値を扱うとき |
 | `weekly_volume` | 部位別の週間セット数と MEV/MRV 判定 |
 | `exercise_progress` | 種目の推定1RM の推移と傾き |
+| `correlations` | 個人の反応の相関分析（睡眠→翌日のトン数 など） |
 | `query` | 読み取り専用の SQL |
 
 計画の設定（目標ペース・PFC 係数）は **DB を正**とする（[ADR-0011](docs/adr/0011-go-analytics.md)）。
