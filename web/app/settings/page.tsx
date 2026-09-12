@@ -4,12 +4,19 @@ import { serverApi } from "@/lib/api/server";
 import { todayJst } from "@/lib/jst";
 
 import { SettingsForm } from "./SettingsForm";
+import { TemplateEditor } from "./TemplateEditor";
 import { savePlan } from "./actions";
+import { createTemplate, deleteTemplate, updateTemplate } from "./templateActions";
 
 export const metadata = { title: "設定 | physique" };
 
 export default async function SettingsPage() {
-  const plan = await serverApi().getPlan();
+  const api = serverApi();
+  const [plan, { items: templates }, { items: exercises }] = await Promise.all([
+    api.getPlan(),
+    api.listTemplates(),
+    api.listExercises({}),
+  ]);
 
   return (
     <main className="mx-auto w-full max-w-md lg:max-w-3xl">
@@ -24,6 +31,15 @@ export default async function SettingsPage() {
       </header>
 
       <div className="pt-4">
+        <div className="flex flex-col gap-4 px-4 pb-4 lg:px-6">
+          <TemplateEditor
+            templates={templates}
+            exercises={exercises}
+            createTemplate={createTemplate}
+            updateTemplate={updateTemplate}
+            deleteTemplate={deleteTemplate}
+          />
+        </div>
         <SettingsForm plan={plan} today={todayJst()} savePlan={savePlan} />
       </div>
     </main>

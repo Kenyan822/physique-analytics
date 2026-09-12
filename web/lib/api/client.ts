@@ -14,6 +14,8 @@ export type WorkoutSessionInput = components["schemas"]["WorkoutSessionInput"];
 export type WorkoutSet = components["schemas"]["WorkoutSet"];
 export type WorkoutSetInput = components["schemas"]["WorkoutSetInput"];
 export type Template = components["schemas"]["Template"];
+export type TemplateInput = components["schemas"]["TemplateInput"];
+export type TemplateItem = components["schemas"]["TemplateItem"];
 export type DailyMetrics = components["schemas"]["DailyMetrics"];
 export type DailyMetricsInput = components["schemas"]["DailyMetricsInput"];
 export type BodyMeasurement = components["schemas"]["BodyMeasurement"];
@@ -150,6 +152,10 @@ export function createClient({ baseUrl, token }: ClientOptions) {
     deleteWorkoutSet: (setId: string) => request<void>("DELETE", `/v1/workout-sets/${seg(setId)}`),
 
     listTemplates: () => request<{ items: Template[] }>("GET", "/v1/templates"),
+    createTemplate: (body: TemplateInput) => request<Template>("POST", "/v1/templates", { body }),
+    updateTemplate: (id: string, body: TemplateInput) =>
+      request<Template>("PATCH", `/v1/templates/${seg(id)}`, { body }),
+    deleteTemplate: (id: string) => request<void>("DELETE", `/v1/templates/${seg(id)}`),
 
     listDailyMetrics: (query: DateRangeQuery) =>
       request<{ items: DailyMetrics[] }>("GET", "/v1/daily", { query }),
