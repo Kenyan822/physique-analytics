@@ -62,6 +62,24 @@ func (e MealSource) Valid() bool {
 	}
 }
 
+// Defines values for MonthlyTargetsBaselineSource.
+const (
+	MonthlyTargetsBaselineSourceConfigured MonthlyTargetsBaselineSource = "configured"
+	MonthlyTargetsBaselineSourceMeasured   MonthlyTargetsBaselineSource = "measured"
+)
+
+// Valid indicates whether the value is a known member of the MonthlyTargetsBaselineSource enum.
+func (e MonthlyTargetsBaselineSource) Valid() bool {
+	switch e {
+	case MonthlyTargetsBaselineSourceConfigured:
+		return true
+	case MonthlyTargetsBaselineSourceMeasured:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MuscleGroup.
 const (
 	Abs        MuscleGroup = "腹"
@@ -200,6 +218,24 @@ func (e ImportCsvMultipartBodyResource) Valid() bool {
 	case ImportCsvMultipartBodyResourceMeasures:
 		return true
 	case ImportCsvMultipartBodyResourceWorkouts:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetMonthlyTargetsParamsBaseline.
+const (
+	GetMonthlyTargetsParamsBaselineConfigured GetMonthlyTargetsParamsBaseline = "configured"
+	GetMonthlyTargetsParamsBaselineMeasured   GetMonthlyTargetsParamsBaseline = "measured"
+)
+
+// Valid indicates whether the value is a known member of the GetMonthlyTargetsParamsBaseline enum.
+func (e GetMonthlyTargetsParamsBaseline) Valid() bool {
+	switch e {
+	case GetMonthlyTargetsParamsBaselineConfigured:
+		return true
+	case GetMonthlyTargetsParamsBaselineMeasured:
 		return true
 	default:
 		return false
@@ -523,6 +559,35 @@ type MealSuggestion struct {
 	Qty      *string             `json:"qty,omitempty"`
 }
 
+// MonthlyTarget defines model for MonthlyTarget.
+type MonthlyTarget struct {
+	BodyfatPct float32 `json:"bodyfatPct"`
+	Ffmi       float32 `json:"ffmi"`
+	LbmKg      float32 `json:"lbmKg"`
+
+	// Month Examples: 2026-09
+	Month string `json:"month"`
+	Phase string `json:"phase"`
+
+	// WeightKg LBM と体脂肪率から決まる従属変数
+	WeightKg float32 `json:"weightKg"`
+}
+
+// MonthlyTargets defines model for MonthlyTargets.
+type MonthlyTargets struct {
+	Baseline struct {
+		BodyfatPct float32                      `json:"bodyfatPct"`
+		Month      string                       `json:"month"`
+		Source     MonthlyTargetsBaselineSource `json:"source"`
+		WeightKg   float32                      `json:"weightKg"`
+	} `json:"baseline"`
+	Items []MonthlyTarget `json:"items"`
+	Note  *string         `json:"note,omitempty"`
+}
+
+// MonthlyTargetsBaselineSource defines model for MonthlyTargets.Baseline.Source.
+type MonthlyTargetsBaselineSource string
+
 // MuscleGroup 部位。肩は前部/中部/後部、背中は広背筋/僧帽筋に分ける
 type MuscleGroup string
 
@@ -541,20 +606,44 @@ type NutritionSettings struct {
 
 // Plan defines model for Plan.
 type Plan struct {
-	HeightCm     *float32            `json:"heightCm,omitempty"`
-	Nutrition    NutritionSettings   `json:"nutrition"`
-	Phases       []PlanPhase         `json:"phases"`
-	StartDate    *openapi_types.Date `json:"startDate,omitempty"`
-	VolumeRanges []VolumeRange       `json:"volumeRanges"`
+	BaselineBodyfatPct *float32 `json:"baselineBodyfatPct,omitempty"`
+
+	// BaselineMonth 月次目標の起点となる月（YYYY-MM）
+	BaselineMonth    *string             `json:"baselineMonth,omitempty"`
+	BaselineWeightKg *float32            `json:"baselineWeightKg,omitempty"`
+	HeightCm         *float32            `json:"heightCm,omitempty"`
+	Nutrition        NutritionSettings   `json:"nutrition"`
+	Phases           []PlanPhase         `json:"phases"`
+	StartDate        *openapi_types.Date `json:"startDate,omitempty"`
+	VolumeRanges     []VolumeRange       `json:"volumeRanges"`
+}
+
+// PlanBlock defines model for PlanBlock.
+type PlanBlock struct {
+	// BodyfatPctEnd ブロック終了時点の体脂肪率。途中は等分に動かす
+	BodyfatPctEnd float32 `json:"bodyfatPctEnd"`
+
+	// Focus そのブロックで何をするか。数字だけでは行動が決まらない
+	Focus *string `json:"focus,omitempty"`
+
+	// LbmDeltaKgPerMonth 1ヶ月あたりの除脂肪体重の増減。**これが設計値**
+	LbmDeltaKgPerMonth float32 `json:"lbmDeltaKgPerMonth"`
+	Months             int     `json:"months"`
+
+	// Name Examples: Y1 増量
+	Name string `json:"name"`
 }
 
 // PlanInput defines model for PlanInput.
 type PlanInput struct {
-	HeightCm     *float32            `json:"heightCm,omitempty"`
-	Nutrition    NutritionSettings   `json:"nutrition"`
-	Phases       []PlanPhase         `json:"phases"`
-	StartDate    *openapi_types.Date `json:"startDate,omitempty"`
-	VolumeRanges []VolumeRange       `json:"volumeRanges"`
+	BaselineBodyfatPct *float32            `json:"baselineBodyfatPct,omitempty"`
+	BaselineMonth      *string             `json:"baselineMonth,omitempty"`
+	BaselineWeightKg   *float32            `json:"baselineWeightKg,omitempty"`
+	HeightCm           *float32            `json:"heightCm,omitempty"`
+	Nutrition          NutritionSettings   `json:"nutrition"`
+	Phases             []PlanPhase         `json:"phases"`
+	StartDate          *openapi_types.Date `json:"startDate,omitempty"`
+	VolumeRanges       []VolumeRange       `json:"volumeRanges"`
 }
 
 // PlanPhase defines model for PlanPhase.
@@ -839,6 +928,20 @@ type ListMeasurementsParams struct {
 	To   *DateTo   `form:"to,omitempty" json:"to,omitempty"`
 }
 
+// PutPlanBlocksJSONBody defines parameters for PutPlanBlocks.
+type PutPlanBlocksJSONBody struct {
+	Items []PlanBlock `json:"items"`
+}
+
+// GetMonthlyTargetsParams defines parameters for GetMonthlyTargets.
+type GetMonthlyTargetsParams struct {
+	// Baseline configured = 設定した起点 / measured = 直近の実測
+	Baseline *GetMonthlyTargetsParamsBaseline `form:"baseline,omitempty" json:"baseline,omitempty"`
+}
+
+// GetMonthlyTargetsParamsBaseline defines parameters for GetMonthlyTargets.
+type GetMonthlyTargetsParamsBaseline string
+
 // PullSyncParams defines parameters for PullSync.
 type PullSyncParams struct {
 	// UpdatedSince 前回同期時にサーバが返した `serverTime` を渡す
@@ -912,6 +1015,9 @@ type PutMeasurementJSONRequestBody = BodyMeasurementInput
 
 // PutPlanJSONRequestBody defines body for PutPlan for application/json ContentType.
 type PutPlanJSONRequestBody = PlanInput
+
+// PutPlanBlocksJSONRequestBody defines body for PutPlanBlocks for application/json ContentType.
+type PutPlanBlocksJSONRequestBody PutPlanBlocksJSONBody
 
 // PushSyncJSONRequestBody defines body for PushSync for application/json ContentType.
 type PushSyncJSONRequestBody PushSyncJSONBody
@@ -1035,6 +1141,15 @@ type ServerInterface interface {
 	// PutPlan 計画の設定を保存
 	// (PUT /v1/plan)
 	PutPlan(w http.ResponseWriter, r *http.Request)
+	// ListPlanBlocks 計画のブロック一覧
+	// (GET /v1/plan/blocks)
+	ListPlanBlocks(w http.ResponseWriter, r *http.Request)
+	// PutPlanBlocks 計画のブロックを保存
+	// (PUT /v1/plan/blocks)
+	PutPlanBlocks(w http.ResponseWriter, r *http.Request)
+	// GetMonthlyTargets 月次目標
+	// (GET /v1/plan/monthly-targets)
+	GetMonthlyTargets(w http.ResponseWriter, r *http.Request, params GetMonthlyTargetsParams)
 	// PullSync 差分の取得
 	// (GET /v1/sync)
 	PullSync(w http.ResponseWriter, r *http.Request, params PullSyncParams)
@@ -1917,6 +2032,67 @@ func (siw *ServerInterfaceWrapper) PutPlan(w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
+// ListPlanBlocks operation middleware
+func (siw *ServerInterfaceWrapper) ListPlanBlocks(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListPlanBlocks(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutPlanBlocks operation middleware
+func (siw *ServerInterfaceWrapper) PutPlanBlocks(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutPlanBlocks(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetMonthlyTargets operation middleware
+func (siw *ServerInterfaceWrapper) GetMonthlyTargets(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetMonthlyTargetsParams
+
+	// ------------- Optional query parameter "baseline" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "baseline", r.URL.Query(), &params.Baseline, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "baseline"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "baseline", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetMonthlyTargets(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PullSync operation middleware
 func (siw *ServerInterfaceWrapper) PullSync(w http.ResponseWriter, r *http.Request) {
 
@@ -2501,6 +2677,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/contests", wrapper.CreateContest)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/contests/{contestId}", wrapper.DeleteContest)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/contests/{contestId}", wrapper.UpdateContest)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/plan/blocks", wrapper.ListPlanBlocks)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/plan/blocks", wrapper.PutPlanBlocks)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/plan/monthly-targets", wrapper.GetMonthlyTargets)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/plan", wrapper.GetPlan)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/plan", wrapper.PutPlan)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/sync", wrapper.PullSync)
@@ -4268,6 +4447,171 @@ func (response PutPlan422ApplicationProblemPlusJSONResponse) VisitPutPlanRespons
 	return err
 }
 
+type ListPlanBlocksRequestObject struct {
+}
+
+type ListPlanBlocksResponseObject interface {
+	VisitListPlanBlocksResponse(w http.ResponseWriter) error
+}
+
+type ListPlanBlocks200JSONResponse struct {
+	Items []PlanBlock `json:"items"`
+}
+
+func (response ListPlanBlocks200JSONResponse) VisitListPlanBlocksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListPlanBlocks401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListPlanBlocks401ApplicationProblemPlusJSONResponse) VisitListPlanBlocksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutPlanBlocksRequestObject struct {
+	Body *PutPlanBlocksJSONRequestBody
+}
+
+type PutPlanBlocksResponseObject interface {
+	VisitPutPlanBlocksResponse(w http.ResponseWriter) error
+}
+
+type PutPlanBlocks200JSONResponse struct {
+	Items []PlanBlock `json:"items"`
+}
+
+func (response PutPlanBlocks200JSONResponse) VisitPutPlanBlocksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutPlanBlocks400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response PutPlanBlocks400ApplicationProblemPlusJSONResponse) VisitPutPlanBlocksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutPlanBlocks401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response PutPlanBlocks401ApplicationProblemPlusJSONResponse) VisitPutPlanBlocksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutPlanBlocks422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response PutPlanBlocks422ApplicationProblemPlusJSONResponse) VisitPutPlanBlocksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMonthlyTargetsRequestObject struct {
+	Params GetMonthlyTargetsParams
+}
+
+type GetMonthlyTargetsResponseObject interface {
+	VisitGetMonthlyTargetsResponse(w http.ResponseWriter) error
+}
+
+type GetMonthlyTargets200JSONResponse MonthlyTargets
+
+func (response GetMonthlyTargets200JSONResponse) VisitGetMonthlyTargetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMonthlyTargets401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetMonthlyTargets401ApplicationProblemPlusJSONResponse) VisitGetMonthlyTargetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetMonthlyTargets422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response GetMonthlyTargets422ApplicationProblemPlusJSONResponse) VisitGetMonthlyTargetsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PullSyncRequestObject struct {
 	Params PullSyncParams
 }
@@ -5126,6 +5470,15 @@ type StrictServerInterface interface {
 	// PutPlan 計画の設定を保存
 	// (PUT /v1/plan)
 	PutPlan(ctx context.Context, request PutPlanRequestObject) (PutPlanResponseObject, error)
+	// ListPlanBlocks 計画のブロック一覧
+	// (GET /v1/plan/blocks)
+	ListPlanBlocks(ctx context.Context, request ListPlanBlocksRequestObject) (ListPlanBlocksResponseObject, error)
+	// PutPlanBlocks 計画のブロックを保存
+	// (PUT /v1/plan/blocks)
+	PutPlanBlocks(ctx context.Context, request PutPlanBlocksRequestObject) (PutPlanBlocksResponseObject, error)
+	// GetMonthlyTargets 月次目標
+	// (GET /v1/plan/monthly-targets)
+	GetMonthlyTargets(ctx context.Context, request GetMonthlyTargetsRequestObject) (GetMonthlyTargetsResponseObject, error)
 	// PullSync 差分の取得
 	// (GET /v1/sync)
 	PullSync(ctx context.Context, request PullSyncRequestObject) (PullSyncResponseObject, error)
@@ -6136,6 +6489,87 @@ func (sh *strictHandler) PutPlan(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutPlanResponseObject); ok {
 		if err := validResponse.VisitPutPlanResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListPlanBlocks operation middleware
+func (sh *strictHandler) ListPlanBlocks(w http.ResponseWriter, r *http.Request) {
+	var request ListPlanBlocksRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListPlanBlocks(ctx, request.(ListPlanBlocksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListPlanBlocks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListPlanBlocksResponseObject); ok {
+		if err := validResponse.VisitListPlanBlocksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutPlanBlocks operation middleware
+func (sh *strictHandler) PutPlanBlocks(w http.ResponseWriter, r *http.Request) {
+	var request PutPlanBlocksRequestObject
+
+	var body PutPlanBlocksJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutPlanBlocks(ctx, request.(PutPlanBlocksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutPlanBlocks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutPlanBlocksResponseObject); ok {
+		if err := validResponse.VisitPutPlanBlocksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetMonthlyTargets operation middleware
+func (sh *strictHandler) GetMonthlyTargets(w http.ResponseWriter, r *http.Request, params GetMonthlyTargetsParams) {
+	var request GetMonthlyTargetsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetMonthlyTargets(ctx, request.(GetMonthlyTargetsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetMonthlyTargets")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetMonthlyTargetsResponseObject); ok {
+		if err := validResponse.VisitGetMonthlyTargetsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

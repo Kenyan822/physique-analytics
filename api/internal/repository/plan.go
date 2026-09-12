@@ -65,13 +65,18 @@ func (r *Plan) Put(ctx context.Context, in openapi.PlanInput) (openapi.Plan, err
 	now := timeutil.Now()
 
 	const profileQ = `
-		insert into profile (id, height_cm, start_date, updated_at)
-		values (true, $1, $2, $3)
+		insert into profile (id, height_cm, start_date,
+			baseline_weight_kg, baseline_bodyfat_pct, baseline_month, updated_at)
+		values (true, $1, $2, $3, $4, $5, $6)
 		on conflict (id) do update set
 			height_cm = excluded.height_cm,
 			start_date = excluded.start_date,
+			baseline_weight_kg = excluded.baseline_weight_kg,
+			baseline_bodyfat_pct = excluded.baseline_bodyfat_pct,
+			baseline_month = excluded.baseline_month,
 			updated_at = excluded.updated_at`
-	if _, err := r.db.Exec(ctx, profileQ, in.HeightCm, dateOrNil(in.StartDate), now); err != nil {
+	if _, err := r.db.Exec(ctx, profileQ, in.HeightCm, dateOrNil(in.StartDate),
+		in.BaselineWeightKg, in.BaselineBodyfatPct, monthToDate(in.BaselineMonth), now); err != nil {
 		return openapi.Plan{}, fmt.Errorf("身体の基本値を保存できない: %w", err)
 	}
 
@@ -105,10 +110,13 @@ func GoalAt(phases []openapi.PlanPhase, date time.Time) (goalKgPerWeek float64, 
 }
 
 func (r *Plan) scanProfile(ctx context.Context, out *openapi.Plan) error {
-	const q = `select height_cm, start_date from profile where id = true`
+	const q = `select height_cm, start_date,
+		baseline_weight_kg, baseline_bodyfat_pct, baseline_month
+		from profile where id = true`
 
-	var start *time.Time
-	err := r.db.QueryRow(ctx, q).Scan(&out.HeightCm, &start)
+	var start, baselineMonth *time.Time
+	err := r.db.QueryRow(ctx, q).Scan(&out.HeightCm, &start,
+		&out.BaselineWeightKg, &out.BaselineBodyfatPct, &baselineMonth)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// 未設定。身長が無いと FFMI は出せないが、他の分析は動く
 		return nil
@@ -119,8 +127,27 @@ func (r *Plan) scanProfile(ctx context.Context, out *openapi.Plan) error {
 	if start != nil {
 		out.StartDate = &openapi_types.Date{Time: *start}
 	}
+	if baselineMonth != nil {
+		m := baselineMonth.Format("2006-01")
+		out.BaselineMonth = &m
+	}
 
 	return nil
+}
+
+// monthToDate は YYYY-MM をその月の1日にする。
+// DB は date 型で持つ（月だけの型が無く、文字列だと範囲検索が効かない）。
+func monthToDate(month *string) *time.Time {
+	if month == nil || *month == "" {
+		return nil
+	}
+
+	t, err := time.Parse("2006-01", *month)
+	if err != nil {
+		return nil
+	}
+
+	return &t
 }
 
 func (r *Plan) scanNutrition(ctx context.Context, out *openapi.Plan) error {

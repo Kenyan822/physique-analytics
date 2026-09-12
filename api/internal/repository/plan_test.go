@@ -164,3 +164,77 @@ func mustParseDate(t *testing.T, s string) time.Time {
 
 	return d
 }
+
+func TestPlanBlocks_保存して取得できる(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	repo := repository.NewPlan(testdb.Begin(t))
+
+	in := []openapi.PlanBlock{
+		{Name: "P0 基盤", Months: 1, LbmDeltaKgPerMonth: 0.15, BodyfatPctEnd: 21.2, Focus: ptr("記録習慣の確立")},
+		{Name: "P1-A カット", Months: 2, LbmDeltaKgPerMonth: -0.35, BodyfatPctEnd: 18.1},
+	}
+
+	got, err := repo.PutBlocks(ctx, in)
+	if err != nil {
+		t.Fatalf("PutBlocks: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ブロック = %d 件, want 2", len(got))
+	}
+	// 配列の並びが順序になる
+	if got[0].Name != "P0 基盤" {
+		t.Errorf("先頭 = %q, want P0 基盤", got[0].Name)
+	}
+	if got[0].Focus == nil || *got[0].Focus != "記録習慣の確立" {
+		t.Errorf("Focus = %v", got[0].Focus)
+	}
+}
+
+func TestPlanBlocks_まるごと置き換える(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	repo := repository.NewPlan(testdb.Begin(t))
+
+	if _, err := repo.PutBlocks(ctx, []openapi.PlanBlock{
+		{Name: "A", Months: 1, BodyfatPctEnd: 20},
+		{Name: "B", Months: 1, BodyfatPctEnd: 19},
+	}); err != nil {
+		t.Fatalf("PutBlocks: %v", err)
+	}
+
+	got, err := repo.PutBlocks(ctx, []openapi.PlanBlock{{Name: "C", Months: 1, BodyfatPctEnd: 18}})
+	if err != nil {
+		t.Fatalf("PutBlocks（2回目）: %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "C" {
+		t.Errorf("got = %+v, want C の1件", got)
+	}
+}
+
+func TestPlan_起点を保存できる(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	repo := repository.NewPlan(testdb.Begin(t))
+
+	in := planInput()
+	in.BaselineWeightKg = ptr(float32(75))
+	in.BaselineBodyfatPct = ptr(float32(20))
+	in.BaselineMonth = ptr("2026-09")
+
+	if _, err := repo.Put(ctx, in); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	got, err := repo.Get(ctx)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.BaselineWeightKg == nil || *got.BaselineWeightKg != 75 {
+		t.Errorf("BaselineWeightKg = %v, want 75", got.BaselineWeightKg)
+	}
+	// DB は date で持つが、返すのは YYYY-MM
+	if got.BaselineMonth == nil || *got.BaselineMonth != "2026-09" {
+		t.Errorf("BaselineMonth = %v, want 2026-09", got.BaselineMonth)
+	}
+}

@@ -12,9 +12,11 @@ import (
 )
 
 type stubPlan struct {
-	plan     openapi.Plan
-	gotInput *openapi.PlanInput
-	putErr   error
+	plan      openapi.Plan
+	blocks    []openapi.PlanBlock
+	gotInput  *openapi.PlanInput
+	gotBlocks []openapi.PlanBlock
+	putErr    error
 }
 
 func (s *stubPlan) Get(context.Context) (openapi.Plan, error) { return s.plan, nil }
@@ -22,6 +24,15 @@ func (s *stubPlan) Get(context.Context) (openapi.Plan, error) { return s.plan, n
 func (s *stubPlan) Put(_ context.Context, in openapi.PlanInput) (openapi.Plan, error) {
 	s.gotInput = &in
 	return s.plan, s.putErr
+}
+
+func (s *stubPlan) ListBlocks(context.Context) ([]openapi.PlanBlock, error) {
+	return s.blocks, nil
+}
+
+func (s *stubPlan) PutBlocks(_ context.Context, blocks []openapi.PlanBlock) ([]openapi.PlanBlock, error) {
+	s.gotBlocks = blocks
+	return blocks, nil
 }
 
 func planServer(p *stubPlan) http.Handler {

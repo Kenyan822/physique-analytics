@@ -95,6 +95,8 @@ type MealRepository interface {
 type PlanRepository interface {
 	Get(ctx context.Context) (openapi.Plan, error)
 	Put(ctx context.Context, in openapi.PlanInput) (openapi.Plan, error)
+	ListBlocks(ctx context.Context) ([]openapi.PlanBlock, error)
+	PutBlocks(ctx context.Context, blocks []openapi.PlanBlock) ([]openapi.PlanBlock, error)
 }
 
 // SeriesRepository は日次記録の系列（要件 N-05 の目標計算に使う）。

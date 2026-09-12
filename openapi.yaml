@@ -914,6 +914,90 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/plan/blocks:
+    get:
+      operationId: listPlanBlocks
+      tags: [plan]
+      summary: 計画のブロック一覧
+      description: |
+        要件 P-02。3年計画のブロック（LBM の増減と終了時点の体脂肪率）。
+        月次目標はここから毎回計算する。**月ごとの表は持たない。**
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/PlanBlock" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      operationId: putPlanBlocks
+      tags: [plan]
+      summary: 計画のブロックを保存
+      description: まるごと置き換える。順序は配列の並びで決まる。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  maxItems: 60
+                  items: { $ref: "#/components/schemas/PlanBlock" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/PlanBlock" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/plan/monthly-targets:
+    get:
+      operationId: getMonthlyTargets
+      tags: [plan]
+      summary: 月次目標
+      description: |
+        要件 P-02 / P-03。起点とブロックから各月末の到達目標を計算して返す。
+
+        **追う順序は LBM → 体脂肪率 → 体重。** 体重は従属変数であって
+        目標そのものではない。
+
+        `baseline=measured` を指定すると、**直近の実測（7日平均）を起点に
+        引き直す**。計画どおりに進まなかったときはこちらを見る。
+      parameters:
+        - name: baseline
+          in: query
+          schema:
+            type: string
+            enum: [configured, measured]
+            default: configured
+          description: configured = 設定した起点 / measured = 直近の実測
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MonthlyTargets" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
   /v1/plan:
     get:
       operationId: getPlan
@@ -1564,6 +1648,11 @@ components:
       properties:
         heightCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
         startDate: { type: [string, "null"], format: date }
+        baselineWeightKg: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
+        baselineBodyfatPct: { type: [number, "null"], minimum: 0, maximum: 70 }
+        baselineMonth:
+          type: [string, "null"]
+          description: 月次目標の起点となる月（YYYY-MM）
         phases:
           type: array
           items: { $ref: "#/components/schemas/PlanPhase" }
@@ -1578,6 +1667,9 @@ components:
       properties:
         heightCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
         startDate: { type: [string, "null"], format: date }
+        baselineWeightKg: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
+        baselineBodyfatPct: { type: [number, "null"], minimum: 0, maximum: 70 }
+        baselineMonth: { type: [string, "null"] }
         phases:
           type: array
           maxItems: 100
@@ -1709,6 +1801,57 @@ components:
         category: { type: string, minLength: 1, maxLength: 200 }
         targetBfPct: { type: number, exclusiveMinimum: 0, maximum: 50 }
         goal: { type: [string, "null"], maxLength: 200 }
+
+    PlanBlock:
+      type: object
+      required: [name, months, lbmDeltaKgPerMonth, bodyfatPctEnd]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100, examples: [Y1 増量] }
+        months: { type: integer, minimum: 1, maximum: 60 }
+        lbmDeltaKgPerMonth:
+          type: number
+          minimum: -2
+          maximum: 2
+          description: 1ヶ月あたりの除脂肪体重の増減。**これが設計値**
+        bodyfatPctEnd:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 60
+          description: ブロック終了時点の体脂肪率。途中は等分に動かす
+        focus:
+          type: [string, "null"]
+          maxLength: 500
+          description: そのブロックで何をするか。数字だけでは行動が決まらない
+
+    MonthlyTarget:
+      type: object
+      required: [month, phase, lbmKg, bodyfatPct, weightKg, ffmi]
+      properties:
+        month: { type: string, examples: ["2026-09"] }
+        phase: { type: string }
+        lbmKg: { type: number }
+        bodyfatPct: { type: number }
+        weightKg:
+          type: number
+          description: LBM と体脂肪率から決まる従属変数
+        ffmi: { type: number }
+
+    MonthlyTargets:
+      type: object
+      required: [baseline, items]
+      properties:
+        baseline:
+          type: object
+          required: [source, weightKg, bodyfatPct, month]
+          properties:
+            source: { type: string, enum: [configured, measured] }
+            weightKg: { type: number }
+            bodyfatPct: { type: number }
+            month: { type: string }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/MonthlyTarget" }
+        note: { type: [string, "null"] }
 
     Problem:
       type: object

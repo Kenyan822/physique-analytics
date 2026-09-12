@@ -89,6 +89,19 @@ func toPlanInput(src plan.Plan) (openapi.PlanInput, error) {
 		h := float32(src.HeightCm)
 		out.HeightCm = &h
 	}
+	// 月次目標の起点（要件 P-03）。以降は実測から引き直す
+	if src.Baseline.WeightKg > 0 {
+		w := float32(src.Baseline.WeightKg)
+		out.BaselineWeightKg = &w
+	}
+	if src.Baseline.BodyfatPct > 0 {
+		b := float32(src.Baseline.BodyfatPct)
+		out.BaselineBodyfatPct = &b
+	}
+	if len(src.StartDate) >= 7 {
+		m := src.StartDate[:7]
+		out.BaselineMonth = &m
+	}
 
 	for _, ph := range src.Phases {
 		from, err := time.Parse(time.DateOnly, ph.From)
