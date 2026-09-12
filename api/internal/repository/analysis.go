@@ -25,6 +25,43 @@ func NewAnalysis(db DBTX) *Analysis {
 	return &Analysis{db: db}
 }
 
+// DailySeries は期間内の日次記録を日付の昇順で返す。
+//
+// **集計はしない。** 平均や回帰は analytics 側の責務にしてある（ADR-0011）。
+// SQL で avg や regr_slope を書くと、分析の正が SQL と Go に割れる。
+//
+// 未記録の項目は nil のまま返す。0 で埋めると「HRV 0」として
+// 回復不足を誤検知する。
+func (r *Analysis) DailySeries(ctx context.Context, from, to openapi_types.Date) ([]analytics.DailyPoint, error) {
+	const q = `
+		select date, weight_kg, bodyfat_pct, kcal, sleep_h, steps,
+		       fatigue, hrv_ms, resting_hr, deep_sleep_min
+		from daily_metrics
+		where deleted_at is null and date >= $1 and date <= $2
+		order by date`
+
+	rows, err := r.db.Query(ctx, q, from.Time, to.Time)
+	if err != nil {
+		return nil, fmt.Errorf("日次記録の系列を引けない: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]analytics.DailyPoint, 0, 32)
+	for rows.Next() {
+		var p analytics.DailyPoint
+		if err := rows.Scan(&p.Date, &p.WeightKg, &p.BodyfatPct, &p.Kcal, &p.SleepH,
+			&p.Steps, &p.Fatigue, &p.HrvMs, &p.RestingHr, &p.DeepSleepMin); err != nil {
+			return nil, fmt.Errorf("日次記録の系列を読めない: %w", err)
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("日次記録の系列を読めない: %w", err)
+	}
+
+	return out, nil
+}
+
 // MuscleVolume は部位ごとの週間ボリューム。
 type MuscleVolume struct {
 	MuscleGroup openapi.MuscleGroup
