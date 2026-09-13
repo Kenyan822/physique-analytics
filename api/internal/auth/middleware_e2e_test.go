@@ -28,7 +28,7 @@ func TestE2E_許可リストがHTTPで効く(t *testing.T) {
 		if err != nil {
 			t.Fatalf("リクエスト失敗: %v", err)
 		}
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 
 		return res.StatusCode
 	}
