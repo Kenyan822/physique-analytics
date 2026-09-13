@@ -1,6 +1,8 @@
 import Link from "next/link";
 
 import { serverApi } from "@/lib/api/server";
+
+import { LogoutButton } from "./LogoutButton";
 import { formatJstDate, todayJst } from "@/lib/jst";
 
 export default async function Home() {
@@ -51,6 +53,7 @@ export default async function Home() {
         <NavLink href="/blood">血液検査</NavLink>
         <NavLink href="/settings">設定</NavLink>
         <NavLink href="/transfer">CSV</NavLink>
+        <LogoutButton />
       </nav>
 
       <div className="flex flex-col gap-4 p-4 md:gap-6 md:p-6">

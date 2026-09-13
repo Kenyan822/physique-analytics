@@ -74,8 +74,13 @@ export class ApiError extends Error {
 
 export type ClientOptions = {
   baseUrl: string;
-  /** Supabase の JWT。無ければ Authorization を付けない（/health 用） */
-  token?: string;
+  /**
+   * Supabase の JWT。無ければ Authorization を付けない（/health 用）。
+   *
+   * **関数を渡せる。** ログイン中ユーザーのトークンは Cookie から非同期に読むため、
+   * クライアントを作る時点では確定していない。呼び出しごとに解決する。
+   */
+  token?: string | (() => Promise<string | undefined>);
 };
 
 type QueryValue = string | number | boolean | undefined | null;
@@ -108,6 +113,11 @@ async function toApiError(res: Response): Promise<ApiError> {
   return new ApiError(res.status);
 }
 
+/** token が関数なら呼んで解決する。 */
+async function resolveToken(token: ClientOptions["token"]): Promise<string | undefined> {
+  return typeof token === "function" ? await token() : token;
+}
+
 export function createClient({ baseUrl, token }: ClientOptions) {
   async function request<T>(
     method: string,
@@ -115,7 +125,8 @@ export function createClient({ baseUrl, token }: ClientOptions) {
     opts: { query?: Record<string, QueryValue>; body?: unknown } = {},
   ): Promise<T> {
     const headers: Record<string, string> = {};
-    if (token) headers.Authorization = `Bearer ${token}`;
+    const jwt = await resolveToken(token);
+    if (jwt) headers.Authorization = `Bearer ${jwt}`;
     if (opts.body !== undefined) headers["Content-Type"] = "application/json";
 
     const res = await fetch(buildUrl(baseUrl, path, opts.query), {
@@ -139,7 +150,8 @@ export function createClient({ baseUrl, token }: ClientOptions) {
    */
   async function requestCsv(query: Record<string, QueryValue>): Promise<string> {
     const headers: Record<string, string> = {};
-    if (token) headers.Authorization = `Bearer ${token}`;
+    const jwt = await resolveToken(token);
+    if (jwt) headers.Authorization = `Bearer ${jwt}`;
 
     const res = await fetch(buildUrl(baseUrl, "/v1/export/csv", query), {
       method: "GET",
@@ -261,7 +273,8 @@ export function createClient({ baseUrl, token }: ClientOptions) {
      */
     estimateMeal: async (form: FormData): Promise<MealEstimate> => {
       const headers: Record<string, string> = {};
-      if (token) headers.Authorization = `Bearer ${token}`;
+      const jwt = await resolveToken(token);
+      if (jwt) headers.Authorization = `Bearer ${jwt}`;
 
       const res = await fetch(buildUrl(baseUrl, "/v1/meals/estimate"), {
         method: "POST",
@@ -279,7 +292,8 @@ export function createClient({ baseUrl, token }: ClientOptions) {
       requestCsv({ ...query }),
     importCsv: async (form: FormData): Promise<ImportResult> => {
       const headers: Record<string, string> = {};
-      if (token) headers.Authorization = `Bearer ${token}`;
+      const jwt = await resolveToken(token);
+      if (jwt) headers.Authorization = `Bearer ${jwt}`;
 
       // **Content-Type を自分で付けない。** boundary が付かず、サーバが読めなくなる
       const res = await fetch(buildUrl(baseUrl, "/v1/import/csv"), {
