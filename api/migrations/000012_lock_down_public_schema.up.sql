@@ -29,18 +29,35 @@ begin
   end loop;
 end $$;
 
--- 2. anon / authenticated から権限を剥がす。
+-- 2 と 3 は anon / authenticated が居るときだけ実行する。
 --
--- RLS だけでも読めなくなるが、権限も剥がしておく。RLS の設定漏れが
--- 1テーブルでもあったときに、そこだけ開くのを防ぐ（二重に守る）。
-revoke all on all tables in schema public from anon, authenticated;
-revoke all on all sequences in schema public from anon, authenticated;
+-- **この2つは Supabase が作るロールで、素の Postgres には無い。**
+-- ローカルの docker compose と CI は素の Postgres なので、無条件に revoke すると
+-- `role "anon" does not exist` で落ちる。無ければ剥がすものも無いので飛ばしてよい。
+do $$
+declare r text;
+begin
+  foreach r in array array['anon', 'authenticated'] loop
+    if not exists (select 1 from pg_roles where rolname = r) then
+      continue;
+    end if;
 
--- 3. **今後作るテーブルに自動で権限が付かないようにする。**
---
--- これが無いと、次のマイグレーションでテーブルを足した瞬間にまた開く。
--- 1 と 2 は今あるものを閉じるだけで、再発は防げない。
---
--- 対象は「このロール（postgres）がこれから作るもの」。
-alter default privileges in schema public revoke all on tables from anon, authenticated;
-alter default privileges in schema public revoke all on sequences from anon, authenticated;
+    -- 2. 権限を剥がす。
+    --
+    -- RLS だけでも読めなくなるが、権限も剥がしておく。RLS の設定漏れが
+    -- 1テーブルでもあったときに、そこだけ開くのを防ぐ（二重に守る）。
+    execute format('revoke all on all tables in schema public from %I', r);
+    execute format('revoke all on all sequences in schema public from %I', r);
+
+    -- 3. **今後作るテーブルに自動で権限が付かないようにする。**
+    --
+    -- これが無いと、次のマイグレーションでテーブルを足した瞬間にまた開く。
+    -- 1 と 2 は今あるものを閉じるだけで、再発は防げない。
+    --
+    -- 対象は「このロール（postgres）がこれから作るもの」。
+    execute format(
+      'alter default privileges in schema public revoke all on tables from %I', r);
+    execute format(
+      'alter default privileges in schema public revoke all on sequences from %I', r);
+  end loop;
+end $$;
