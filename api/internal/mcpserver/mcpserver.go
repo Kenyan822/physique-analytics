@@ -298,10 +298,16 @@ func registerAnalysisTools(s *mcp.Server, d Deps) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "query",
+		// **ここが LLM への唯一の入力。** 書いていないテーブルは事実上使われないので、
+		// マイグレーションでテーブルを足したらここも足す
 		Description: "読み取り専用の SQL を実行する。事前に定義できない分析はこれを使う。" +
-			"テーブル: exercises / workout_sessions / workout_sets / templates / template_items。" +
+			"テーブル —— トレーニング: exercises / exercise_aliases / workout_sessions / workout_sets / " +
+			"templates / template_items。体組成: daily_metrics / body_measurements / body_photos。" +
+			"栄養: meals / meal_sets / meal_set_items。" +
+			"計画: profile / plan_phases / plan_blocks / nutrition_settings / volume_ranges / contests。" +
+			"検査: blood_tests / blood_test_items。" +
 			"すべて deleted_at による論理削除なので、生きている行だけ見るなら deleted_at is null を付ける。" +
-			"日付は workout_sessions.date（JST の日付）。",
+			"日付は workout_sessions.date / daily_metrics.date など（いずれも JST の日付）。",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in queryIn) (*mcp.CallToolResult, queryOut, error) {
 		limit := in.Limit
 		if limit <= 0 || limit > maxQueryRows {
