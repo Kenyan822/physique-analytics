@@ -44,7 +44,7 @@ curl -s localhost:8080/health
 | `PORT` | `8080` | Cloud Run が注入する |
 | `DATABASE_MAX_CONNS` | `5` | 1インスタンスが張る接続数の上限 |
 | `SUPABASE_JWKS_URL` | （必須） | JWT 検証用の公開鍵。`https://<ref>.supabase.co/auth/v1/.well-known/jwks.json` |
-| `ALLOWED_USER_IDS` | 空 | 通す `auth.users.id`（カンマ区切り）。**空だと Supabase に登録した人は誰でも全データを読める**（[docs/05-インフラ設計.md §8.1](../docs/05-インフラ設計.md)） |
+| `ALLOWED_USER_IDS` | 空 | 通す `auth.users.id`（カンマ区切り）。**空だと `/health` 以外すべて 401**（[docs/05-インフラ設計.md §8.1](../docs/05-インフラ設計.md)） |
 | `AUTH_DISABLED` | `false` | `true` で認証を切る。**ローカル開発専用** |
 
 ## コード生成

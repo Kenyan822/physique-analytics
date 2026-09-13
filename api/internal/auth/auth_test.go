@@ -69,21 +69,19 @@ func signToken(t *testing.T, key *ecdsa.PrivateKey, claims jwt.MapClaims) string
 	return s
 }
 
+// newVerifier は validClaims の sub を許可した Verifier を返す。
+// 許可リストそのものを試すテストは newVerifierAllowing を使う
 func newVerifier(t *testing.T) (*auth.Verifier, *ecdsa.PrivateKey) {
 	t.Helper()
 
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("鍵を作れない: %v", err)
-	}
-	srv := jwksServer(t, &key.PublicKey)
-
-	return auth.NewVerifier(srv.URL), key
+	return newVerifierAllowing(t, testSub)
 }
+
+const testSub = "11111111-1111-1111-1111-111111111111"
 
 func validClaims() jwt.MapClaims {
 	return jwt.MapClaims{
-		"sub": "11111111-1111-1111-1111-111111111111",
+		"sub": testSub,
 		"aud": "authenticated",
 		"exp": time.Now().Add(time.Hour).Unix(),
 		"iat": time.Now().Unix(),
@@ -290,7 +288,7 @@ func newVerifierAllowing(t *testing.T, allowed ...string) (*auth.Verifier, *ecds
 func TestVerify_許可リストにあるsubは通る(t *testing.T) {
 	t.Parallel()
 
-	v, key := newVerifierAllowing(t, "11111111-1111-1111-1111-111111111111")
+	v, key := newVerifierAllowing(t, testSub)
 	if _, err := v.Verify(t.Context(), signToken(t, key, validClaims())); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -308,13 +306,49 @@ func TestVerify_許可リストに無いsubは弾く(t *testing.T) {
 	}
 }
 
-func TestVerify_許可リストが空なら全員通る(t *testing.T) {
+func TestVerify_許可リストが空なら誰も通さない(t *testing.T) {
 	t.Parallel()
 
-	// 今までどおりの挙動。設定を足すまで壊さない
+	// **fail-closed**（#152）。署名も期限も正しいトークンでも弾く。
+	// 「設定するまで開いている」は「ログインするまで開いている」と同じで、
+	// 順序が逆になる
 	v, key := newVerifierAllowing(t)
-	if _, err := v.Verify(t.Context(), signToken(t, key, validClaims())); err != nil {
-		t.Fatalf("Verify: %v", err)
+	_, err := v.Verify(t.Context(), signToken(t, key, validClaims()))
+
+	if !errors.Is(err, auth.ErrUnauthorized) {
+		t.Fatalf("err = %v, want ErrUnauthorized", err)
+	}
+}
+
+func TestMiddleware_許可リストが空でも公開パスは通る(t *testing.T) {
+	t.Parallel()
+
+	// **ここが通らないとデプロイが落ちる。** スモークテストと keepalive が /health を叩く
+	v, _ := newVerifierAllowing(t)
+	h := auth.Middleware(v, "/health")(okHandler())
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/health", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestMiddleware_許可リストが空なら401(t *testing.T) {
+	t.Parallel()
+
+	v, key := newVerifierAllowing(t)
+	h := auth.Middleware(v, "/health")(okHandler())
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/exercises", nil)
+	req.Header.Set("Authorization", "Bearer "+signToken(t, key, validClaims()))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
 	}
 }
 
@@ -323,7 +357,7 @@ func TestVerify_許可リストの空白と空要素は無視する(t *testing.T
 
 	// 環境変数に "a, b," と書かれても意図どおりに動くこと。
 	// 空要素をそのまま入れると sub が空のトークンを通しうる
-	v, key := newVerifierAllowing(t, "  11111111-1111-1111-1111-111111111111  ", "", "   ")
+	v, key := newVerifierAllowing(t, "  "+testSub+"  ", "", "   ")
 	if _, err := v.Verify(t.Context(), signToken(t, key, validClaims())); err != nil {
 		t.Fatalf("Verify: %v", err)
 	}

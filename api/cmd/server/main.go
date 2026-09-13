@@ -91,9 +91,10 @@ func run() error {
 		v := auth.NewVerifier(cfg.SupabaseJWKSURL, cfg.AllowedUserIDs...)
 		if !v.Allowlisted() {
 			// **JWT の検証だけでは所有者を区別できない。** Supabase の
-			// サインアップが開いていれば、登録した人は誰でも全データを読める（#51）
-			slog.Warn("ALLOWED_USER_IDS が未設定。Supabase に登録した利用者は全員データを読める",
-				"対処", "自分の auth.users.id を ALLOWED_USER_IDS に設定する")
+			// サインアップが開いていれば、登録した人は誰でも有効なトークンを持てる（#51）。
+			// 未設定なら開けておくのではなく閉じる（#152）
+			slog.Error("ALLOWED_USER_IDS が未設定。/health 以外はすべて 401 になる",
+				"対処", "Supabase の auth.users から自分の id を取り、ALLOWED_USER_IDS に設定する")
 		}
 		h = auth.Middleware(v, "/health")(h)
 	}
