@@ -6,8 +6,10 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,21 +69,19 @@ func signToken(t *testing.T, key *ecdsa.PrivateKey, claims jwt.MapClaims) string
 	return s
 }
 
+// newVerifier は validClaims の sub を許可した Verifier を返す。
+// 許可リストそのものを試すテストは newVerifierAllowing を使う
 func newVerifier(t *testing.T) (*auth.Verifier, *ecdsa.PrivateKey) {
 	t.Helper()
 
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("鍵を作れない: %v", err)
-	}
-	srv := jwksServer(t, &key.PublicKey)
-
-	return auth.NewVerifier(srv.URL), key
+	return newVerifierAllowing(t, testSub)
 }
+
+const testSub = "11111111-1111-1111-1111-111111111111"
 
 func validClaims() jwt.MapClaims {
 	return jwt.MapClaims{
-		"sub": "11111111-1111-1111-1111-111111111111",
+		"sub": testSub,
 		"aud": "authenticated",
 		"exp": time.Now().Add(time.Hour).Unix(),
 		"iat": time.Now().Unix(),
@@ -264,4 +264,123 @@ func okHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+}
+
+// --- 許可リスト（#142） ---
+//
+// JWT の検証は「Supabase が発行したか」しか見ない。サインアップが開いていれば
+// 他人も有効なトークンを持てるので、**誰の sub かまで見る**。
+
+const otherSub = "22222222-2222-2222-2222-222222222222"
+
+func newVerifierAllowing(t *testing.T, allowed ...string) (*auth.Verifier, *ecdsa.PrivateKey) {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("鍵を作れない: %v", err)
+	}
+	srv := jwksServer(t, &key.PublicKey)
+
+	return auth.NewVerifier(srv.URL, allowed...), key
+}
+
+func TestVerify_許可リストにあるsubは通る(t *testing.T) {
+	t.Parallel()
+
+	v, key := newVerifierAllowing(t, testSub)
+	if _, err := v.Verify(t.Context(), signToken(t, key, validClaims())); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+}
+
+func TestVerify_許可リストに無いsubは弾く(t *testing.T) {
+	t.Parallel()
+
+	// 署名も期限も正しいが、別人のトークン
+	v, key := newVerifierAllowing(t, otherSub)
+	_, err := v.Verify(t.Context(), signToken(t, key, validClaims()))
+
+	if !errors.Is(err, auth.ErrUnauthorized) {
+		t.Fatalf("err = %v, want ErrUnauthorized", err)
+	}
+}
+
+func TestVerify_許可リストが空なら誰も通さない(t *testing.T) {
+	t.Parallel()
+
+	// **fail-closed**（#152）。署名も期限も正しいトークンでも弾く。
+	// 「設定するまで開いている」は「ログインするまで開いている」と同じで、
+	// 順序が逆になる
+	v, key := newVerifierAllowing(t)
+	_, err := v.Verify(t.Context(), signToken(t, key, validClaims()))
+
+	if !errors.Is(err, auth.ErrUnauthorized) {
+		t.Fatalf("err = %v, want ErrUnauthorized", err)
+	}
+}
+
+func TestMiddleware_許可リストが空でも公開パスは通る(t *testing.T) {
+	t.Parallel()
+
+	// **ここが通らないとデプロイが落ちる。** スモークテストと keepalive が /health を叩く
+	v, _ := newVerifierAllowing(t)
+	h := auth.Middleware(v, "/health")(okHandler())
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/health", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestMiddleware_許可リストが空なら401(t *testing.T) {
+	t.Parallel()
+
+	v, key := newVerifierAllowing(t)
+	h := auth.Middleware(v, "/health")(okHandler())
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/exercises", nil)
+	req.Header.Set("Authorization", "Bearer "+signToken(t, key, validClaims()))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401", rec.Code)
+	}
+}
+
+func TestVerify_許可リストの空白と空要素は無視する(t *testing.T) {
+	t.Parallel()
+
+	// 環境変数に "a, b," と書かれても意図どおりに動くこと。
+	// 空要素をそのまま入れると sub が空のトークンを通しうる
+	v, key := newVerifierAllowing(t, "  "+testSub+"  ", "", "   ")
+	if _, err := v.Verify(t.Context(), signToken(t, key, validClaims())); err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+}
+
+func TestMiddleware_許可リストに無いsubは401(t *testing.T) {
+	t.Parallel()
+
+	v, key := newVerifierAllowing(t, otherSub)
+	h := auth.Middleware(v, "/health")(okHandler())
+
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/exercises", nil)
+	req.Header.Set("Authorization", "Bearer "+signToken(t, key, validClaims()))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+	// **理由を細かく返さない。** 「その sub は許可されていない」と返すと、
+	// 誰が許可されているかを総当たりで探れる
+	if strings.Contains(rec.Body.String(), otherSub) {
+		t.Errorf("body に sub が漏れている: %s", rec.Body.String())
+	}
 }

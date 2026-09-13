@@ -17,7 +17,11 @@ let package = Package(
             name: "PhysiqueCore",
             path: "Physique/Sources",
             // UI は SwiftUI で、テスト対象はロジックだけ
-            exclude: ["Info.plist", "PhysiqueApp.swift", "LogView.swift"]
+            exclude: [
+                "Info.plist", "PhysiqueApp.swift",
+                // UI と HealthKit は iOS 専用。macOS ビルドで落ちる
+                "LogView.swift", "BodyView.swift", "HealthKitSource.swift",
+            ]
         ),
         .testTarget(
             name: "PhysiqueCoreTests",

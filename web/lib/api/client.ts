@@ -14,10 +14,42 @@ export type WorkoutSessionInput = components["schemas"]["WorkoutSessionInput"];
 export type WorkoutSet = components["schemas"]["WorkoutSet"];
 export type WorkoutSetInput = components["schemas"]["WorkoutSetInput"];
 export type Template = components["schemas"]["Template"];
+export type TemplateInput = components["schemas"]["TemplateInput"];
+export type TemplateItem = components["schemas"]["TemplateItem"];
 export type DailyMetrics = components["schemas"]["DailyMetrics"];
 export type DailyMetricsInput = components["schemas"]["DailyMetricsInput"];
 export type BodyMeasurement = components["schemas"]["BodyMeasurement"];
 export type BodyMeasurementInput = components["schemas"]["BodyMeasurementInput"];
+export type Meal = components["schemas"]["Meal"];
+export type MealInput = components["schemas"]["MealInput"];
+export type MealSlot = components["schemas"]["MealSlot"];
+export type MealSuggestion = components["schemas"]["MealSuggestion"];
+export type MealEstimate = components["schemas"]["MealEstimate"];
+export type MealSource = components["schemas"]["MealSource"];
+export type DailyTargets = components["schemas"]["DailyTargets"];
+export type MealSet = components["schemas"]["MealSet"];
+export type MealSetInput = components["schemas"]["MealSetInput"];
+export type Plan = components["schemas"]["Plan"];
+export type PlanInput = components["schemas"]["PlanInput"];
+export type PlanPhase = components["schemas"]["PlanPhase"];
+export type PlanBlock = components["schemas"]["PlanBlock"];
+export type MonthlyTarget = components["schemas"]["MonthlyTarget"];
+export type Contest = components["schemas"]["Contest"];
+export type ContestInput = components["schemas"]["ContestInput"];
+export type MonthlyTargets = components["schemas"]["MonthlyTargets"];
+export type BloodTest = components["schemas"]["BloodTest"];
+export type BloodTestInput = components["schemas"]["BloodTestInput"];
+export type BloodTestItem = components["schemas"]["BloodTestItem"];
+export type BodyPhoto = components["schemas"]["BodyPhoto"];
+export type PhotoPose = components["schemas"]["PhotoPose"];
+export type ImportError = components["schemas"]["ImportError"];
+export type CsvResource = NonNullable<
+  paths["/v1/export/csv"]["get"]["parameters"]["query"]
+>["resource"];
+export type ImportResult =
+  paths["/v1/import/csv"]["post"]["responses"]["200"]["content"]["application/json"];
+export type VolumeRange = components["schemas"]["VolumeRange"];
+export type NutritionSettings = components["schemas"]["NutritionSettings"];
 export type Problem = components["schemas"]["Problem"];
 
 type ListExercisesQuery = NonNullable<paths["/v1/exercises"]["get"]["parameters"]["query"]>;
@@ -101,6 +133,24 @@ export function createClient({ baseUrl, token }: ClientOptions) {
     return (await res.json()) as T;
   }
 
+  /**
+   * CSV は JSON ではないので `request` を通さない。
+   * `text/csv` を `res.json()` に食わせると、原因が「JSON を読めない」に化ける。
+   */
+  async function requestCsv(query: Record<string, QueryValue>): Promise<string> {
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const res = await fetch(buildUrl(baseUrl, "/v1/export/csv", query), {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    });
+    if (!res.ok) throw await toApiError(res);
+
+    return res.text();
+  }
+
   /** パスパラメータは必ずエスケープする。id に / が入ると別のパスになる */
   const seg = (v: string) => encodeURIComponent(v);
 
@@ -138,6 +188,10 @@ export function createClient({ baseUrl, token }: ClientOptions) {
     deleteWorkoutSet: (setId: string) => request<void>("DELETE", `/v1/workout-sets/${seg(setId)}`),
 
     listTemplates: () => request<{ items: Template[] }>("GET", "/v1/templates"),
+    createTemplate: (body: TemplateInput) => request<Template>("POST", "/v1/templates", { body }),
+    updateTemplate: (id: string, body: TemplateInput) =>
+      request<Template>("PATCH", `/v1/templates/${seg(id)}`, { body }),
+    deleteTemplate: (id: string) => request<void>("DELETE", `/v1/templates/${seg(id)}`),
 
     listDailyMetrics: (query: DateRangeQuery) =>
       request<{ items: DailyMetrics[] }>("GET", "/v1/daily", { query }),
@@ -153,6 +207,95 @@ export function createClient({ baseUrl, token }: ClientOptions) {
     // 前回値のデフォルト表示（要件 B-03）。記録が無ければ measurement は無い
     latestMeasurement: () =>
       request<{ measurement?: BodyMeasurement | null }>("GET", "/v1/measurements/latest"),
+
+    listMeals: (query: DateRangeQuery) => request<{ items: Meal[] }>("GET", "/v1/meals", { query }),
+    createMeal: (body: MealInput) => request<Meal>("POST", "/v1/meals", { body }),
+    updateMeal: (id: string, body: MealInput) =>
+      request<Meal>("PATCH", `/v1/meals/${seg(id)}`, { body }),
+    deleteMeal: (id: string) => request<void>("DELETE", `/v1/meals/${seg(id)}`),
+    // 過去の記録がそのまま候補になる（要件 N-02）
+    mealSuggestions: (query: { q?: string; limit?: number }) =>
+      request<{ items: MealSuggestion[] }>("GET", "/v1/meals/suggestions", { query }),
+    copyMeals: (body: { fromDate: string; toDate: string; slot?: MealSlot }) =>
+      request<{ items: Meal[] }>("POST", "/v1/meals/copy", { body }),
+    // その日の摂取目標と残量（要件 N-05）
+    dailyTargets: (date: string) => request<DailyTargets>("GET", `/v1/targets/${seg(date)}`),
+
+    // 食事セット（要件 N-03）
+    listMealSets: () => request<{ items: MealSet[] }>("GET", "/v1/meal-sets"),
+    createMealSet: (body: MealSetInput) => request<MealSet>("POST", "/v1/meal-sets", { body }),
+    deleteMealSet: (id: string) => request<void>("DELETE", `/v1/meal-sets/${seg(id)}`),
+    applyMealSet: (id: string, body: { date: string; slot?: MealSlot }) =>
+      request<{ items: Meal[] }>("POST", `/v1/meal-sets/${seg(id)}/apply`, { body }),
+
+    getPlan: () => request<Plan>("GET", "/v1/plan"),
+    putPlan: (body: PlanInput) => request<Plan>("PUT", "/v1/plan", { body }),
+
+    // 大会（要件 P-04）
+    listContests: () => request<{ items: Contest[] }>("GET", "/v1/contests"),
+    createContest: (body: ContestInput) => request<Contest>("POST", "/v1/contests", { body }),
+    deleteContest: (id: string) => request<void>("DELETE", `/v1/contests/${seg(id)}`),
+
+    // 計画ブロック（要件 P-02）
+    listPlanBlocks: () => request<{ items: PlanBlock[] }>("GET", "/v1/plan/blocks"),
+    putPlanBlocks: (items: PlanBlock[]) =>
+      request<{ items: PlanBlock[] }>("PUT", "/v1/plan/blocks", { body: { items } }),
+
+    // 月次目標（要件 P-02 / P-03）
+    monthlyTargets: (baseline?: "configured" | "measured") =>
+      request<MonthlyTargets>("GET", "/v1/plan/monthly-targets", {
+        query: baseline ? { baseline } : {},
+      }),
+
+    // 血液検査（要件 B-08）
+    listBloodTests: () => request<{ items: BloodTest[] }>("GET", "/v1/blood-tests"),
+    createBloodTest: (body: BloodTestInput) =>
+      request<BloodTest>("POST", "/v1/blood-tests", { body }),
+    deleteBloodTest: (id: string) => request<void>("DELETE", `/v1/blood-tests/${seg(id)}`),
+
+    /**
+     * 写真から PFC を推定する（要件 N-06）。
+     *
+     * multipart なので `request` を通さない。**Content-Type を自分で付けない**
+     * （boundary が落ちる）。推定は保存されない。下書きが返るだけ。
+     */
+    estimateMeal: async (form: FormData): Promise<MealEstimate> => {
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      const res = await fetch(buildUrl(baseUrl, "/v1/meals/estimate"), {
+        method: "POST",
+        headers,
+        body: form,
+        cache: "no-store",
+      });
+      if (!res.ok) throw await toApiError(res);
+
+      return (await res.json()) as MealEstimate;
+    },
+
+    // CSV の取り込みと書き出し（要件 I-01 / I-02）
+    exportCsv: (query: { resource: CsvResource; from?: string; to?: string }) =>
+      requestCsv({ ...query }),
+    importCsv: async (form: FormData): Promise<ImportResult> => {
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      // **Content-Type を自分で付けない。** boundary が付かず、サーバが読めなくなる
+      const res = await fetch(buildUrl(baseUrl, "/v1/import/csv"), {
+        method: "POST",
+        headers,
+        body: form,
+        cache: "no-store",
+      });
+      if (!res.ok) throw await toApiError(res);
+
+      return (await res.json()) as ImportResult;
+    },
+
+    // 身体写真（要件 B-04 / B-07）
+    listPhotos: (query: DateRangeQuery) =>
+      request<{ items: BodyPhoto[] }>("GET", "/v1/photos", { query }),
   };
 }
 

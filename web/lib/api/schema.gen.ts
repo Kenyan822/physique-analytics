@@ -306,6 +306,455 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/meals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 食事の一覧 */
+        get: operations["listMeals"];
+        put?: never;
+        /**
+         * 食事の記録
+         * @description 要件 N-01。**食品マスタは持たない**（docs/01-要件定義.md §4.3）。
+         *     名前と PFC を直接入れ、過去の記録がそのまま次回の候補になる。
+         */
+        post: operations["createMeal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meals/{mealId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 食事の削除（論理削除） */
+        delete: operations["deleteMeal"];
+        options?: never;
+        head?: never;
+        /** 食事の更新 */
+        patch: operations["updateMeal"];
+        trace?: never;
+    };
+    "/v1/meals/estimate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 写真から PFC を推定する
+         * @description 要件 N-06。**食品マスタを持たない設計の弱点は「初めて食べるものの入力」**で、
+         *     そこを Vision 対応の LLM で埋める。
+         *
+         *     **推定結果は保存しない。** 編集可能な下書きとして返し、
+         *     確認してから `POST /v1/meals` で記録する（その際 `source` は
+         *     `ai_estimated` にする）。
+         *
+         *     テキスト補足は任意だが、「鶏むね200g、白米150g」のように**量を添えると
+         *     精度が大きく上がる**（写真だけでは食器のサイズが分からない）。
+         *
+         *     推定が未設定のときは 503 を返す。
+         */
+        post: operations["estimateMeal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meals/suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 過去の記録から候補を出す
+         * @description 要件 N-02。**記録履歴がマスタになる。** 同じ名前の記録を頻度順に並べ、
+         *     直近の PFC をそのまま初期値として返す。
+         *     食べるものは100品目程度に収束するので、網羅性より頻出品目への
+         *     最適化が実用的に速い。
+         */
+        get: operations["listMealSuggestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meals/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 別の日の食事を複製する
+         * @description 要件 N-04。前日と同じものを食べる日が多いので、1操作で写せるようにする。
+         */
+        post: operations["copyMeals"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meal-sets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 食事セットの一覧
+         * @description 要件 N-03。「朝食セット」のように毎回同じ組み合わせで食べるものを
+         *     保存しておき、ワンタップで記録できるようにする。
+         */
+        get: operations["listMealSets"];
+        put?: never;
+        /** 食事セットの作成 */
+        post: operations["createMealSet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meal-sets/{mealSetId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealSetId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 食事セットの更新
+         * @description 項目は全入れ替え。差分更新にすると順序の付け替えが扱いにくい。
+         */
+        put: operations["updateMealSet"];
+        post?: never;
+        /** 食事セットの削除（論理削除） */
+        delete: operations["deleteMealSet"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/meal-sets/{mealSetId}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealSetId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 食事セットをその日の記録に展開する
+         * @description 要件 N-03。**セットの内容を meals に写す。** 写した後は個別に
+         *     編集・削除できる（実際に食べた量は日によって変わる）。
+         */
+        post: operations["applyMealSet"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/targets/{date}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description JST の日付（ADR-0013） */
+                date: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * その日の摂取目標と残量
+         * @description 要件 N-05。推定TDEE と目標ペースから出した摂取目標に、
+         *     その日の食事記録を突き合わせて残量を返す。
+         *
+         *     **TDEE を推定できないときは target を返さない。** 根拠の無い目標は
+         *     判断を誤らせるので、理由を note に入れる。
+         */
+        get: operations["getDailyTargets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/blood-tests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 血液検査の一覧
+         * @description 要件 B-08。年2回の検査結果。**検査項目を固定しない**（クリニックや
+         *     パネルによって違う）。検査票の表をそのまま写せる形で持つ。
+         */
+        get: operations["listBloodTests"];
+        put?: never;
+        /** 血液検査の登録 */
+        post: operations["createBloodTest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/blood-tests/{bloodTestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bloodTestId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * 血液検査の更新
+         * @description 項目は全入れ替え。
+         */
+        put: operations["updateBloodTest"];
+        post?: never;
+        /** 血液検査の削除（論理削除） */
+        delete: operations["deleteBloodTest"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/contests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 大会の一覧
+         * @description 要件 P-04。開催日の昇順で返す。カウントダウンと必要ペース判定
+         *     （要件 A-10）の入力になる。
+         */
+        get: operations["listContests"];
+        put?: never;
+        /** 大会の登録 */
+        post: operations["createContest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/contests/{contestId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contestId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 大会の削除（論理削除） */
+        delete: operations["deleteContest"];
+        options?: never;
+        head?: never;
+        /** 大会の更新 */
+        patch: operations["updateContest"];
+        trace?: never;
+    };
+    "/v1/plan/blocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 計画のブロック一覧
+         * @description 要件 P-02。3年計画のブロック（LBM の増減と終了時点の体脂肪率）。
+         *     月次目標はここから毎回計算する。**月ごとの表は持たない。**
+         */
+        get: operations["listPlanBlocks"];
+        /**
+         * 計画のブロックを保存
+         * @description まるごと置き換える。順序は配列の並びで決まる。
+         */
+        put: operations["putPlanBlocks"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/plan/monthly-targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 月次目標
+         * @description 要件 P-02 / P-03。起点とブロックから各月末の到達目標を計算して返す。
+         *
+         *     **追う順序は LBM → 体脂肪率 → 体重。** 体重は従属変数であって
+         *     目標そのものではない。
+         *
+         *     `baseline=measured` を指定すると、**直近の実測（7日平均）を起点に
+         *     引き直す**。計画どおりに進まなかったときはこちらを見る。
+         */
+        get: operations["getMonthlyTargets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/photos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 写真の一覧
+         * @description 要件 B-04 / B-07。撮影日の降順。**短期の署名付きURL**を添えて返す
+         *     （ADR-0008。公開URLは作らない）。
+         */
+        get: operations["listPhotos"];
+        put?: never;
+        /**
+         * アップロード用のURLを発行する
+         * @description 要件 B-04。**画像は API を経由させない。** 4MB の画像を Cloud Run に
+         *     通すとメモリもリクエスト時間も無駄になるので、署名付きURLに直接
+         *     アップロードさせる。
+         *
+         *     **メタデータは先に作られる。** アップロードに失敗したら
+         *     `DELETE /v1/photos/{photoId}` で消す。消さないと、画像の無い写真が
+         *     一覧に残り続ける（一覧は `url` の発行に失敗しても項目を返すため、
+         *     欠けていることが見た目では分からない）。
+         */
+        post: operations["createPhotoUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/photos/{photoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                photoId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 写真の削除（論理削除） */
+        delete: operations["deletePhoto"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/photos/guide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 撮影ガイド用の前回写真
+         * @description 要件 B-05。**同じ距離・角度・ポーズを再現する**ために、撮影時に
+         *     前回の写真を重ねて表示する。条件を固定しないと比較が成立しない
+         *     （docs/02-データモデル.md）。
+         *
+         *     向きごとに直近の1枚を返す。
+         */
+        get: operations["getPhotoGuide"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 計画の設定を取得
+         * @description 要件 P-01 / P-05。身長・フェーズ・栄養パラメータ・部位別 MEV/MRV。
+         *     分析（推奨摂取・ボリューム判定）の入力になる。
+         */
+        get: operations["getPlan"];
+        /**
+         * 計画の設定を保存
+         * @description **まるごと置き換える。** フェーズや MEV/MRV を部分更新にすると、
+         *     「消したつもりが残っている」が起きる。設定は頻繁には変えない。
+         */
+        put: operations["putPlan"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sync": {
         parameters: {
             query?: never;
@@ -598,6 +1047,333 @@ export interface components {
             calfRCm?: number | null;
             /** Format: date-time */
             updatedAt?: string;
+        };
+        /** @enum {string} */
+        MealSlot: "朝食" | "昼食" | "夕食" | "間食";
+        /**
+         * @description 手入力か AI 推定か（docs/02-データモデル.md）。
+         *     推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
+         *     分析の確度を下げて扱う。
+         * @enum {string}
+         */
+        MealSource: "manual" | "ai_estimated";
+        Meal: components["schemas"]["Timestamps"] & {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: date
+             * @description JST の日付（ADR-0013）
+             */
+            date: string;
+            slot?: components["schemas"]["MealSlot"];
+            /** @example サラダチキン */
+            name: string;
+            /** @description 「1個」「200g」のような自由記述。単位を型で縛ると入力が止まる */
+            qty?: string | null;
+            kcal?: number | null;
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
+            source: components["schemas"]["MealSource"];
+        };
+        MealInput: {
+            /**
+             * Format: uuid
+             * @description クライアント生成の UUID（冪等性のため）
+             */
+            id?: string;
+            /** Format: date */
+            date: string;
+            slot?: components["schemas"]["MealSlot"];
+            name: string;
+            qty?: string | null;
+            kcal?: number | null;
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
+            source?: components["schemas"]["MealSource"];
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        MealSuggestion: {
+            name: string;
+            /** @description 記録した回数。多い順に並ぶ */
+            count: number;
+            /** Format: date */
+            lastDate?: string | null;
+            qty?: string | null;
+            kcal?: number | null;
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
+        };
+        PlanPhase: {
+            /** Format: uuid */
+            id?: string;
+            /** @example P1-A カット1.0% */
+            name: string;
+            /** Format: date */
+            startsOn: string;
+            /** Format: date */
+            endsOn: string;
+            /** @description 週あたりの体重変化の目標。負なら減量 */
+            goalKgPerWeek: number;
+        };
+        MacroRatio: {
+            proteinGPerKg: number;
+            fatGPerKg: number;
+        };
+        NutritionSettings: {
+            cut: components["schemas"]["MacroRatio"];
+            deepCut: components["schemas"]["MacroRatio"];
+            bulk: components["schemas"]["MacroRatio"];
+            /** @description この体脂肪率を下回ったらタンパク質を上げる（LBM 保護） */
+            deepCutBfThreshold: number;
+            /** @description 炭水化物の下限。割ったらトレーニングの質が落ちる */
+            carbMinG: number;
+        };
+        VolumeRange: {
+            muscleGroup: components["schemas"]["MuscleGroup"];
+            mev: number;
+            mrv: number;
+        };
+        Plan: {
+            heightCm?: number | null;
+            /** Format: date */
+            startDate?: string | null;
+            baselineWeightKg?: number | null;
+            baselineBodyfatPct?: number | null;
+            /** @description 月次目標の起点となる月（YYYY-MM） */
+            baselineMonth?: string | null;
+            phases: components["schemas"]["PlanPhase"][];
+            nutrition: components["schemas"]["NutritionSettings"];
+            volumeRanges: components["schemas"]["VolumeRange"][];
+        };
+        PlanInput: {
+            heightCm?: number | null;
+            /** Format: date */
+            startDate?: string | null;
+            baselineWeightKg?: number | null;
+            baselineBodyfatPct?: number | null;
+            baselineMonth?: string | null;
+            phases: components["schemas"]["PlanPhase"][];
+            nutrition: components["schemas"]["NutritionSettings"];
+            volumeRanges: components["schemas"]["VolumeRange"][];
+        };
+        Macros: {
+            kcal: number;
+            proteinG: number;
+            fatG: number;
+            carbG: number;
+        };
+        DailyTargets: {
+            /** Format: date */
+            date: string;
+            phase?: string | null;
+            goalKgPerWeek?: number | null;
+            tdeeKcal?: number | null;
+            /** @description 摂取目標。TDEE を推定できないときは null */
+            target?: components["schemas"]["Macros"] | null;
+            consumed: components["schemas"]["Macros"];
+            /** @description 目標 − 実績。target が無ければ null */
+            remaining?: components["schemas"]["Macros"] | null;
+            /** @description 次の大会と必要ペース（要件 A-10） */
+            contest?: components["schemas"]["ContestCountdown"] | null;
+            /** @description 摂取が下限（体重×24kcal）に達しているか（要件 A-03） */
+            intakeFloorHit?: boolean;
+            /** @description 炭水化物の目標が下限を割っているか（要件 A-03） */
+            carbBelowFloor?: boolean;
+            /**
+             * @description 残量を埋める食品の候補（要件 N-07）。**履歴から作る**ので、
+             *     食べたことのないものは出ない。目標を超えていれば空。
+             */
+            suggestions?: components["schemas"]["FoodSuggestion"][];
+            note?: string | null;
+        };
+        FoodSuggestion: {
+            name: string;
+            /** @description 残りのカロリーに収まるか */
+            fits: boolean;
+            /** @description タンパク質の不足を何%埋めるか */
+            fillsProteinPct: number;
+        };
+        MealSetItem: {
+            name: string;
+            qty?: string | null;
+            kcal?: number | null;
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
+        };
+        MealSet: components["schemas"]["Timestamps"] & {
+            /** Format: uuid */
+            id: string;
+            /** @example 朝食セット */
+            name: string;
+            slot?: components["schemas"]["MealSlot"];
+            items: components["schemas"]["MealSetItem"][];
+        };
+        MealSetInput: {
+            name: string;
+            slot?: components["schemas"]["MealSlot"];
+            items: components["schemas"]["MealSetItem"][];
+        };
+        ContestCountdown: {
+            /** Format: date */
+            heldOn: string;
+            category: string;
+            targetBfPct: number;
+            weeksLeft: number;
+            stageWeightKg?: number | null;
+            needLossKg?: number | null;
+            pacePctPerWeek?: number | null;
+            tooFast?: boolean;
+        };
+        Contest: components["schemas"]["Timestamps"] & {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: date
+             * @description 開催日。日付が決まる前は**その月の末日**を入れる。
+             *     月内では最終日が一番遠く、必要ペースを過小評価しない
+             */
+            heldOn: string;
+            /** @example サマスタ スタイリッシュガイ */
+            category: string;
+            /** @description ステージ体脂肪率の目標 */
+            targetBfPct: number;
+            /** @description その大会での位置づけ（完走・入賞など） */
+            goal?: string | null;
+        };
+        ContestInput: {
+            /** Format: date */
+            heldOn: string;
+            category: string;
+            targetBfPct: number;
+            goal?: string | null;
+        };
+        PlanBlock: {
+            /** @example Y1 増量 */
+            name: string;
+            months: number;
+            /** @description 1ヶ月あたりの除脂肪体重の増減。**これが設計値** */
+            lbmDeltaKgPerMonth: number;
+            /** @description ブロック終了時点の体脂肪率。途中は等分に動かす */
+            bodyfatPctEnd: number;
+            /** @description そのブロックで何をするか。数字だけでは行動が決まらない */
+            focus?: string | null;
+        };
+        MonthlyTarget: {
+            /** @example 2026-09 */
+            month: string;
+            phase: string;
+            lbmKg: number;
+            bodyfatPct: number;
+            /** @description LBM と体脂肪率から決まる従属変数 */
+            weightKg: number;
+            ffmi: number;
+        };
+        MonthlyTargets: {
+            baseline: {
+                /** @enum {string} */
+                source: "configured" | "measured";
+                weightKg: number;
+                bodyfatPct: number;
+                month: string;
+            };
+            items: components["schemas"]["MonthlyTarget"][];
+            note?: string | null;
+        };
+        /**
+         * @description 基準範囲に対する位置。**基準が無ければ unknown**。
+         *     検査票に書いていない基準を勝手に当てて「異常」と言わない。
+         * @enum {string}
+         */
+        RefFlag: "normal" | "low" | "high" | "unknown";
+        BloodTestItem: {
+            /** @example ヘモグロビン */
+            name: string;
+            /** @description 数値で入らない項目（「陰性」など）は null にして textValue を使う */
+            value?: number | null;
+            textValue?: string | null;
+            /** @example g/dL */
+            unit?: string | null;
+            /** @description 基準範囲の下限。**検査票に書いてある値を入れる** */
+            refLow?: number | null;
+            refHigh?: number | null;
+            /** @description サーバが値と基準範囲から判定して返す（入力では無視される） */
+            readonly flag?: components["schemas"]["RefFlag"];
+        };
+        BloodTest: components["schemas"]["Timestamps"] & {
+            /** Format: uuid */
+            id: string;
+            /**
+             * Format: date
+             * @description 採血日（JST。ADR-0013）
+             */
+            date: string;
+            clinic?: string | null;
+            note?: string | null;
+            items: components["schemas"]["BloodTestItem"][];
+            /** @description 基準外の項目数。まずここを見る */
+            readonly outOfRangeCount?: number;
+        };
+        BloodTestInput: {
+            /** Format: date */
+            date: string;
+            clinic?: string | null;
+            note?: string | null;
+            items: components["schemas"]["BloodTestItem"][];
+        };
+        /**
+         * @description 写真からの推定結果。**そのまま保存されていない。**
+         *     編集してから POST /v1/meals で記録する。
+         */
+        MealEstimate: {
+            name: string;
+            qty?: string | null;
+            kcal?: number | null;
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
+            /** @description low / medium / high。量が分からないときは low */
+            confidence?: string | null;
+            /** @description 推定の根拠。直すときの手がかりになる */
+            note?: string | null;
+            /** @description 常に ai_estimated。記録するときもこれを保つ */
+            source: components["schemas"]["MealSource"];
+        };
+        /**
+         * @description 正面 / 側面 / 背面
+         * @enum {string}
+         */
+        PhotoPose: "front" | "side" | "back";
+        BodyPhoto: components["schemas"]["Timestamps"] & {
+            /** Format: uuid */
+            id: string;
+            /** Format: date */
+            date: string;
+            pose: components["schemas"]["PhotoPose"];
+            mimeType: string;
+            byteSize: number;
+            /** @description 撮影条件。**条件を固定しないと比較が成立しない** */
+            note?: string | null;
+            /** @description 短期の署名付きURL。公開URLではない（ADR-0008） */
+            url?: string | null;
+        };
+        PhotoUploadInput: {
+            /** Format: date */
+            date: string;
+            pose: components["schemas"]["PhotoPose"];
+            /** @enum {string} */
+            mimeType: "image/jpeg" | "image/png" | "image/heic";
+            byteSize: number;
+            note?: string | null;
+        };
+        PhotoUpload: {
+            photo: components["schemas"]["BodyPhoto"];
+            /** @description ここに PUT する。短期で失効する */
+            uploadUrl: string;
         };
         /** @description RFC 7807 Problem Details */
         Problem: {
@@ -1409,6 +2185,804 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    listMeals: {
+        parameters: {
+            query?: {
+                /** @description JST の日付（ADR-0013） */
+                from?: components["parameters"]["DateFrom"];
+                to?: components["parameters"]["DateTo"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Meal"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createMeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MealInput"];
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Meal"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteMeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 削除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateMeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MealInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Meal"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    estimateMeal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description jpeg / png / webp / gif
+                     */
+                    image: string;
+                    /** @description 量などの補足。精度が大きく上がる */
+                    note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MealEstimate"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listMealSuggestions: {
+        parameters: {
+            query?: {
+                /** @description 名前の部分一致で絞る */
+                q?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["MealSuggestion"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    copyMeals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: date */
+                    fromDate: string;
+                    /** Format: date */
+                    toDate: string;
+                    slot?: components["schemas"]["MealSlot"];
+                };
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Meal"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listMealSets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["MealSet"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createMealSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MealSetInput"];
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MealSet"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    updateMealSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealSetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MealSetInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MealSet"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteMealSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealSetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 削除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    applyMealSet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                mealSetId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: date */
+                    date: string;
+                    slot?: components["schemas"]["MealSlot"];
+                };
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Meal"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDailyTargets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description JST の日付（ADR-0013） */
+                date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailyTargets"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    listBloodTests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["BloodTest"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createBloodTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BloodTestInput"];
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BloodTest"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    updateBloodTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bloodTestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BloodTestInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BloodTest"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteBloodTest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bloodTestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 削除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listContests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["Contest"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createContest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContestInput"];
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contest"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteContest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 削除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateContest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                contestId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContestInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contest"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    listPlanBlocks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["PlanBlock"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    putPlanBlocks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    items: components["schemas"]["PlanBlock"][];
+                };
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["PlanBlock"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getMonthlyTargets: {
+        parameters: {
+            query?: {
+                /** @description configured = 設定した起点 / measured = 直近の実測 */
+                baseline?: "configured" | "measured";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MonthlyTargets"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    listPhotos: {
+        parameters: {
+            query?: {
+                /** @description JST の日付（ADR-0013） */
+                from?: components["parameters"]["DateFrom"];
+                to?: components["parameters"]["DateTo"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["BodyPhoto"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    createPhotoUpload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhotoUploadInput"];
+            };
+        };
+        responses: {
+            /** @description 作成 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhotoUpload"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    deletePhoto: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                photoId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 削除 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getPhotoGuide: {
+        parameters: {
+            query?: {
+                /** @description この日より前の直近を返す。省略時は今日より前 */
+                before?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["BodyPhoto"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plan"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    putPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Plan"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
         };
     };
     pullSync: {

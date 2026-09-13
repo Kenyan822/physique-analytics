@@ -34,8 +34,8 @@ func NewAnalysis(db DBTX) *Analysis {
 // 回復不足を誤検知する。
 func (r *Analysis) DailySeries(ctx context.Context, from, to openapi_types.Date) ([]analytics.DailyPoint, error) {
 	const q = `
-		select date, weight_kg, bodyfat_pct, kcal, sleep_h, steps,
-		       fatigue, hrv_ms, resting_hr, deep_sleep_min
+		select date, weight_kg, bodyfat_pct, kcal, protein_g, fat_g, carb_g,
+		       sleep_h, steps, fatigue, hrv_ms, resting_hr, deep_sleep_min
 		from daily_metrics
 		where deleted_at is null and date >= $1 and date <= $2
 		order by date`
@@ -49,7 +49,8 @@ func (r *Analysis) DailySeries(ctx context.Context, from, to openapi_types.Date)
 	out := make([]analytics.DailyPoint, 0, 32)
 	for rows.Next() {
 		var p analytics.DailyPoint
-		if err := rows.Scan(&p.Date, &p.WeightKg, &p.BodyfatPct, &p.Kcal, &p.SleepH,
+		if err := rows.Scan(&p.Date, &p.WeightKg, &p.BodyfatPct, &p.Kcal,
+			&p.ProteinG, &p.FatG, &p.CarbG, &p.SleepH,
 			&p.Steps, &p.Fatigue, &p.HrvMs, &p.RestingHr, &p.DeepSleepMin); err != nil {
 			return nil, fmt.Errorf("日次記録の系列を読めない: %w", err)
 		}
@@ -57,6 +58,47 @@ func (r *Analysis) DailySeries(ctx context.Context, from, to openapi_types.Date)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("日次記録の系列を読めない: %w", err)
+	}
+
+	return out, nil
+}
+
+// DailyTonnage は1日のトン数。
+type DailyTonnage struct {
+	Date      openapi_types.Date
+	TonnageKg float64
+}
+
+// DailyTonnage は期間内の日別トン数を返す（要件 A-12）。
+//
+// トレーニングをしていない日は行ごと無い。0 を埋めると「休んだ日」と
+// 「記録し忘れた日」が同じになり、相関が歪む。
+func (r *Analysis) DailyTonnage(ctx context.Context, from, to openapi_types.Date) ([]DailyTonnage, error) {
+	const q = `
+		select s.date, sum(ws.weight_kg * ws.reps) as tonnage
+		from workout_sets ws
+		join workout_sessions s on s.id = ws.session_id
+		where ws.deleted_at is null and s.deleted_at is null
+		  and s.date >= $1 and s.date <= $2
+		group by s.date
+		order by s.date`
+
+	rows, err := r.db.Query(ctx, q, from.Time, to.Time)
+	if err != nil {
+		return nil, fmt.Errorf("日別トン数を引けない: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]DailyTonnage, 0, 64)
+	for rows.Next() {
+		var t DailyTonnage
+		if err := rows.Scan(&t.Date.Time, &t.TonnageKg); err != nil {
+			return nil, fmt.Errorf("日別トン数を読めない: %w", err)
+		}
+		out = append(out, t)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("日別トン数を読めない: %w", err)
 	}
 
 	return out, nil

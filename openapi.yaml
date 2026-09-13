@@ -41,6 +41,10 @@ tags:
     description: トレーニングテンプレート
   - name: body
     description: 体組成・周囲長
+  - name: nutrition
+    description: 食事記録
+  - name: plan
+    description: 計画の設定・大会
   - name: sync
     description: オフライン同期
   - name: transfer
@@ -557,6 +561,699 @@ paths:
                       - type: "null"
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /v1/meals:
+    get:
+      operationId: listMeals
+      tags: [nutrition]
+      summary: 食事の一覧
+      parameters:
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Meal" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createMeal
+      tags: [nutrition]
+      summary: 食事の記録
+      description: |
+        要件 N-01。**食品マスタは持たない**（docs/01-要件定義.md §4.3）。
+        名前と PFC を直接入れ、過去の記録がそのまま次回の候補になる。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MealInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meal" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/meals/{mealId}:
+    parameters:
+      - name: mealId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateMeal
+      tags: [nutrition]
+      summary: 食事の更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MealInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Meal" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      operationId: deleteMeal
+      tags: [nutrition]
+      summary: 食事の削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/meals/estimate:
+    post:
+      operationId: estimateMeal
+      tags: [nutrition]
+      summary: 写真から PFC を推定する
+      description: |
+        要件 N-06。**食品マスタを持たない設計の弱点は「初めて食べるものの入力」**で、
+        そこを Vision 対応の LLM で埋める。
+
+        **推定結果は保存しない。** 編集可能な下書きとして返し、
+        確認してから `POST /v1/meals` で記録する（その際 `source` は
+        `ai_estimated` にする）。
+
+        テキスト補足は任意だが、「鶏むね200g、白米150g」のように**量を添えると
+        精度が大きく上がる**（写真だけでは食器のサイズが分からない）。
+
+        推定が未設定のときは 503 を返す。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: jpeg / png / webp / gif
+                note:
+                  type: string
+                  maxLength: 500
+                  description: 量などの補足。精度が大きく上がる
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MealEstimate" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
+  /v1/meals/suggestions:
+    get:
+      operationId: listMealSuggestions
+      tags: [nutrition]
+      summary: 過去の記録から候補を出す
+      description: |
+        要件 N-02。**記録履歴がマスタになる。** 同じ名前の記録を頻度順に並べ、
+        直近の PFC をそのまま初期値として返す。
+        食べるものは100品目程度に収束するので、網羅性より頻出品目への
+        最適化が実用的に速い。
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 100 }
+          description: 名前の部分一致で絞る
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/MealSuggestion" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/meals/copy:
+    post:
+      operationId: copyMeals
+      tags: [nutrition]
+      summary: 別の日の食事を複製する
+      description: |
+        要件 N-04。前日と同じものを食べる日が多いので、1操作で写せるようにする。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fromDate, toDate]
+              properties:
+                fromDate: { type: string, format: date }
+                toDate: { type: string, format: date }
+                slot: { $ref: "#/components/schemas/MealSlot" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Meal" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/meal-sets:
+    get:
+      operationId: listMealSets
+      tags: [nutrition]
+      summary: 食事セットの一覧
+      description: |
+        要件 N-03。「朝食セット」のように毎回同じ組み合わせで食べるものを
+        保存しておき、ワンタップで記録できるようにする。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/MealSet" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createMealSet
+      tags: [nutrition]
+      summary: 食事セットの作成
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MealSetInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MealSet" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/meal-sets/{mealSetId}:
+    parameters:
+      - name: mealSetId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: updateMealSet
+      tags: [nutrition]
+      summary: 食事セットの更新
+      description: 項目は全入れ替え。差分更新にすると順序の付け替えが扱いにくい。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MealSetInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MealSet" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      operationId: deleteMealSet
+      tags: [nutrition]
+      summary: 食事セットの削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/meal-sets/{mealSetId}/apply:
+    parameters:
+      - name: mealSetId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: applyMealSet
+      tags: [nutrition]
+      summary: 食事セットをその日の記録に展開する
+      description: |
+        要件 N-03。**セットの内容を meals に写す。** 写した後は個別に
+        編集・削除できる（実際に食べた量は日によって変わる）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date]
+              properties:
+                date: { type: string, format: date }
+                slot: { $ref: "#/components/schemas/MealSlot" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Meal" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/targets/{date}:
+    parameters:
+      - name: date
+        in: path
+        required: true
+        schema: { type: string, format: date }
+        description: JST の日付（ADR-0013）
+    get:
+      operationId: getDailyTargets
+      tags: [nutrition]
+      summary: その日の摂取目標と残量
+      description: |
+        要件 N-05。推定TDEE と目標ペースから出した摂取目標に、
+        その日の食事記録を突き合わせて残量を返す。
+
+        **TDEE を推定できないときは target を返さない。** 根拠の無い目標は
+        判断を誤らせるので、理由を note に入れる。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DailyTargets" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/blood-tests:
+    get:
+      operationId: listBloodTests
+      tags: [body]
+      summary: 血液検査の一覧
+      description: |
+        要件 B-08。年2回の検査結果。**検査項目を固定しない**（クリニックや
+        パネルによって違う）。検査票の表をそのまま写せる形で持つ。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/BloodTest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createBloodTest
+      tags: [body]
+      summary: 血液検査の登録
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BloodTestInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BloodTest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/blood-tests/{bloodTestId}:
+    parameters:
+      - name: bloodTestId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      operationId: updateBloodTest
+      tags: [body]
+      summary: 血液検査の更新
+      description: 項目は全入れ替え。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BloodTestInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BloodTest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      operationId: deleteBloodTest
+      tags: [body]
+      summary: 血液検査の削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/contests:
+    get:
+      operationId: listContests
+      tags: [plan]
+      summary: 大会の一覧
+      description: |
+        要件 P-04。開催日の昇順で返す。カウントダウンと必要ペース判定
+        （要件 A-10）の入力になる。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Contest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      operationId: createContest
+      tags: [plan]
+      summary: 大会の登録
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContestInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Contest" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/contests/{contestId}:
+    parameters:
+      - name: contestId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateContest
+      tags: [plan]
+      summary: 大会の更新
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ContestInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Contest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      operationId: deleteContest
+      tags: [plan]
+      summary: 大会の削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/plan/blocks:
+    get:
+      operationId: listPlanBlocks
+      tags: [plan]
+      summary: 計画のブロック一覧
+      description: |
+        要件 P-02。3年計画のブロック（LBM の増減と終了時点の体脂肪率）。
+        月次目標はここから毎回計算する。**月ごとの表は持たない。**
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/PlanBlock" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      operationId: putPlanBlocks
+      tags: [plan]
+      summary: 計画のブロックを保存
+      description: まるごと置き換える。順序は配列の並びで決まる。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  maxItems: 60
+                  items: { $ref: "#/components/schemas/PlanBlock" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/PlanBlock" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/plan/monthly-targets:
+    get:
+      operationId: getMonthlyTargets
+      tags: [plan]
+      summary: 月次目標
+      description: |
+        要件 P-02 / P-03。起点とブロックから各月末の到達目標を計算して返す。
+
+        **追う順序は LBM → 体脂肪率 → 体重。** 体重は従属変数であって
+        目標そのものではない。
+
+        `baseline=measured` を指定すると、**直近の実測（7日平均）を起点に
+        引き直す**。計画どおりに進まなかったときはこちらを見る。
+      parameters:
+        - name: baseline
+          in: query
+          schema:
+            type: string
+            enum: [configured, measured]
+            default: configured
+          description: configured = 設定した起点 / measured = 直近の実測
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MonthlyTargets" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/photos:
+    get:
+      operationId: listPhotos
+      tags: [body]
+      summary: 写真の一覧
+      description: |
+        要件 B-04 / B-07。撮影日の降順。**短期の署名付きURL**を添えて返す
+        （ADR-0008。公開URLは作らない）。
+      parameters:
+        - $ref: "#/components/parameters/DateFrom"
+        - $ref: "#/components/parameters/DateTo"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/BodyPhoto" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+    post:
+      operationId: createPhotoUpload
+      tags: [body]
+      summary: アップロード用のURLを発行する
+      description: |
+        要件 B-04。**画像は API を経由させない。** 4MB の画像を Cloud Run に
+        通すとメモリもリクエスト時間も無駄になるので、署名付きURLに直接
+        アップロードさせる。
+
+        **メタデータは先に作られる。** アップロードに失敗したら
+        `DELETE /v1/photos/{photoId}` で消す。消さないと、画像の無い写真が
+        一覧に残り続ける（一覧は `url` の発行に失敗しても項目を返すため、
+        欠けていることが見た目では分からない）。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PhotoUploadInput" }
+      responses:
+        "201":
+          description: 作成
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PhotoUpload" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
+  /v1/photos/{photoId}:
+    parameters:
+      - name: photoId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      operationId: deletePhoto
+      tags: [body]
+      summary: 写真の削除（論理削除）
+      responses:
+        "204": { description: 削除 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/photos/guide:
+    get:
+      operationId: getPhotoGuide
+      tags: [body]
+      summary: 撮影ガイド用の前回写真
+      description: |
+        要件 B-05。**同じ距離・角度・ポーズを再現する**ために、撮影時に
+        前回の写真を重ねて表示する。条件を固定しないと比較が成立しない
+        （docs/02-データモデル.md）。
+
+        向きごとに直近の1枚を返す。
+      parameters:
+        - name: before
+          in: query
+          schema: { type: string, format: date }
+          description: この日より前の直近を返す。省略時は今日より前
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/BodyPhoto" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
+  /v1/plan:
+    get:
+      operationId: getPlan
+      tags: [plan]
+      summary: 計画の設定を取得
+      description: |
+        要件 P-01 / P-05。身長・フェーズ・栄養パラメータ・部位別 MEV/MRV。
+        分析（推奨摂取・ボリューム判定）の入力になる。
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      operationId: putPlan
+      tags: [plan]
+      summary: 計画の設定を保存
+      description: |
+        **まるごと置き換える。** フェーズや MEV/MRV を部分更新にすると、
+        「消したつもりが残っている」が起きる。設定は頻繁には変えない。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Plan" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
   /v1/sync:
     get:
       operationId: pullSync
@@ -1046,6 +1743,483 @@ components:
         thighRCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 150 }
         calfRCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 100 }
         updatedAt: { type: string, format: date-time }
+
+    MealSlot:
+      type: string
+      enum: [朝食, 昼食, 夕食, 間食]
+      x-enum-varnames: [Breakfast, Lunch, Dinner, Snack]
+
+    MealSource:
+      type: string
+      description: |
+        手入力か AI 推定か（docs/02-データモデル.md）。
+        推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
+        分析の確度を下げて扱う。
+      enum: [manual, ai_estimated]
+      x-enum-varnames: [Manual, AiEstimated]
+
+    Meal:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, date, name, source]
+          properties:
+            id: { type: string, format: uuid }
+            date:
+              type: string
+              format: date
+              description: JST の日付（ADR-0013）
+            slot: { $ref: "#/components/schemas/MealSlot" }
+            name: { type: string, examples: [サラダチキン] }
+            qty:
+              type: [string, "null"]
+              description: 「1個」「200g」のような自由記述。単位を型で縛ると入力が止まる
+            kcal: { type: [integer, "null"], minimum: 0, maximum: 10000 }
+            proteinG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+            fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+            carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
+            source: { $ref: "#/components/schemas/MealSource" }
+
+    MealInput:
+      type: object
+      required: [date, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: クライアント生成の UUID（冪等性のため）
+        date: { type: string, format: date }
+        slot: { $ref: "#/components/schemas/MealSlot" }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        qty: { type: [string, "null"], maxLength: 50 }
+        kcal: { type: [integer, "null"], minimum: 0, maximum: 10000 }
+        proteinG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+        fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+        carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        source: { $ref: "#/components/schemas/MealSource" }
+        updatedAt: { type: string, format: date-time }
+
+    MealSuggestion:
+      type: object
+      required: [name, count]
+      properties:
+        name: { type: string }
+        count:
+          type: integer
+          description: 記録した回数。多い順に並ぶ
+        lastDate: { type: [string, "null"], format: date }
+        qty: { type: [string, "null"] }
+        kcal: { type: [integer, "null"] }
+        proteinG: { type: [number, "null"] }
+        fatG: { type: [number, "null"] }
+        carbG: { type: [number, "null"] }
+
+    PlanPhase:
+      type: object
+      required: [name, startsOn, endsOn, goalKgPerWeek]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 100, examples: [P1-A カット1.0%] }
+        startsOn: { type: string, format: date }
+        endsOn: { type: string, format: date }
+        goalKgPerWeek:
+          type: number
+          minimum: -2
+          maximum: 2
+          description: 週あたりの体重変化の目標。負なら減量
+
+    MacroRatio:
+      type: object
+      required: [proteinGPerKg, fatGPerKg]
+      properties:
+        proteinGPerKg: { type: number, exclusiveMinimum: 0, maximum: 5 }
+        fatGPerKg: { type: number, exclusiveMinimum: 0, maximum: 5 }
+
+    NutritionSettings:
+      type: object
+      required: [cut, deepCut, bulk, deepCutBfThreshold, carbMinG]
+      properties:
+        cut: { $ref: "#/components/schemas/MacroRatio" }
+        deepCut: { $ref: "#/components/schemas/MacroRatio" }
+        bulk: { $ref: "#/components/schemas/MacroRatio" }
+        deepCutBfThreshold:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 50
+          description: この体脂肪率を下回ったらタンパク質を上げる（LBM 保護）
+        carbMinG:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          description: 炭水化物の下限。割ったらトレーニングの質が落ちる
+
+    VolumeRange:
+      type: object
+      required: [muscleGroup, mev, mrv]
+      properties:
+        muscleGroup: { $ref: "#/components/schemas/MuscleGroup" }
+        mev: { type: integer, minimum: 0, maximum: 50 }
+        mrv: { type: integer, minimum: 0, maximum: 50 }
+
+    Plan:
+      type: object
+      required: [phases, nutrition, volumeRanges]
+      properties:
+        heightCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
+        startDate: { type: [string, "null"], format: date }
+        baselineWeightKg: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
+        baselineBodyfatPct: { type: [number, "null"], minimum: 0, maximum: 70 }
+        baselineMonth:
+          type: [string, "null"]
+          description: 月次目標の起点となる月（YYYY-MM）
+        phases:
+          type: array
+          items: { $ref: "#/components/schemas/PlanPhase" }
+        nutrition: { $ref: "#/components/schemas/NutritionSettings" }
+        volumeRanges:
+          type: array
+          items: { $ref: "#/components/schemas/VolumeRange" }
+
+    PlanInput:
+      type: object
+      required: [phases, nutrition, volumeRanges]
+      properties:
+        heightCm: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
+        startDate: { type: [string, "null"], format: date }
+        baselineWeightKg: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
+        baselineBodyfatPct: { type: [number, "null"], minimum: 0, maximum: 70 }
+        baselineMonth: { type: [string, "null"] }
+        phases:
+          type: array
+          maxItems: 100
+          items: { $ref: "#/components/schemas/PlanPhase" }
+        nutrition: { $ref: "#/components/schemas/NutritionSettings" }
+        volumeRanges:
+          type: array
+          maxItems: 50
+          items: { $ref: "#/components/schemas/VolumeRange" }
+
+    Macros:
+      type: object
+      required: [kcal, proteinG, fatG, carbG]
+      properties:
+        kcal: { type: number }
+        proteinG: { type: number }
+        fatG: { type: number }
+        carbG: { type: number }
+
+    DailyTargets:
+      type: object
+      required: [date, consumed]
+      properties:
+        date: { type: string, format: date }
+        phase: { type: [string, "null"] }
+        goalKgPerWeek: { type: [number, "null"] }
+        tdeeKcal: { type: [number, "null"] }
+        target:
+          description: 摂取目標。TDEE を推定できないときは null
+          oneOf:
+            - $ref: "#/components/schemas/Macros"
+            - type: "null"
+        consumed: { $ref: "#/components/schemas/Macros" }
+        remaining:
+          description: 目標 − 実績。target が無ければ null
+          oneOf:
+            - $ref: "#/components/schemas/Macros"
+            - type: "null"
+        contest:
+          description: 次の大会と必要ペース（要件 A-10）
+          oneOf:
+            - $ref: "#/components/schemas/ContestCountdown"
+            - type: "null"
+        intakeFloorHit:
+          type: boolean
+          description: 摂取が下限（体重×24kcal）に達しているか（要件 A-03）
+        carbBelowFloor:
+          type: boolean
+          description: 炭水化物の目標が下限を割っているか（要件 A-03）
+        suggestions:
+          type: array
+          description: |
+            残量を埋める食品の候補（要件 N-07）。**履歴から作る**ので、
+            食べたことのないものは出ない。目標を超えていれば空。
+          items: { $ref: "#/components/schemas/FoodSuggestion" }
+        note: { type: [string, "null"] }
+
+    FoodSuggestion:
+      type: object
+      required: [name, fits, fillsProteinPct]
+      properties:
+        name: { type: string }
+        fits:
+          type: boolean
+          description: 残りのカロリーに収まるか
+        fillsProteinPct:
+          type: number
+          description: タンパク質の不足を何%埋めるか
+
+    MealSetItem:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        qty: { type: [string, "null"], maxLength: 50 }
+        kcal: { type: [integer, "null"], minimum: 0, maximum: 10000 }
+        proteinG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+        fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+        carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
+
+    MealSet:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, name, items]
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string, examples: [朝食セット] }
+            slot: { $ref: "#/components/schemas/MealSlot" }
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/MealSetItem" }
+
+    MealSetInput:
+      type: object
+      required: [name, items]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        slot: { $ref: "#/components/schemas/MealSlot" }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 30
+          items: { $ref: "#/components/schemas/MealSetItem" }
+
+    ContestCountdown:
+      type: object
+      required: [heldOn, category, targetBfPct, weeksLeft]
+      properties:
+        heldOn: { type: string, format: date }
+        category: { type: string }
+        targetBfPct: { type: number }
+        weeksLeft: { type: number }
+        stageWeightKg: { type: [number, "null"] }
+        needLossKg: { type: [number, "null"] }
+        pacePctPerWeek: { type: [number, "null"] }
+        tooFast: { type: boolean }
+
+    Contest:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, heldOn, category, targetBfPct]
+          properties:
+            id: { type: string, format: uuid }
+            heldOn:
+              type: string
+              format: date
+              description: |
+                開催日。日付が決まる前は**その月の末日**を入れる。
+                月内では最終日が一番遠く、必要ペースを過小評価しない
+            category: { type: string, examples: [サマスタ スタイリッシュガイ] }
+            targetBfPct:
+              type: number
+              exclusiveMinimum: 0
+              maximum: 50
+              description: ステージ体脂肪率の目標
+            goal:
+              type: [string, "null"]
+              description: その大会での位置づけ（完走・入賞など）
+
+    ContestInput:
+      type: object
+      required: [heldOn, category, targetBfPct]
+      properties:
+        heldOn: { type: string, format: date }
+        category: { type: string, minLength: 1, maxLength: 200 }
+        targetBfPct: { type: number, exclusiveMinimum: 0, maximum: 50 }
+        goal: { type: [string, "null"], maxLength: 200 }
+
+    PlanBlock:
+      type: object
+      required: [name, months, lbmDeltaKgPerMonth, bodyfatPctEnd]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100, examples: [Y1 増量] }
+        months: { type: integer, minimum: 1, maximum: 60 }
+        lbmDeltaKgPerMonth:
+          type: number
+          minimum: -2
+          maximum: 2
+          description: 1ヶ月あたりの除脂肪体重の増減。**これが設計値**
+        bodyfatPctEnd:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 60
+          description: ブロック終了時点の体脂肪率。途中は等分に動かす
+        focus:
+          type: [string, "null"]
+          maxLength: 500
+          description: そのブロックで何をするか。数字だけでは行動が決まらない
+
+    MonthlyTarget:
+      type: object
+      required: [month, phase, lbmKg, bodyfatPct, weightKg, ffmi]
+      properties:
+        month: { type: string, examples: ["2026-09"] }
+        phase: { type: string }
+        lbmKg: { type: number }
+        bodyfatPct: { type: number }
+        weightKg:
+          type: number
+          description: LBM と体脂肪率から決まる従属変数
+        ffmi: { type: number }
+
+    MonthlyTargets:
+      type: object
+      required: [baseline, items]
+      properties:
+        baseline:
+          type: object
+          required: [source, weightKg, bodyfatPct, month]
+          properties:
+            source: { type: string, enum: [configured, measured] }
+            weightKg: { type: number }
+            bodyfatPct: { type: number }
+            month: { type: string }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/MonthlyTarget" }
+        note: { type: [string, "null"] }
+
+    RefFlag:
+      type: string
+      description: |
+        基準範囲に対する位置。**基準が無ければ unknown**。
+        検査票に書いていない基準を勝手に当てて「異常」と言わない。
+      enum: [normal, low, high, unknown]
+      x-enum-varnames: [RefNormal, RefLow, RefHigh, RefUnknown]
+
+    BloodTestItem:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100, examples: [ヘモグロビン] }
+        value:
+          type: [number, "null"]
+          description: 数値で入らない項目（「陰性」など）は null にして textValue を使う
+        textValue: { type: [string, "null"], maxLength: 50 }
+        unit: { type: [string, "null"], maxLength: 30, examples: [g/dL] }
+        refLow:
+          type: [number, "null"]
+          description: 基準範囲の下限。**検査票に書いてある値を入れる**
+        refHigh: { type: [number, "null"] }
+        flag:
+          allOf:
+            - $ref: "#/components/schemas/RefFlag"
+          description: サーバが値と基準範囲から判定して返す（入力では無視される）
+          readOnly: true
+
+    BloodTest:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, date, items]
+          properties:
+            id: { type: string, format: uuid }
+            date:
+              type: string
+              format: date
+              description: 採血日（JST。ADR-0013）
+            clinic: { type: [string, "null"], maxLength: 100 }
+            note: { type: [string, "null"], maxLength: 1000 }
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/BloodTestItem" }
+            outOfRangeCount:
+              type: integer
+              description: 基準外の項目数。まずここを見る
+              readOnly: true
+
+    BloodTestInput:
+      type: object
+      required: [date, items]
+      properties:
+        date: { type: string, format: date }
+        clinic: { type: [string, "null"], maxLength: 100 }
+        note: { type: [string, "null"], maxLength: 1000 }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items: { $ref: "#/components/schemas/BloodTestItem" }
+
+    MealEstimate:
+      type: object
+      required: [name, source]
+      description: |
+        写真からの推定結果。**そのまま保存されていない。**
+        編集してから POST /v1/meals で記録する。
+      properties:
+        name: { type: string }
+        qty: { type: [string, "null"] }
+        kcal: { type: [integer, "null"] }
+        proteinG: { type: [number, "null"] }
+        fatG: { type: [number, "null"] }
+        carbG: { type: [number, "null"] }
+        confidence:
+          type: [string, "null"]
+          description: low / medium / high。量が分からないときは low
+        note:
+          type: [string, "null"]
+          description: 推定の根拠。直すときの手がかりになる
+        source:
+          allOf:
+            - $ref: "#/components/schemas/MealSource"
+          description: 常に ai_estimated。記録するときもこれを保つ
+
+    PhotoPose:
+      type: string
+      description: 正面 / 側面 / 背面
+      enum: [front, side, back]
+      x-enum-varnames: [PoseFront, PoseSide, PoseBack]
+
+    BodyPhoto:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, date, pose, mimeType, byteSize]
+          properties:
+            id: { type: string, format: uuid }
+            date: { type: string, format: date }
+            pose: { $ref: "#/components/schemas/PhotoPose" }
+            mimeType: { type: string }
+            byteSize: { type: integer }
+            note:
+              type: [string, "null"]
+              description: 撮影条件。**条件を固定しないと比較が成立しない**
+            url:
+              type: [string, "null"]
+              description: 短期の署名付きURL。公開URLではない（ADR-0008）
+
+    PhotoUploadInput:
+      type: object
+      required: [date, pose, mimeType, byteSize]
+      properties:
+        date: { type: string, format: date }
+        pose: { $ref: "#/components/schemas/PhotoPose" }
+        mimeType:
+          type: string
+          enum: [image/jpeg, image/png, image/heic]
+        byteSize: { type: integer, minimum: 1, maximum: 20971520 }
+        note: { type: [string, "null"], maxLength: 500 }
+
+    PhotoUpload:
+      type: object
+      required: [photo, uploadUrl]
+      properties:
+        photo: { $ref: "#/components/schemas/BodyPhoto" }
+        uploadUrl:
+          type: string
+          description: ここに PUT する。短期で失効する
 
     Problem:
       type: object

@@ -3,9 +3,15 @@
 # 認証は Workload Identity（docs/05-インフラ設計.md §6）。
 # サービスアカウントキーはリポジトリに置かない。
 #
-# DB マイグレーションはここでは流さない。migrate-db.yml で別に実行する。
-# 分離している理由は docs/05-インフラ設計.md §7 —— 自動適用にすると失敗時に
-# 「アプリが起動しない」と「スキーマ不整合」が同時に起きて切り分けられなくなる。
+# DB マイグレーションはデプロイの**前段**で流す（ADR-0016）。
+# スキーマはコードより先に進める —— コードは traffic 切り替えで数秒で戻せるが、
+# スキーマは戻せない。前段ゲートにすることで、この順序が構造上守られる。
+#
+# **自動で流すのは up だけ。** down は migrate-db.yml の手動実行に残してある。
+#
+# 前提: マイグレーションは追加のみ（expand/contract）。migrate → deploy の順なので
+# 「新スキーマ + 旧コード」が動く瞬間が必ずできる。列の削除・リネームを1回の
+# デプロイでやると、その瞬間に旧コードが落ちる。
 name: deploy-api
 
 on:
@@ -33,9 +39,87 @@ concurrency:
 env:
   SERVICE: physique-api
   REPOSITORY: physique
+  MIGRATE_IMAGE: migrate/migrate:v4.19.0
 
 jobs:
+  # スキーマを先に進める。ここが落ちたら deploy は走らず、本番のコードは無傷
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      # Transaction pooler（6543）ではなく Session pooler（5432）を使う。
+      # golang-migrate は pg_advisory_lock で多重実行を防いでおり、この lock は
+      # セッションスコープ。transaction mode では接続が返却された時点で失われる。
+      #
+      # Direct connection（db.<ref>.supabase.co）を使わないのは、Supabase の
+      # direct が IPv6 のみで、GitHub Actions の runner が IPv4 しか持たないため。
+      - name: 接続文字列を Secret Manager から取る
+        run: |
+          gcloud secrets versions access latest \
+            --secret=supabase-session-url \
+            --project='${{ secrets.GCP_PROJECT_ID }}' > /tmp/dsn
+          chmod 600 /tmp/dsn
+          # 値はログに出さない。形式だけ確認する
+          grep -q ':5432/' /tmp/dsn || { echo '::error::session pooler (5432) ではない'; exit 1; }
+
+      # 先に pull しておく。実行時に pull されると進捗出力が
+      # コマンドの出力に混ざり、$GITHUB_OUTPUT の形式を壊す
+      - name: migrate のイメージを取得
+        run: docker pull -q "$MIGRATE_IMAGE"
+
+      # 接続文字列は docker の -e で渡し、コンテナ内の sh に展開させる。
+      # ホスト側で "$DSN" と書くと GitHub Actions のシェルが先に展開してしまい、
+      # 値が docker run の引数（= ps から見える位置）に乗る。
+      - name: 適用前のバージョン
+        id: before
+        run: |
+          export DSN="$(cat /tmp/dsn)"
+          version=$(docker run --rm -v "$PWD/api/migrations:/migrations:ro" \
+            -e DSN --entrypoint sh "$MIGRATE_IMAGE" \
+            -c 'migrate -path=/migrations -database="$DSN" version' 2>&1 | tail -1 || true)
+          echo "実行前: ${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      # **up だけ。** down は自動で流さない（戻せない変更を無人で走らせない）
+      - name: マイグレーション実行
+        run: |
+          export DSN="$(cat /tmp/dsn)"
+          docker run --rm -v "$PWD/api/migrations:/migrations:ro" \
+            -e DSN --entrypoint sh "$MIGRATE_IMAGE" \
+            -c 'migrate -path=/migrations -database="$DSN" up'
+
+      - name: 適用後の状態
+        if: always()
+        run: |
+          [ -f /tmp/dsn ] || exit 0
+          export DSN="$(cat /tmp/dsn)"
+          after=$(docker run --rm -v "$PWD/api/migrations:/migrations:ro" \
+            -e DSN --entrypoint sh "$MIGRATE_IMAGE" \
+            -c 'migrate -path=/migrations -database="$DSN" version' 2>&1 | tail -1 || true)
+          {
+            echo "### migrate up"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| 実行前 | \`${{ steps.before.outputs.version }}\` |"
+            echo "| 実行後 | \`${after}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 後始末
+        if: always()
+        run: rm -f /tmp/dsn
+
   deploy:
+    # スキーマが先。ここが逆になると、新しいコードが古いスキーマを叩く
+    needs: migrate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

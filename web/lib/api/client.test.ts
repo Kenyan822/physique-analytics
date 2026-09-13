@@ -108,7 +108,9 @@ describe("createClient", () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
     const api = createClient({ baseUrl: BASE });
 
-    await expect(api.deleteExercise("11111111-1111-1111-1111-111111111111")).resolves.toBeUndefined();
+    await expect(
+      api.deleteExercise("11111111-1111-1111-1111-111111111111"),
+    ).resolves.toBeUndefined();
   });
 
   it("POST は JSON として送る", async () => {
@@ -143,5 +145,63 @@ describe("createClient", () => {
 
     const [url] = fetchMock.mock.calls[0];
     expect(new URL(url as string).pathname).toBe("/v1/exercises");
+  });
+});
+
+describe("CSV の取り込みと書き出し", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("exportCsv は text/csv を文字列で返す", async () => {
+    fetchMock.mockResolvedValue(
+      new Response("date,weight_kg\n2026-09-13,75.0\n", {
+        status: 200,
+        headers: { "content-type": "text/csv" },
+      }),
+    );
+    const api = createClient({ baseUrl: BASE, token: "t" });
+
+    const csv = await api.exportCsv({ resource: "daily", from: "2026-09-01" });
+
+    // JSON として読もうとすると落ちる。ここは text で受ける
+    expect(csv).toBe("date,weight_kg\n2026-09-13,75.0\n");
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(url as string);
+    expect(parsed.pathname).toBe("/v1/export/csv");
+    expect(parsed.searchParams.get("resource")).toBe("daily");
+    expect(parsed.searchParams.get("from")).toBe("2026-09-01");
+    expect((init as RequestInit).headers).toMatchObject({ Authorization: "Bearer t" });
+  });
+
+  it("exportCsv のエラーは ApiError になる", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ title: "だめ" }, 400, "application/problem+json"));
+    const api = createClient({ baseUrl: BASE });
+
+    await expect(api.exportCsv({ resource: "daily" })).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it("importCsv は multipart のまま送る", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ imported: 3, skipped: 1, errors: [] }));
+    const api = createClient({ baseUrl: BASE, token: "t" });
+
+    const form = new FormData();
+    form.set("resource", "daily");
+    form.set("file", new Blob(["date\n"], { type: "text/csv" }), "daily.csv");
+
+    const res = await api.importCsv(form);
+
+    expect(res.imported).toBe(3);
+    const [, init] = fetchMock.mock.calls[0];
+    // **Content-Type を自分で付けない。** boundary が付かず、サーバが読めなくなる
+    expect((init as RequestInit).headers).not.toHaveProperty("Content-Type");
+    expect((init as RequestInit).body).toBe(form);
   });
 });

@@ -12,8 +12,10 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
+	"github.com/Kenyan822/physique-analytics/api/internal/analytics"
 	"github.com/Kenyan822/physique-analytics/api/internal/csvio"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
+	"github.com/Kenyan822/physique-analytics/api/internal/vision"
 )
 
 // Pinger は疎通確認できるデータストア。ヘルスチェックのテストで実 DB を立てないために挟んでいる。
@@ -80,6 +82,79 @@ type BodyRepository interface {
 	LatestMeasurement(ctx context.Context) (openapi.BodyMeasurement, error)
 }
 
+// MealRepository は食事記録へのアクセス（要件 N-01 / N-02 / N-04）。
+type MealRepository interface {
+	List(ctx context.Context, from, to *openapi_types.Date) ([]openapi.Meal, error)
+	Create(ctx context.Context, in repository.MealInput) (openapi.Meal, error)
+	Update(ctx context.Context, id uuid.UUID, in repository.MealInput) (openapi.Meal, error)
+	SoftDelete(ctx context.Context, id uuid.UUID) error
+	Suggestions(ctx context.Context, query string, limit int) ([]openapi.MealSuggestion, error)
+	Copy(ctx context.Context, from, to openapi_types.Date, slot *openapi.MealSlot) ([]openapi.Meal, error)
+}
+
+// PlanRepository は計画の設定へのアクセス（要件 P-01 / P-05）。
+type PlanRepository interface {
+	Get(ctx context.Context) (openapi.Plan, error)
+	Put(ctx context.Context, in openapi.PlanInput) (openapi.Plan, error)
+	ListBlocks(ctx context.Context) ([]openapi.PlanBlock, error)
+	PutBlocks(ctx context.Context, blocks []openapi.PlanBlock) ([]openapi.PlanBlock, error)
+}
+
+// SeriesRepository は日次記録の系列（要件 N-05 の目標計算に使う）。
+type SeriesRepository interface {
+	DailySeries(ctx context.Context, from, to openapi_types.Date) ([]analytics.DailyPoint, error)
+}
+
+// MealSetRepository は食事セットへのアクセス（要件 N-03）。
+type MealSetRepository interface {
+	List(ctx context.Context) ([]openapi.MealSet, error)
+	Create(ctx context.Context, in openapi.MealSetInput) (openapi.MealSet, error)
+	Update(ctx context.Context, id uuid.UUID, in openapi.MealSetInput) (openapi.MealSet, error)
+	SoftDelete(ctx context.Context, id uuid.UUID) error
+	Apply(ctx context.Context, id uuid.UUID, date openapi_types.Date, slot *openapi.MealSlot) ([]openapi.Meal, error)
+}
+
+// ContestRepository は大会へのアクセス（要件 P-04）。
+type ContestRepository interface {
+	List(ctx context.Context) ([]openapi.Contest, error)
+	Next(ctx context.Context, asof openapi_types.Date) (openapi.Contest, error)
+	Create(ctx context.Context, in openapi.ContestInput) (openapi.Contest, error)
+	Update(ctx context.Context, id uuid.UUID, in openapi.ContestInput) (openapi.Contest, error)
+	SoftDelete(ctx context.Context, id uuid.UUID) error
+}
+
+// BloodTestRepository は血液検査へのアクセス（要件 B-08）。
+type BloodTestRepository interface {
+	List(ctx context.Context) ([]openapi.BloodTest, error)
+	Create(ctx context.Context, in openapi.BloodTestInput) (openapi.BloodTest, error)
+	Update(ctx context.Context, id uuid.UUID, in openapi.BloodTestInput) (openapi.BloodTest, error)
+	SoftDelete(ctx context.Context, id uuid.UUID) error
+}
+
+// FoodEstimator は写真から PFC を推定する（要件 N-06）。
+//
+// インターフェースにしてあるのは、**テストで実 API を叩かないため**。
+// 課金が発生する経路をテストが通ることはない。
+type FoodEstimator interface {
+	Enabled() bool
+	Estimate(ctx context.Context, req vision.Request) (vision.Estimate, error)
+}
+
+// PhotoRepository は身体写真のメタデータへのアクセス（要件 B-04 / B-05 / B-07）。
+type PhotoRepository interface {
+	List(ctx context.Context, from, to *openapi_types.Date) ([]repository.PhotoRow, error)
+	Guide(ctx context.Context, before openapi_types.Date) ([]repository.PhotoRow, error)
+	Create(ctx context.Context, in repository.PhotoInput) (repository.PhotoRow, error)
+	SoftDelete(ctx context.Context, id uuid.UUID) error
+}
+
+// BlobStore は写真の置き場。**画像は API を経由させない**（ADR-0008）。
+type BlobStore interface {
+	Enabled() bool
+	PresignGet(key string, expiry time.Duration, now time.Time) (string, error)
+	PresignPut(key string, expiry time.Duration, now time.Time) (string, error)
+}
+
 // Server は openapi.StrictServerInterface の実装。
 //
 // **openapi.yaml の全操作を実装している。** 仕様に操作を足すと
@@ -94,6 +169,17 @@ type Server struct {
 	sync      SyncRepository
 	transfer  TransferRepository
 	body      BodyRepository
+	meals     MealRepository
+	plan      PlanRepository
+	series    SeriesRepository
+	mealSets  MealSetRepository
+	contests  ContestRepository
+	blood     BloodTestRepository
+	// estimator は nil でもよい。未設定なら推定だけが使えない
+	estimator FoodEstimator
+	photos    PhotoRepository
+	// blobs も nil でよい。未設定なら写真だけが使えない
+	blobs BlobStore
 }
 
 // New は Server を作る。
@@ -105,10 +191,22 @@ func New(
 	sync SyncRepository,
 	transfer TransferRepository,
 	body BodyRepository,
+	meals MealRepository,
+	plan PlanRepository,
+	series SeriesRepository,
+	mealSets MealSetRepository,
+	contests ContestRepository,
+	blood BloodTestRepository,
+	estimator FoodEstimator,
+	photos PhotoRepository,
+	blobs BlobStore,
 ) *Server {
 	return &Server{
 		db: db, exercises: exercises, workouts: workouts,
-		templates: templates, sync: sync, transfer: transfer, body: body,
+		templates: templates, sync: sync, transfer: transfer,
+		body: body, meals: meals, plan: plan, series: series,
+		mealSets: mealSets, contests: contests, blood: blood, estimator: estimator,
+		photos: photos, blobs: blobs,
 	}
 }
 

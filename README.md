@@ -61,15 +61,21 @@ cd api && go build -o /tmp/physique-mcp ./cmd/mcp
 claude mcp add physique -- /tmp/physique-mcp
 ```
 
-環境変数は2つ。
+環境変数は `DATABASE_URL`（Postgres の接続文字列）だけ。
 
-| 変数 | 用途 |
+主なツール。
+
+| ツール | 返すもの |
 |---|---|
-| `DATABASE_URL` | Postgres の接続文字列 |
-| `PHYSIQUE_CONFIG` | `config.json` のパス。目標ペースと PFC 係数を読む |
+| `weekly_report` | **週次レポート全文**（Markdown）。そのまま読ませる用 |
+| `weekly_actions` | 同じ内容を構造化して返す。個々の数値を扱うとき |
+| `weekly_volume` | 部位別の週間セット数と MEV/MRV 判定 |
+| `exercise_progress` | 種目の推定1RM の推移と傾き |
+| `correlations` | 個人の反応の相関分析（睡眠→翌日のトン数 など） |
+| `query` | 読み取り専用の SQL |
 
-`weekly_actions` ツールが「今週のアクション」を返す。`PHYSIQUE_CONFIG` が
-無くても他のツール（`weekly_volume` / `exercise_progress` / `query`）は動く。
+計画の設定（目標ペース・PFC 係数）は **DB を正**とする（[ADR-0011](docs/adr/0011-go-analytics.md)）。
+`config.json` から移すには `PHYSIQUE_CONFIG=... go run ./cmd/planimport` を一度実行する。
 
 #### Python から（リファレンス実装）
 
@@ -120,6 +126,13 @@ python3 analysis/analyze.py \
 | **部位別ボリューム** | 13部位の MEV/MRV 判定。肩を前部/中部/後部、背中を広背筋/僧帽筋に分割（一括では部位内の偏りが埋もれる） |
 | **停滞検知** | 体重トレンド・摂取のばらつき・e1RM傾き・HRV の複合条件で判定 |
 | **回復モニタリング** | Apple Watch の HRV / 安静時心拍 / 深睡眠。30日基準との乖離で判定 |
+| **月次目標との乖離** | LBM → 体脂肪率 → 体重の順に見る。体重が計画どおりでも中身が筋肉でなければ計画は失敗 |
+| **大会カウントダウン** | LBM 維持前提で必要ペースを逆算。0.7%/週 を超えたら警告 |
+| **相関分析** | 睡眠 → 翌日のトン数など。**90日未満は参考値として返す**（少ないサンプルの相関は偶然を拾う） |
+
+**「計算できること」と「信じてよいこと」を分けている。** 相関係数は3点あれば
+出るが90日未満は `enough: false` を付け、TDEE は摂取の記録が10日に満たなければ
+数字を出さずに理由を返す。判断に使う数字は、出どころが曖昧なまま出す方が害が大きい。
 
 ## アーキテクチャ
 
@@ -170,6 +183,7 @@ Python 実装は移植後も破棄せず `reference/` に残す。**Go の分析
 | [0012](docs/adr/0012-terraform.md) | インフラを Terraform で管理する |
 | [0013](docs/adr/0013-timezone-jst.md) | 日付は JST 固定で扱う |
 | [0014](docs/adr/0014-sync-conflict-resolution.md) | 同期の競合は Last Write Wins + 論理削除で解決する |
+| [0015](docs/adr/0015-plan-settings-in-db.md) | 計画の設定は DB を正とする |
 
 0005 は「作らない決定」の記録。精度の低いデータをデータストアに持ち込まないことを優先している。
 
@@ -199,10 +213,21 @@ pytest analysis/tests -v
 | Phase | 内容 | 状態 |
 |---|---|---|
 | **0** | 分析ロジック（Python リファレンス実装） | **完了** |
-| **1** | **API (Go) + DB + Web + MCP**: 記録が回る状態 | **完了**（API 全24操作 / MCP / Web の入力とオフライン動作） |
-| **2** | iOS: ジムでの高速入力 + HealthKit 連携 | **進行中**（入力画面が動作。HealthKit は未着手） |
-| 3 | 食事記録・周囲長・写真・計画管理 | 未着手 |
-| 4 | Watch 入力・位置情報サジェスト・相関分析 | 未着手 |
+| **1** | **API (Go) + DB + Web + MCP**: 記録が回る状態 | **完了** |
+| **2** | iOS: ジムでの高速入力 + HealthKit 連携 | **実装済み**（HealthKit は実機で未検証） |
+| **3** | 食事記録・周囲長・写真・計画管理 | **実装済み** |
+| 4 | Watch 入力・位置情報サジェスト・相関分析 | 相関分析は完了。Watch のデータ取得も実装済み（実機で未検証）。位置情報は未着手 |
+
+### 有効化していないもの
+
+実装は入っているが、外部サービスの設定が要るもの。**未設定なら 503 を返すだけで、
+課金は発生しない。**
+
+| | 設定 |
+|---|---|
+| 写真からの PFC 推定（N-06） | `ANTHROPIC_API_KEY` / `VISION_MODEL` |
+| 身体写真（B-04 / B-05 / B-07） | `R2_ACCOUNT_ID` / `R2_BUCKET` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` |
+| HealthKit（B-01 / B-09） | Xcode で HealthKit capability を追加（[ios/README.md](ios/README.md)） |
 
 **分析UIは作らず、MCP 経由で Claude Code から分析する**（[ADR-0010](docs/adr/0010-mcp-over-analysis-ui.md)）。「睡眠6時間未満だった翌日の e1RM は平均どれくらい落ちるか」のような質問は事前に定義できず、固定の画面では構造的に対応できないため。Web に置くのは毎日見る少数の指標だけに留める。
 
@@ -219,6 +244,7 @@ pytest analysis/tests -v
 | [05-インフラ設計](docs/05-インフラ設計.md) | ホスティング・コスト試算・デプロイ・監視・障害対応 |
 | [06-技術選定](docs/06-技術選定.md) | 採用バージョン・選定理由・更新方針・却下した選択肢 |
 | [07-セットアップ](docs/07-セットアップ.md) | 外部サービスの作成手順（Supabase / GCP / 各種SaaS） |
+| [08-MCP](docs/08-MCP.md) | **Claude Code から分析する**。ツール一覧と `query` の使い方 |
 | [ADR](docs/adr/) | 設計判断の記録 |
 | [Go の学び](docs/go/) | 実装中に学んだことの記録（このプロジェクトは Go 学習を兼ねる） |
 

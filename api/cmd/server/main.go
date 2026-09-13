@@ -14,10 +14,12 @@ import (
 	"time"
 
 	"github.com/Kenyan822/physique-analytics/api/internal/auth"
+	"github.com/Kenyan822/physique-analytics/api/internal/blobstore"
 	"github.com/Kenyan822/physique-analytics/api/internal/config"
 	"github.com/Kenyan822/physique-analytics/api/internal/database"
 	"github.com/Kenyan822/physique-analytics/api/internal/handler"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
+	"github.com/Kenyan822/physique-analytics/api/internal/vision"
 )
 
 func main() {
@@ -58,6 +60,26 @@ func run() error {
 		repository.NewSync(pool.DB()),
 		repository.NewTransfer(pool.DB()),
 		repository.NewBody(pool.DB()),
+		repository.NewMeal(pool.DB()),
+		repository.NewPlan(pool.DB()),
+		repository.NewAnalysis(pool.DB()),
+		repository.NewMealSet(pool.DB()),
+		repository.NewContest(pool.DB()),
+		repository.NewBloodTest(pool.DB()),
+		// 推定は任意。API キーが無ければ 503 を返すだけで、課金は発生しない
+		vision.NewClient(vision.Config{
+			APIKey:   cfg.VisionAPIKey,
+			Model:    cfg.VisionModel,
+			Endpoint: cfg.VisionEndpoint,
+		}, nil),
+		repository.NewPhoto(pool.DB()),
+		// 写真も任意。未設定なら 503 を返すだけ
+		blobstore.NewR2(blobstore.Config{
+			AccountID:       cfg.R2AccountID,
+			Bucket:          cfg.R2Bucket,
+			AccessKeyID:     cfg.R2AccessKeyID,
+			SecretAccessKey: cfg.R2SecretAccessKey,
+		}),
 	))
 
 	if cfg.AuthDisabled {
@@ -66,7 +88,15 @@ func run() error {
 	} else {
 		// /health は openapi.yaml で security: [] になっている。
 		// keepalive と Cloud Run のスモークテストが叩くため
-		h = auth.Middleware(auth.NewVerifier(cfg.SupabaseJWKSURL), "/health")(h)
+		v := auth.NewVerifier(cfg.SupabaseJWKSURL, cfg.AllowedUserIDs...)
+		if !v.Allowlisted() {
+			// **JWT の検証だけでは所有者を区別できない。** Supabase の
+			// サインアップが開いていれば、登録した人は誰でも有効なトークンを持てる（#51）。
+			// 未設定なら開けておくのではなく閉じる（#152）
+			slog.Error("ALLOWED_USER_IDS が未設定。/health 以外はすべて 401 になる",
+				"対処", "Supabase の auth.users から自分の id を取り、ALLOWED_USER_IDS に設定する")
+		}
+		h = auth.Middleware(v, "/health")(h)
 	}
 
 	srv := &http.Server{

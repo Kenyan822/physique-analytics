@@ -9,12 +9,16 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
-	"github.com/Kenyan822/physique-analytics/api/internal/plan"
+	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
+
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 	"github.com/Kenyan822/physique-analytics/api/internal/testdb"
 )
 
 // fixture はトランザクション内で動く Deps と、記録を入れるための Body を返す。
+//
+// withPlan のときはフェーズを1つ入れる。**公開用の設定例と同じ値**を使い、
+// private/config.json はテストから参照しない（ADR-0002）。
 func fixture(t *testing.T, withPlan bool) (Deps, *repository.Body) {
 	t.Helper()
 
@@ -23,20 +27,43 @@ func fixture(t *testing.T, withPlan bool) (Deps, *repository.Body) {
 		Exercises: repository.NewExercise(tx),
 		Workouts:  repository.NewWorkout(tx),
 		Analysis:  repository.NewAnalysis(tx),
+		Plan:      repository.NewPlan(tx),
 	}
-	if withPlan {
-		// **公開用の設定例を使う。** private/config.json はテストから参照しない（ADR-0002）
-		p, err := plan.Load("../../../config.example.json")
-		if err != nil {
-			t.Fatalf("plan.Load: %v", err)
+	if !withPlan {
+		// 手元の DB には取り込み済みのフェーズがコミットされている。
+		// トランザクション内で消せば、他のテストには影響しない
+		if _, err := tx.Exec(t.Context(), "delete from plan_phases"); err != nil {
+			t.Fatalf("フェーズを消せない: %v", err)
 		}
-		d.Plan = &p
+	}
+
+	if withPlan {
+		in := openapi.PlanInput{
+			HeightCm: f32(175),
+			Phases: []openapi.PlanPhase{{
+				Name:          "P1-A カット1.0%",
+				StartsOn:      openapi_types.Date{Time: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)},
+				EndsOn:        openapi_types.Date{Time: time.Date(2029, 9, 6, 0, 0, 0, 0, time.UTC)},
+				GoalKgPerWeek: -0.76,
+			}},
+			Nutrition: openapi.NutritionSettings{
+				Cut:                openapi.MacroRatio{ProteinGPerKg: 2.4, FatGPerKg: 0.85},
+				DeepCut:            openapi.MacroRatio{ProteinGPerKg: 2.6, FatGPerKg: 0.85},
+				Bulk:               openapi.MacroRatio{ProteinGPerKg: 2.2, FatGPerKg: 1.0},
+				DeepCutBfThreshold: 13.0,
+				CarbMinG:           200,
+			},
+			VolumeRanges: []openapi.VolumeRange{},
+		}
+		if _, err := d.Plan.Put(t.Context(), in); err != nil {
+			t.Fatalf("計画の設定を入れられない: %v", err)
+		}
 	}
 
 	return d, repository.NewBody(tx)
 }
 
-func TestWeeklyActions_設定が無ければエラー(t *testing.T) {
+func TestWeeklyActions_フェーズが無ければエラー(t *testing.T) {
 	t.Parallel()
 	d, _ := fixture(t, false)
 
@@ -44,8 +71,9 @@ func TestWeeklyActions_設定が無ければエラー(t *testing.T) {
 	if err == nil {
 		t.Fatal("エラーにならない")
 	}
-	if !strings.Contains(err.Error(), "PHYSIQUE_CONFIG") {
-		t.Errorf("err = %v, want 設定の指定方法を含む", err)
+	// エラーには直し方を書く。MCP のエラーは Claude が読んで利用者に伝える
+	if !strings.Contains(err.Error(), "設定画面") {
+		t.Errorf("err = %v, want 直し方を含む", err)
 	}
 }
 
@@ -149,3 +177,67 @@ func TestWeeklyActions_計画の期間外(t *testing.T) {
 
 func f32(v float64) *float32 { f := float32(v); return &f }
 func ip(v int) *int          { return &v }
+
+func TestWeeklyReport_Markdownを返す(t *testing.T) {
+	t.Parallel()
+	d, _ := fixture(t, true)
+
+	got, err := weeklyReport(t.Context(), d, weeklyReportIn{AsOf: "2028-06-15"})
+	if err != nil {
+		t.Fatalf("weeklyReport: %v", err)
+	}
+
+	if got.AsOf != "2028-06-15" {
+		t.Errorf("AsOf = %q", got.AsOf)
+	}
+	for _, want := range []string{"# 週次レポート", "## 1. 体重トレンド", "## 8. 今週のアクション"} {
+		if !strings.Contains(got.Markdown, want) {
+			t.Errorf("%q が無い\n---\n%s", want, got.Markdown)
+		}
+	}
+}
+
+func TestWeeklyReport_フェーズが無ければエラー(t *testing.T) {
+	t.Parallel()
+	d, _ := fixture(t, false)
+
+	if _, err := weeklyReport(t.Context(), d, weeklyReportIn{AsOf: "2028-06-15"}); err == nil {
+		t.Error("エラーにならない")
+	}
+}
+
+func TestCorrelations_サンプルが足りなければ示す(t *testing.T) {
+	t.Parallel()
+	d, _ := fixture(t, true)
+
+	got, err := correlations(t.Context(), d, correlationsIn{Days: 365})
+	if err != nil {
+		t.Fatalf("correlations: %v", err)
+	}
+
+	if len(got.Items) != 5 {
+		t.Fatalf("項目 = %d, want 5", len(got.Items))
+	}
+	// 手元のサンプルは55日ぶんしかない。**足りないことが分かる形で返す**
+	for _, i := range got.Items {
+		if i.Enough {
+			t.Errorf("%s: enough = true（n=%d）。90日に満たないはず", i.Label, i.N)
+		}
+	}
+	if got.Note == "" {
+		t.Error("Note が空。なぜ使えないかが分からない")
+	}
+}
+
+func TestCorrelations_期間を指定できる(t *testing.T) {
+	t.Parallel()
+	d, _ := fixture(t, true)
+
+	got, err := correlations(t.Context(), d, correlationsIn{Days: 30})
+	if err != nil {
+		t.Fatalf("correlations: %v", err)
+	}
+	if got.From == "" || got.To == "" {
+		t.Errorf("期間が空: %+v", got)
+	}
+}

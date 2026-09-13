@@ -44,6 +44,7 @@ curl -s localhost:8080/health
 | `PORT` | `8080` | Cloud Run が注入する |
 | `DATABASE_MAX_CONNS` | `5` | 1インスタンスが張る接続数の上限 |
 | `SUPABASE_JWKS_URL` | （必須） | JWT 検証用の公開鍵。`https://<ref>.supabase.co/auth/v1/.well-known/jwks.json` |
+| `ALLOWED_USER_IDS` | 空 | 通す `auth.users.id`（カンマ区切り）。**空だと `/health` 以外すべて 401**（[docs/05-インフラ設計.md §8.1](../docs/05-インフラ設計.md)） |
 | `AUTH_DISABLED` | `false` | `true` で認証を切る。**ローカル開発専用** |
 
 ## コード生成
@@ -69,16 +70,25 @@ Claude Code から分析するためのサーバ（[ADR-0010](../docs/adr/0010-m
 手元で動かし、DB を直接読む。
 
 ```bash
-cd api && go build -o /tmp/physique-mcp ./cmd/mcp
-claude mcp add physique --env DATABASE_URL='postgres://physique:dev@localhost:5432/physique?sslmode=disable' -- /tmp/physique-mcp
+# /tmp に置かない。再起動で消えて次のセッションで繋がらなくなる
+cd api && go build -o ~/.local/bin/physique-mcp ./cmd/mcp
+
+claude mcp add physique -s user \
+  -e DATABASE_URL='postgres://physique:dev@localhost:5432/physique?sslmode=disable' \
+  -- ~/.local/bin/physique-mcp
 ```
+
+登録後はセッションを再起動する（MCP は起動時にしか接続されない）。
 
 | ツール | 内容 |
 |---|---|
-| `list_exercises` | 種目マスタ |
+| `list_exercises` | 種目マスタ。返る ID が他のツールの引数になる |
 | `list_workout_sessions` | 期間指定でトレーニング記録 |
 | `weekly_volume` | 部位別の週間セット数 + MEV/MRV 判定 |
 | `exercise_progress` | 種目の推定1RM の推移と傾き |
+| `correlations` | 個人の反応を見る相関分析（要件 A-12） |
+| `weekly_report` | 週次レポートを Markdown で（要件 A-13） |
+| `weekly_actions` | **今週のアクション**（要件 A-08）。最終成果物 |
 | `query` | **読み取り専用の SQL**。事前に定義できない分析用 |
 
-詳細は [docs/go/mcp.md](../docs/go/mcp.md)。
+使い方は [docs/08-MCP.md](../docs/08-MCP.md)、実装の記録は [docs/go/mcp.md](../docs/go/mcp.md)。

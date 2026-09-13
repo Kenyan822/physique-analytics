@@ -179,3 +179,63 @@ func checkInt(v *int, min, max int) string // × revive: redefines-builtin-id
 
 Go 1.21 で `min` / `max` が組み込みになった。シャドウしてもコンパイルは
 通るが、同じ関数の中で組み込みの `min` が呼べなくなる。lint が止める。
+
+## `distinct on` は並べ替えの自由が無い
+
+```sql
+select distinct on (m.name)
+    m.name, c.cnt, m.date, m.kcal
+from meals m
+join (select name, count(*) as cnt from meals group by name) c on c.name = m.name
+order by m.name, m.date desc      -- ← 先頭は distinct on の式と一致必須
+```
+
+Postgres の `distinct on (x)` は「x ごとに最初の1行」を取るが、
+**`order by` の先頭が x でなければならない**。`order by cnt desc` は書けない。
+
+「名前ごとの最新行を、件数の多い順に」は1つの SQL では素直に書けないので、
+`distinct on` で最新行を取ってから **Go 側で並べ替えた**。行数が
+100件程度に収束する前提（食べるものは収束する）なので、これで足りる。
+
+## `check` 制約はハンドラ側にも同じ範囲を書く
+
+```sql
+kcal integer check (kcal >= 0 and kcal <= 10000)
+```
+
+DB だけに任せると、範囲外の入力が SQLSTATE 23514 として返り、
+アプリからは 500 に見える。**何が悪いかが利用者に返らない。**
+
+二重に書くことになるが、DB 側は「壊れたデータが入らない」ための最後の砦、
+アプリ側は「何を直せばいいか返す」ためのものと割り切る。
+移行のときに両方直す必要があるので、マイグレーション番号をコメントに残す。
+
+## `numeric(p,s)` の s は小数の桁数。足りないと黙って丸まる
+
+```sql
+cut_fat_g_per_kg numeric(3,1)   -- × 0.85 が 0.9 になる
+cut_fat_g_per_kg numeric(4,2)   -- ○
+```
+
+エラーにならず**丸めて通る**ので、気づくのは値がずれたときになる。
+実際に脂質 0.85g/kg が 0.9 になり、体重72kg で 61.2g が 64.8g、
+炭水化物の残余も 8g ずれた（Python のリファレンスと突き合わせて発覚）。
+
+`numeric(p,s)` の p は全体の桁数、s は小数部の桁数。
+**入れる値の最小の刻みを見て s を決める。** 体重あたりの係数は 0.05 刻みで
+入るので s=2 が要る。
+
+## 単一行のテーブルは `boolean primary key check (id)` で縛る
+
+```sql
+create table profile (
+  id boolean primary key default true check (id),
+  height_cm numeric(4,1)
+);
+```
+
+1ユーザー前提の設定テーブルで、行が増えると「どれが正か」が曖昧になる。
+`id` が true しか取れないので、主キー制約で2行目が入らない。
+
+`insert ... on conflict (id) do update` がそのまま upsert になるのも利点。
+複数ユーザーに広げるときは `user_id` を足して主キーを変える。

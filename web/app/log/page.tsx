@@ -4,7 +4,7 @@ import { serverApi } from "@/lib/api/server";
 import { formatJstDate, todayJst } from "@/lib/jst";
 
 import { LogForm } from "./LogForm";
-import { loadLastPerformance, recordSet } from "./actions";
+import { deleteSet, loadLastPerformance, recordSet } from "./actions";
 
 export const metadata = { title: "記録 | physique" };
 
@@ -21,11 +21,14 @@ export default async function LogPage() {
   ]);
 
   const recorded = (sessions[0]?.sets ?? []).map((s) => ({
+    id: s.id,
     exerciseId: s.exerciseId,
     setNo: s.setNo,
     weightKg: s.weightKg,
     reps: s.reps,
     rir: s.rir ?? null,
+    // サーバから読んだ時点で同期済み
+    synced: true,
   }));
 
   return (
@@ -48,6 +51,7 @@ export default async function LogPage() {
           recorded={recorded}
           loadLast={loadLastPerformance}
           recordSet={recordSet}
+          deleteSet={deleteSet}
           date={date}
         />
       </div>

@@ -4,7 +4,8 @@
 // パスを受け取って読むだけで、値をコードに持たない。公開できる例は
 // リポジトリ直下の config.example.json。
 //
-// API サーバは使わない。手元で動かす MCP（ADR-0010）からだけ読む。
+// **設定の正は DB に移した**（要件 P-05）。このパッケージは
+// cmd/planimport が config.json を DB へ取り込むときだけ使う。
 package plan
 
 import (
@@ -22,9 +23,17 @@ import (
 // 読む項目が増えるほど、設定ファイルの形を変えにくくなる。
 type Plan struct {
 	HeightCm  float64              `json:"height_cm"`
+	StartDate string               `json:"start_date"`
+	Baseline  Baseline             `json:"baseline"`
 	Phases    []Phase              `json:"phases"`
 	Nutrition Nutrition            `json:"nutrition"`
 	Volume    map[string]SetsRange `json:"volume_sets_per_muscle"`
+}
+
+// Baseline は計画の起点（要件 P-03）。
+type Baseline struct {
+	WeightKg   float64 `json:"weight_kg"`
+	BodyfatPct float64 `json:"bodyfat_pct"`
 }
 
 // Phase は期間とその期間の目標ペース。

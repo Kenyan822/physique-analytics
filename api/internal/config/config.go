@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // Config は API サーバの起動設定。
@@ -24,12 +25,49 @@ type Config struct {
 	// シークレットではない（公開鍵なので）。
 	SupabaseJWKSURL string
 
+	// AllowedUserIDs は通す Supabase の sub（auth.users.id）。
+	//
+	// **空だと、サインアップした人は誰でも全データを読める**（#51 / #142）。
+	// JWT の検証は「Supabase が発行したか」しか見ないため。
+	// シークレットではない（UUID であって鍵ではない）。
+	AllowedUserIDs []string
+
+	// VisionAPIKey は写真からの PFC 推定に使う API キー（要件 N-06）。
+	//
+	// **空なら推定を実行しない。** 未設定のまま動かしても課金は発生せず、
+	// 推定のエンドポイントだけが 503 を返す。
+	VisionAPIKey string
+
+	// VisionModel は推定に使うモデル。要件のコスト試算は Haiku 相当
+	// （年1,095回で約3ドル）。
+	VisionModel string
+
+	// VisionEndpoint は推定 API の宛先。空なら Anthropic の既定。
+	//
+	// **差し替えられるようにしてあるのは、課金を発生させずに経路全体を
+	// 確かめるため。** 偽のサーバを立てて手元で通す。
+	VisionEndpoint string
+
+	// R2* は写真の置き場（要件 B-04、ADR-0008）。
+	//
+	// **未設定でも起動する。** 写真の機能だけが 503 を返す。
+	R2AccountID       string
+	R2Bucket          string
+	R2AccessKeyID     string
+	R2SecretAccessKey string
+
 	// AuthDisabled は認証を無効にする。ローカル開発専用。
 	//
 	// **既定で無効にはしない。** JWKS の設定を忘れたときに黙って認証なしで
 	// 起動すると、本番が開いたまま動き続ける。明示的に指定させる。
 	AuthDisabled bool
 }
+
+// defaultVisionModel は推定の既定モデル。
+//
+// 要件のコスト試算（年1,095回・入力1,700 / 出力200トークン）が
+// Haiku 相当で年3ドル程度という前提なので、既定はこれにする。
+const defaultVisionModel = "claude-haiku-4-5-20251001"
 
 // LookupEnv は os.LookupEnv と同じ形。テストで差し替えるために引数で受ける。
 type LookupEnv func(key string) (string, bool)
@@ -57,6 +95,28 @@ func Load(lookup LookupEnv) (Config, error) {
 
 	if v, ok := lookup("AUTH_DISABLED"); ok && v == "true" {
 		cfg.AuthDisabled = true
+	}
+
+	// 推定は任意。設定しなければ使えないだけで、起動は通す
+	if v, ok := lookup("ANTHROPIC_API_KEY"); ok {
+		cfg.VisionAPIKey = v
+	}
+	cfg.VisionModel = defaultVisionModel
+	if v, ok := lookup("VISION_MODEL"); ok && v != "" {
+		cfg.VisionModel = v
+	}
+	if v, ok := lookup("VISION_ENDPOINT"); ok {
+		cfg.VisionEndpoint = v
+	}
+
+	// 写真も任意。設定しなければ使えないだけ
+	cfg.R2AccountID, _ = lookup("R2_ACCOUNT_ID")
+	cfg.R2Bucket, _ = lookup("R2_BUCKET")
+	cfg.R2AccessKeyID, _ = lookup("R2_ACCESS_KEY_ID")
+	cfg.R2SecretAccessKey, _ = lookup("R2_SECRET_ACCESS_KEY")
+
+	if v, ok := lookup("ALLOWED_USER_IDS"); ok {
+		cfg.AllowedUserIDs = splitList(v)
 	}
 
 	if jwks, ok := lookup("SUPABASE_JWKS_URL"); ok && jwks != "" {
@@ -91,4 +151,16 @@ func LoadForMCP(lookup LookupEnv) (Config, error) {
 	cfg.DatabaseURL = dsn
 
 	return cfg, nil
+}
+
+// splitList はカンマ区切りを分ける。空要素は落とす。
+func splitList(v string) []string {
+	out := make([]string, 0, 2)
+	for _, part := range strings.Split(v, ",") {
+		if t := strings.TrimSpace(part); t != "" {
+			out = append(out, t)
+		}
+	}
+
+	return out
 }

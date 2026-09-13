@@ -8,7 +8,13 @@ import SwiftUI
 struct PhysiqueApp: App {
     var body: some Scene {
         WindowGroup {
-            LogView()
+            // ジムで開くのは記録画面。体組成は朝に触るものなのでタブを分ける
+            TabView {
+                LogView()
+                    .tabItem { Label("記録", systemImage: "dumbbell") }
+                BodyView(api: APIClient(baseURL: AppConfig.apiBaseURL), health: HealthKitSource())
+                    .tabItem { Label("体組成", systemImage: "figure") }
+            }
         }
     }
 }

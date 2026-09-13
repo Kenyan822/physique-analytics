@@ -19,7 +19,6 @@ import (
 
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
 	"github.com/Kenyan822/physique-analytics/api/internal/analytics"
-	"github.com/Kenyan822/physique-analytics/api/internal/plan"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 	"github.com/Kenyan822/physique-analytics/api/internal/timeutil"
 )
@@ -34,9 +33,14 @@ type Deps struct {
 	Workouts  *repository.Workout
 	Analysis  *repository.Analysis
 
-	// Plan は3年計画の設定（private/config.json）。
+	// Plan は3年計画の設定。**DB を正とする**（要件 P-05）。
 	// nil でも他のツールは動く。weekly_actions だけが要求する
-	Plan *plan.Plan
+	Plan *repository.Plan
+
+	// Contests は次の大会（要件 A-10）。nil なら大会の情報が出ないだけ
+	Contests *repository.Contest
+	// Body は直近の周囲長（要件 A-11）
+	Body *repository.Body
 }
 
 // New は MCP サーバを組み立てる。
@@ -50,6 +54,7 @@ func New(d Deps) *mcp.Server {
 	registerWorkoutTools(s, d)
 	registerAnalysisTools(s, d)
 	registerWeeklyTools(s, d)
+	registerCorrelationTools(s, d)
 
 	return s
 }
@@ -293,10 +298,16 @@ func registerAnalysisTools(s *mcp.Server, d Deps) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "query",
+		// **ここが LLM への唯一の入力。** 書いていないテーブルは事実上使われないので、
+		// マイグレーションでテーブルを足したらここも足す
 		Description: "読み取り専用の SQL を実行する。事前に定義できない分析はこれを使う。" +
-			"テーブル: exercises / workout_sessions / workout_sets / templates / template_items。" +
+			"テーブル —— トレーニング: exercises / exercise_aliases / workout_sessions / workout_sets / " +
+			"templates / template_items。体組成: daily_metrics / body_measurements / body_photos。" +
+			"栄養: meals / meal_sets / meal_set_items。" +
+			"計画: profile / plan_phases / plan_blocks / nutrition_settings / volume_ranges / contests。" +
+			"検査: blood_tests / blood_test_items。" +
 			"すべて deleted_at による論理削除なので、生きている行だけ見るなら deleted_at is null を付ける。" +
-			"日付は workout_sessions.date（JST の日付）。",
+			"日付は workout_sessions.date / daily_metrics.date など（いずれも JST の日付）。",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in queryIn) (*mcp.CallToolResult, queryOut, error) {
 		limit := in.Limit
 		if limit <= 0 || limit > maxQueryRows {
