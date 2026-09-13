@@ -242,6 +242,21 @@ gh pr merge --squash --delete-branch
 3. 生成物をコミット（CI が最新性を検証する）
 4. DB スキーマが変わるなら `api/migrations/` にマイグレーションを追加
 
+### テーブルを足したら RLS を有効にする
+
+```sql
+alter table public.<新しいテーブル> enable row level security;
+```
+
+**Supabase は Postgres の前に PostgREST を自動で立てる。** Go API を通らない別の入口で、
+`public` スキーマが公開対象になる。`000012` で権限は既定で剥がしてあるので**これを
+忘れても即座には漏れない**が、二重に守るために付ける（[#150](https://github.com/Kenyan822/physique-analytics/issues/150)）。
+
+ポリシーは作らない。RLS が有効でポリシーが無いテーブルは、素通りできないロールから
+「行が無い」ように見える。アプリは `postgres`（`rolbypassrls`）で繋ぐので影響を受けない。
+
+付け忘れは Supabase の security advisor が拾う（MCP の `get_advisors`）。
+
 enum の値が日本語のときは `x-enum-varnames` で定数名を明示する。
 書かないと生成される Go の定数が `N1` `N2` … になり読めなくなる。
 
