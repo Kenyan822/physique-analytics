@@ -140,9 +140,14 @@ func TestPlanGoalAt(t *testing.T) {
 		{"計画の外", "2020-01-01", 0, false},
 	}
 
+	// **ここで t.Parallel() を呼ばない。** 親は testdb.Begin のトランザクションを
+	// 握っていて、その cleanup（ロールバック）は並列サブテストが終わってから走る。
+	// サブテストが並列枠を待ち、その枠を profile の行ロック待ちのテストが占めると
+	// 循環して誰も進まなくなる（#177）。
+	//
+	// GoalAt は DB を使わない純粋関数なので、並列にしても速くならない。
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
 			goal, ok := repository.GoalAt(got.Phases, mustParseDate(t, tt.date))
 			if ok != tt.ok {
 				t.Fatalf("ok = %v, want %v", ok, tt.ok)
