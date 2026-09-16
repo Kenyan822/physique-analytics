@@ -22,6 +22,12 @@ type Props = {
   date: string;
   /** 前日の日付。1操作で写せるようにする（要件 N-04） */
   yesterday: string;
+  /**
+   * 区分の初期選択。**サーバで決めて渡す**（#175）。
+   * ここで `new Date()` を見ると、SSR（UTC）とブラウザ（JST）で答えが割れて
+   * hydration が食い違う
+   */
+  initialSlot: MealSlot;
   recorded: Meal[];
   /**
    * その日の摂取目標（要件 N-05）。TDEE を推定できないときは target が無い。
@@ -59,6 +65,7 @@ type Props = {
 export function MealForm({
   date,
   yesterday,
+  initialSlot,
   recorded,
   targets,
   targetsUnavailable,
@@ -72,7 +79,7 @@ export function MealForm({
   createMealSetFrom,
 }: Props) {
   const [meals, setMeals] = useState<Meal[]>(recorded);
-  const [slot, setSlot] = useState<MealSlot>(defaultSlot());
+  const [slot, setSlot] = useState<MealSlot>(initialSlot);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [picking, setPicking] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -403,16 +410,6 @@ export function MealForm({
       )}
     </div>
   );
-}
-
-/** 時刻から区分を推測する。毎回選ばせると記録が面倒になる */
-function defaultSlot(now: Date = new Date()): MealSlot {
-  const h = now.getHours();
-  if (h < 10) return "朝食";
-  if (h < 15) return "昼食";
-  if (h < 21) return "夕食";
-
-  return "間食";
 }
 
 function num(v: string): number | null {

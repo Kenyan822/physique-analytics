@@ -11,15 +11,35 @@ export function todayJst(now: Date = new Date()): string {
   return toJstDate(now);
 }
 
+/**
+ * JST における「時」を 0〜23 で返す。
+ *
+ * **`Date#getHours()` を使わない。** 実行環境のタイムゾーンで評価されるので、
+ * UTC で動くサーバと JST のブラウザで別の答えになる（#175）。
+ */
+export function jstHour(now: Date = new Date()): number {
+  return toJst(now).getUTCHours();
+}
+
 /** Date を JST の日付（YYYY-MM-DD）にする。 */
 export function toJstDate(d: Date): string {
-  const jst = new Date(d.getTime() + (JST_OFFSET_MIN + d.getTimezoneOffset()) * 60_000);
+  const jst = toJst(d);
 
-  const y = jst.getFullYear();
-  const m = String(jst.getMonth() + 1).padStart(2, "0");
-  const day = String(jst.getDate()).padStart(2, "0");
+  const y = jst.getUTCFullYear();
+  const m = String(jst.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(jst.getUTCDate()).padStart(2, "0");
 
   return `${y}-${m}-${day}`;
+}
+
+/**
+ * JST の壁時計を UTC のフィールドに載せ替えた Date を返す。
+ *
+ * **返り値を時刻として使わない。** `getUTC*` で JST の年月日時を読むための器で、
+ * 実際の瞬間としては9時間ずれている。
+ */
+function toJst(d: Date): Date {
+  return new Date(d.getTime() + JST_OFFSET_MIN * 60_000);
 }
 
 /** YYYY-MM-DD を「9/13(土)」のような表示にする。 */
