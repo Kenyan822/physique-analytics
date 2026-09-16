@@ -73,13 +73,17 @@ func Begin(t *testing.T) pgx.Tx {
 // CPU の少ない runner では既定が4本になり、そこで Begin が10秒待って落ちる。
 // 並列数に依存しない余裕を持たせる。
 func maxConns() int32 {
-	const minimum = 16
-
-	if n := int32(runtime.GOMAXPROCS(0)) * 4; n > minimum {
-		return n
+	// Postgres の max_connections（既定100）を食い潰さない範囲で、
+	// -parallel（既定 GOMAXPROCS）より十分多くする。
+	// int32 への変換を挟まないのは、gosec G115（オーバーフロー）を避けるため
+	switch procs := runtime.GOMAXPROCS(0); {
+	case procs <= 4:
+		return 16
+	case procs <= 16:
+		return 64
+	default:
+		return 80
 	}
-
-	return minimum
 }
 
 func connect(t *testing.T) *pgxpool.Pool {

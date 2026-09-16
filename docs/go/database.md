@@ -273,7 +273,7 @@ DB を使うテストが CI でだけ落ちた。
 ```go
 cfg, err := pgxpool.ParseConfig(dsn)
 if err != nil { ... }
-cfg.MaxConns = maxConns()          // 並列数に依存しない余裕を持たせる
+cfg.MaxConns = maxConns()          // 並列数に依存しない余裕を持たせる（int32）
 p, err := pgxpool.NewWithConfig(ctx, cfg)
 ```
 
@@ -281,5 +281,10 @@ p, err := pgxpool.NewWithConfig(ctx, cfg)
 `NewWithConfig`** が設定を変える手順。DSN に `pool_max_conns=4` が書いてあっても
 `cfg.MaxConns` の代入が勝つ（再現テストで確認した）。
 
+`MaxConns` は `int32`。`int32(runtime.GOMAXPROCS(0))` と書くと gosec の
+**G115（integer overflow conversion）** で lint が落ちる。段階で返す形にして
+変換自体をなくした。
+
 **判断**: `-parallel` を絞る手もあるが、テストが増えるたびに遅くなる。
-接続は安いので、上限を上げる方を選んだ。
+接続は安いので、上限を上げる方を選んだ。Postgres の `max_connections`（既定100）を
+食い潰さないよう上限は 80 で止める。
