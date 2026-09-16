@@ -63,12 +63,38 @@ export function SiteHeader({ title, subtitle }: Props) {
               記録する
             </Link>
           )}
-          <MenuButton open={open} onToggle={() => setOpen((v) => !v)} />
+
+          {/*
+           * 広い画面ではナビが横に出ているので、ハンバーガーは要らない。
+           * 並べると同じ行き先が2つ見えることになる
+           */}
+          <div className="lg:hidden">
+            <MenuButton open={open} onToggle={() => setOpen((v) => !v)} />
+          </div>
+          <div className="hidden lg:block">
+            <LogoutButton />
+          </div>
         </div>
       </div>
 
       {open && <MenuSheet pathname={pathname} onClose={() => setOpen(false)} />}
     </header>
+  );
+}
+
+/** 広い画面用。メニューを開かずに出せるようにする */
+function LogoutButton() {
+  const [pending, startTransition] = useTransition();
+
+  return (
+    <button
+      type="button"
+      onClick={() => startTransition(() => logout())}
+      disabled={pending}
+      className="pressable rounded-full border border-line px-3 py-1.5 text-sm text-muted disabled:opacity-40"
+    >
+      {pending ? "…" : "ログアウト"}
+    </button>
   );
 }
 

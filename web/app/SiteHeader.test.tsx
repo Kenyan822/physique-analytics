@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { NAV_ITEMS } from "@/lib/nav/items";
@@ -95,11 +95,29 @@ describe("メニュー（ハンバーガー）", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("開くと補足とログアウトが出る", () => {
+  it("開くと補足が出る", () => {
     render(<SiteHeader title="食事" />);
     fireEvent.click(screen.getByRole("button", { name: "メニューを開く" }));
 
     expect(screen.getByText(NAV_ITEMS[1].hint)).toBeDefined();
-    expect(screen.getByRole("button", { name: "ログアウト" })).toBeDefined();
+  });
+
+  it("メニューの中にログアウトがある", () => {
+    render(<SiteHeader title="食事" />);
+    fireEvent.click(screen.getByRole("button", { name: "メニューを開く" }));
+
+    const sheet = screen.getByRole("dialog", { name: "メニュー" });
+    expect(within(sheet).getByRole("button", { name: "ログアウト" })).toBeDefined();
+  });
+
+  it("**広い画面用のログアウトがメニューの外にもある**", () => {
+    // ナビが横に出ているときはハンバーガーを出さないので、
+    // メニューの中だけにあるとログアウトできなくなる
+    render(<SiteHeader title="食事" />);
+
+    const outside = screen
+      .getAllByRole("button", { name: "ログアウト" })
+      .filter((el) => el.closest('[role="dialog"]') === null);
+    expect(outside.length).toBe(1);
   });
 });

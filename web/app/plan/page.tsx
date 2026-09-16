@@ -22,7 +22,11 @@ export default async function PlanPage() {
       <SiteHeader title="3年計画" />
 
       <main className="mx-auto w-full max-w-6xl">
-        <div className="flex flex-col gap-4 px-4 py-4 lg:px-6">
+        {/*
+         * 広い画面ではブロックの編集と月次目標を横に並べる。
+         * 1列のまま伸ばすと、36行の表を見るのに毎回スクロールが要る
+         */}
+        <div className="flex flex-col gap-4 px-4 py-4 lg:grid lg:grid-cols-[22rem_minmax(0,1fr)] lg:items-start lg:gap-6 lg:px-6">
           <PlanBlocksEditor blocks={blocks} saveBlocks={saveBlocks} />
           <MonthlyTargetsView
             initial={targets.value}
