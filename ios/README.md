@@ -12,6 +12,47 @@ iOS の存在理由は「ジムでの入力速度」と「HealthKit 連携」。
 | `PhysiqueTests/` | `swift test` で回すテスト |
 | `Package.swift` | Xcode を開かずにロジックを回すための SPM 定義 |
 
+## 実機で動かす前に
+
+**接続先と鍵を入れないと動かない。** 未設定だと `localhost:8080` を見にいき、
+実機からは届かない。
+
+```bash
+cp Physique/Config.xcconfig.example Physique/Config.xcconfig
+# 中身を実値に置き換える
+```
+
+Xcode の `PROJECT > Info > Configurations` で Debug / Release の両方に
+この xcconfig を割り当てる。`Config.xcconfig` は `.gitignore` に入れてある
+（実値を public リポジトリに入れない）。
+
+| 変数 | 中身 |
+|---|---|
+| `API_BASE_URL` | Cloud Run の URL |
+| `SUPABASE_URL` | Supabase のプロジェクト URL |
+| `SUPABASE_ANON_KEY` | 公開前提の鍵。単体では何も読めない（DB は RLS で閉じている） |
+
+## ログイン
+
+Supabase Auth（メール＋パスワード）。**SDK は入れていない** —— 使うのは
+ログイン・取り直し・ログアウトの3つだけで、アプリは既に `HTTPTransport` を
+持っている。依存を1つ増やすより既存の層に載せる方が、差し替えもテストも効く。
+
+| | どこ |
+|---|---|
+| Supabase を叩く | `AuthClient.swift` |
+| ログイン状態 | `AuthModel.swift`（`@Observable`） |
+| 保存 | `SessionStore.swift`（Keychain） |
+| 画面 | `LoginView.swift` |
+
+**アクセストークンは `AuthModel.accessToken()` からしか取らない。** 各画面が
+自分で期限を見ると、取り直しの処理が散らばって必ずどこかが漏れる。
+`APIClient` には値ではなく**関数**を渡し、呼び出しのたびに解決する
+（作った時点の値を握ると1時間後から 401 になる）。
+
+リフレッシュトークンは **Keychain** に置く。持っている限りアクセストークンを
+取り直せるので、`UserDefaults` のようにバックアップから平文で読める場所には置かない。
+
 ## テストとビルド
 
 ```bash

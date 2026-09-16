@@ -60,15 +60,34 @@ struct URLSessionTransport: HTTPTransport {
 /// swift-openapi-generator を使う方針だが、まずは手書きの薄い層で動かし、
 /// エンドポイントが増えてから生成に切り替える。
 struct APIClient: Sendable {
+    /// 呼び出しのたびにトークンを解決する。
+    ///
+    /// **作った時点の値を握らない。** アクセストークンは1時間で切れるので、
+    /// 固定してしまうと1時間後から 401 になる。期限が近ければ取り直すのは
+    /// AuthModel の仕事で、ここはそれを呼ぶだけ。
+    typealias TokenProvider = @Sendable () async throws -> String?
+
     let baseURL: URL
-    /// Supabase の JWT。無ければ Authorization を付けない
-    var token: String?
+    /// Supabase の JWT を返す。nil を返せば Authorization を付けない
+    var tokenProvider: TokenProvider?
     var transport: HTTPTransport
 
-    init(baseURL: URL, token: String? = nil, transport: HTTPTransport = URLSessionTransport()) {
+    init(
+        baseURL: URL,
+        tokenProvider: TokenProvider? = nil,
+        transport: HTTPTransport = URLSessionTransport()
+    ) {
         self.baseURL = baseURL
-        self.token = token
+        self.tokenProvider = tokenProvider
         self.transport = transport
+    }
+
+    /// 固定のトークンで作る。テストと、認証が要らない経路で使う
+    init(baseURL: URL, token: String?, transport: HTTPTransport = URLSessionTransport()) {
+        let provider: TokenProvider? = token.map { value in
+            { @Sendable in value }
+        }
+        self.init(baseURL: baseURL, tokenProvider: provider, transport: transport)
     }
 
     // MARK: - 種目
@@ -171,7 +190,7 @@ struct APIClient: Sendable {
 
         var req = URLRequest(url: url)
         req.httpMethod = method
-        if let token {
+        if let token = try await tokenProvider?() {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
         if let body {

@@ -175,3 +175,54 @@ struct APIClientTests {
         }
     }
 }
+
+@Suite("トークンの渡し方")
+struct APIClientTokenTests {
+    @Test("固定のトークンをそのまま付ける")
+    func staticToken() async throws {
+        let t = FakeTransport(json: #"{"items":[]}"#)
+        let api = APIClient(baseURL: base, token: "jwt-fixed", transport: t)
+
+        _ = try await api.listExercises()
+
+        #expect(t.requests.first?.value(forHTTPHeaderField: "Authorization") == "Bearer jwt-fixed")
+    }
+
+    @Test("**呼び出しのたびにトークンを取り直せる**")
+    func tokenProvider() async throws {
+        // アクセストークンは1時間で切れる。作った時点の値を握り続けると
+        // 1時間後から 401 になる
+        let t = FakeTransport(json: #"{"items":[]}"#)
+        let counter = Counter()
+        let api = APIClient(
+            baseURL: base,
+            tokenProvider: { await counter.next() },
+            transport: t
+        )
+
+        _ = try await api.listExercises()
+        _ = try await api.listExercises()
+
+        #expect(t.requests.map { $0.value(forHTTPHeaderField: "Authorization") }
+            == ["Bearer jwt-1", "Bearer jwt-2"])
+    }
+
+    @Test("トークンが無ければ Authorization を付けない")
+    func noToken() async throws {
+        // /health のように認証が要らない経路がある
+        let t = FakeTransport(json: #"{"items":[]}"#)
+        let api = APIClient(baseURL: base, transport: t)
+
+        _ = try await api.listExercises()
+
+        #expect(t.requests.first?.value(forHTTPHeaderField: "Authorization") == nil)
+    }
+}
+
+private actor Counter {
+    private var n = 0
+    func next() -> String {
+        n += 1
+        return "jwt-\(n)"
+    }
+}

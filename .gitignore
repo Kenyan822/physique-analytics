@@ -46,3 +46,6 @@ ios/.build/
 ios/.swiftpm/
 DerivedData/
 *.xcuserdatap
+
+# iOS の接続先と鍵。Config.xcconfig.example をコピーして作る
+ios/Physique/Config.xcconfig

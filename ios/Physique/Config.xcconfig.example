@@ -1,0 +1,17 @@
+// 接続先と鍵。**このファイルをコピーして Config.xcconfig を作る。**
+//
+//   cp Physique/Config.xcconfig.example Physique/Config.xcconfig
+//
+// Config.xcconfig は .gitignore に入れてある。実値を public リポジトリに入れない。
+//
+// Xcode: PROJECT > Info > Configurations で Debug / Release の両方に
+// この xcconfig を割り当てる。
+
+// Cloud Run の URL。**実機では localhost に届かない**
+API_BASE_URL = https:/$()/physique-api-xxxx-an.a.run.app
+
+// Supabase のプロジェクト URL
+SUPABASE_URL = https:/$()/xxxxxxxx.supabase.co
+
+// 公開前提の鍵。ブラウザにも載るもので、単体では何も読めない
+SUPABASE_ANON_KEY = eyJ...
