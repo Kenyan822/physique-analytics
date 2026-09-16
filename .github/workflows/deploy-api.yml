@@ -171,10 +171,13 @@ jobs:
             --allow-unauthenticated
           secrets: |
             DATABASE_URL=supabase-pooler-url:latest
+          # **env_vars は毎回まるごと置き換わる。** ここに書いていない変数は
+          # デプロイのたびに消えるので、手で gcloud から入れても残らない
           env_vars: |
             DATABASE_MAX_CONNS=5
             TZ=Asia/Tokyo
             SUPABASE_JWKS_URL=${{ secrets.SUPABASE_JWKS_URL }}
+            ALLOWED_USER_IDS=${{ secrets.ALLOWED_USER_IDS }}
 
       # デプロイできたことと、実際に応答することは別。DB まで到達する /health で確認する
       - name: スモークテスト
