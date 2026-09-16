@@ -1,7 +1,7 @@
 import Link from "next/link";
 
-import { ApiError, type MonthlyTargets } from "@/lib/api/client";
 import { serverApi } from "@/lib/api/server";
+import { tolerate } from "@/lib/api/tolerate";
 
 import { MonthlyTargetsView } from "./MonthlyTargetsView";
 import { PlanBlocksEditor } from "./PlanBlocksEditor";
@@ -15,7 +15,7 @@ export default async function PlanPage() {
     api.listPlanBlocks(),
     // **422 はエラーではなく「出せない理由」**（ブロック未登録・身長未設定など）。
     // ここで落とすとページごと開けなくなり、直しに行けない
-    tryTargets(),
+    tolerate(() => serverApi().monthlyTargets("configured"), [422]),
   ]);
 
   return (
@@ -34,29 +34,10 @@ export default async function PlanPage() {
         <PlanBlocksEditor blocks={blocks} saveBlocks={saveBlocks} />
         <MonthlyTargetsView
           initial={targets.value}
-          initialMessage={targets.message}
+          initialMessage={targets.unavailable}
           loadMonthlyTargets={loadMonthlyTargets}
         />
       </div>
     </main>
   );
-}
-
-async function tryTargets(): Promise<{ value: MonthlyTargets | null; message: string | null }> {
-  try {
-    return { value: await serverApi().monthlyTargets("configured"), message: null };
-  } catch (e) {
-    if (e instanceof ApiError) {
-      const field = e.problem?.errors?.[0];
-
-      return {
-        value: null,
-        message: field
-          ? `${field.field}: ${field.message}`
-          : (e.problem?.detail ?? e.problem?.title ?? e.message),
-      };
-    }
-
-    throw e;
-  }
 }
