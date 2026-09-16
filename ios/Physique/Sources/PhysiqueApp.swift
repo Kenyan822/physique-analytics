@@ -43,6 +43,8 @@ private struct MainTabs: View {
         TabView {
             LogView(api: api)
                 .tabItem { Label("記録", systemImage: "dumbbell") }
+            MealView(api: api)
+                .tabItem { Label("食事", systemImage: "fork.knife") }
             BodyView(api: api, health: HealthKitSource())
                 .tabItem { Label("体組成", systemImage: "figure") }
             SettingsView(auth: auth)
