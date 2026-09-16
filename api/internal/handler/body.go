@@ -189,6 +189,26 @@ func validateMeasurementInput(in openapi.BodyMeasurementInput) (field, message s
 	return "", ""
 }
 
+// enumValue は生成された enum 型。**値の一覧は openapi.yaml が正**で、
+// Valid() も生成物。ここで許可リストを手で書くと仕様とずれる。
+type enumValue interface {
+	~string
+	Valid() bool
+}
+
+// checkEnum は enum の値が定義どおりかを見る。
+//
+// **生成された型は文字列の別名でしかなく、代入時には値を縛らない。**
+// enum 外の値をそのまま DB に渡すと check 制約まで届いて 500 になり、
+// 入力ミスが「こちらの落ち度」として返る（#141）。
+func checkEnum[T enumValue](v T) string {
+	if v.Valid() {
+		return ""
+	}
+
+	return fmt.Sprintf("%q は使えない値", string(v))
+}
+
 func checkFloat(v *float32, lo, hi float32, minExclusive bool) string {
 	if v == nil {
 		return ""

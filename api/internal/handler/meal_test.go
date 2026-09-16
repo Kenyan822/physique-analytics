@@ -205,3 +205,75 @@ func TestCopyMeals_同じ日付なら400(t *testing.T) {
 		t.Errorf("status = %d, want 400, body = %s", rec.Code, rec.Body)
 	}
 }
+
+// --- enum の検証（#141） ---
+//
+// enum 外の値は DB の check 制約まで届いて 500 になっていた。
+// 500 は「こちらの落ち度」を意味するので、入力ミスがこれになると
+// 原因の切り分けができない。
+
+func TestCreateMeal_enum外のslotは422(t *testing.T) {
+	t.Parallel()
+
+	// "昼" は enum に無い（正しくは "昼食"）
+	rec := postJSON(t, mealServer(&stubMeals{}), http.MethodPost, "/v1/meals",
+		json.RawMessage(`{"date":"2032-05-01","name":"x","slot":"昼"}`))
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422, body = %s", rec.Code, rec.Body)
+	}
+	if !jsonContains(rec.Body.String(), "slot") {
+		t.Errorf("body = %s, want どの項目が不正か分かること", rec.Body)
+	}
+}
+
+func TestCreateMeal_enum外のsourceは422(t *testing.T) {
+	t.Parallel()
+
+	rec := postJSON(t, mealServer(&stubMeals{}), http.MethodPost, "/v1/meals",
+		json.RawMessage(`{"date":"2032-05-01","name":"x","source":"guess"}`))
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422, body = %s", rec.Code, rec.Body)
+	}
+}
+
+func TestCreateMeal_正しいslotは通る(t *testing.T) {
+	t.Parallel()
+
+	for _, slot := range []string{"朝食", "昼食", "夕食", "間食"} {
+		rec := postJSON(t, mealServer(&stubMeals{}), http.MethodPost, "/v1/meals",
+			json.RawMessage(`{"date":"2032-05-01","name":"x","slot":"`+slot+`"}`))
+
+		if rec.Code != http.StatusCreated {
+			t.Errorf("slot=%s: status = %d, want 201, body = %s", slot, rec.Code, rec.Body)
+		}
+	}
+}
+
+func TestCopyMeals_enum外のslotは弾く(t *testing.T) {
+	t.Parallel()
+
+	rec := postJSON(t, mealServer(&stubMeals{}), http.MethodPost, "/v1/meals/copy",
+		json.RawMessage(`{"fromDate":"2032-05-01","toDate":"2032-05-02","slot":"昼"}`))
+
+	if rec.Code == http.StatusInternalServerError {
+		t.Fatalf("500 になっている（入力ミスを「こちらの落ち度」にしない）: %s", rec.Body)
+	}
+	if rec.Code < 400 || rec.Code >= 500 {
+		t.Errorf("status = %d, want 4xx, body = %s", rec.Code, rec.Body)
+	}
+}
+
+func TestApplyMealSet_enum外のslotは422(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubMealSets{}
+	rec := postJSON(t, mealSetServer(stub), http.MethodPost,
+		"/v1/meal-sets/"+uuid.New().String()+"/apply",
+		json.RawMessage(`{"date":"2032-05-01","slot":"昼"}`))
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422, body = %s", rec.Code, rec.Body)
+	}
+}

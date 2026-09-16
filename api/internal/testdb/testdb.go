@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -62,6 +63,29 @@ func Begin(t *testing.T) pgx.Tx {
 	return tx
 }
 
+// maxConns はテスト用プールの上限。
+//
+// **既定（max(4, CPU数)）では CI で枯渇する。** 各テストは Begin から
+// Cleanup の Rollback まで接続を握り続けるが、Go は本体が終わった時点で
+// 次の並列テストを開始する。Cleanup はその後に走るので、
+// **同時に接続を握るテスト数が -parallel を超える**。
+//
+// CPU の少ない runner では既定が4本になり、そこで Begin が10秒待って落ちる。
+// 並列数に依存しない余裕を持たせる。
+func maxConns() int32 {
+	// Postgres の max_connections（既定100）を食い潰さない範囲で、
+	// -parallel（既定 GOMAXPROCS）より十分多くする。
+	// int32 への変換を挟まないのは、gosec G115（オーバーフロー）を避けるため
+	switch procs := runtime.GOMAXPROCS(0); {
+	case procs <= 4:
+		return 16
+	case procs <= 16:
+		return 64
+	default:
+		return 80
+	}
+}
+
 func connect(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 
@@ -74,7 +98,14 @@ func connect(t *testing.T) *pgxpool.Pool {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		p, err := pgxpool.New(ctx, dsn)
+		cfg, err := pgxpool.ParseConfig(dsn)
+		if err != nil {
+			poolErr = err
+			return
+		}
+		cfg.MaxConns = maxConns()
+
+		p, err := pgxpool.NewWithConfig(ctx, cfg)
 		if err != nil {
 			poolErr = err
 			return

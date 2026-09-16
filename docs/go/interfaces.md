@@ -59,3 +59,39 @@ PFC の連なりを2か所に書くと、片方だけ直したときに値が食
 
 **実際に1度やっている**（e1RM の窓の境界が API と reference でずれ、
 傾きが -0.84 と -0.31 に割れた）。共有できる形を探す価値がある。
+
+## 型集合とメソッドを同時に要求する制約
+
+生成された enum 型（`type MealSlot string`）は**文字列の別名でしかなく、代入時に値を縛らない**。
+`MealSlot("昼")` は普通に通り、DB の check 制約まで届いて 500 になっていた（#141）。
+
+検証する側で許可リストを手で並べると、`openapi.yaml` に値を足したときにずれる。
+生成物には `Valid()` が付いてくるので、それを使う。
+
+```go
+// 型集合（~string）とメソッド（Valid）を同じ制約に書ける
+type enumValue interface {
+	~string
+	Valid() bool
+}
+
+func checkEnum[T enumValue](v T) string {
+	if v.Valid() {
+		return ""
+	}
+
+	return fmt.Sprintf("%q は使えない値", string(v))
+}
+```
+
+**`~string` と メソッドを併記できるのがポイント。** インターフェースを「メソッドの集合」
+としか見ていないと思いつかない書き方で、Go 1.18 以降は**型集合**として扱う。
+`~` は「基底型が string の型すべて」の意味で、`MealSlot` / `PhotoPose` / `MuscleGroup` が
+まとめて入る。
+
+`string(v)` でメッセージに出せるのも `~string` のおかげ。制約が `Valid() bool` だけだと
+変換できない。
+
+**判断**: 許可リストを引数で受ける形（`checkEnum(v, openapi.Breakfast, ...)`）も書いたが、
+捨てた。仕様の写しが2箇所になり、片方だけ古くなる。生成物が知っていることを
+手で書き直さない。

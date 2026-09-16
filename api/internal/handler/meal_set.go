@@ -99,6 +99,12 @@ func (s *Server) ApplyMealSet(ctx context.Context, req openapi.ApplyMealSetReque
 		}, nil
 	}
 
+	if req.Body.Slot != nil {
+		if msg := checkEnum(*req.Body.Slot); msg != "" {
+			return applyMealSetFailed("slot", msg), nil
+		}
+	}
+
 	items, err := s.mealSets.Apply(ctx, req.MealSetId, req.Body.Date, req.Body.Slot)
 	if repository.IsNotFound(err) {
 		return openapi.ApplyMealSet404ApplicationProblemPlusJSONResponse{
@@ -178,6 +184,13 @@ func createMealSetFailed(field, message string) openapi.CreateMealSet422Applicat
 
 func updateMealSetFailed(field, message string) openapi.UpdateMealSet422ApplicationProblemPlusJSONResponse {
 	return openapi.UpdateMealSet422ApplicationProblemPlusJSONResponse{
+		ValidationFailedApplicationProblemPlusJSONResponse: openapi.ValidationFailedApplicationProblemPlusJSONResponse(
+			validationProblem(field, message)),
+	}
+}
+
+func applyMealSetFailed(field, message string) openapi.ApplyMealSet422ApplicationProblemPlusJSONResponse {
+	return openapi.ApplyMealSet422ApplicationProblemPlusJSONResponse{
 		ValidationFailedApplicationProblemPlusJSONResponse: openapi.ValidationFailedApplicationProblemPlusJSONResponse(
 			validationProblem(field, message)),
 	}
