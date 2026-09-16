@@ -46,3 +46,6 @@ ios/.build/
 ios/.swiftpm/
 DerivedData/
 *.xcuserdatap
+
+# Vercel のリンク情報。projectId / orgId が入る
+.vercel
