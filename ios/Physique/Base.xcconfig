@@ -1,0 +1,26 @@
+// ビルド設定の入口。**このファイルは commit する。**
+//
+// 個人の値（接続先・鍵・署名チーム）は末尾で読む Config.xcconfig に書く。
+// そちらは .gitignore に入れてあるので public リポジトリに入らない。
+//
+// プロジェクトに割り当て済みなので、Xcode の GUI 操作は要らない（#179）。
+
+// アプリの識別子。**com.example.* にしない。**
+// 無料の Personal Team は App ID を自動登録するため、他人が押さえている
+// 名前だと "The app identifier cannot be registered" で止まる。
+// リポジトリの所有者から引いた一意な値にしてある。
+PRODUCT_BUNDLE_IDENTIFIER = io.github.kenyan822.physique
+
+// 接続先の既定値。**実機では localhost に届かない**ので、
+// Config.xcconfig で実際の URL に差し替える。
+API_BASE_URL = http:/$()/localhost:8080
+SUPABASE_URL =
+SUPABASE_ANON_KEY =
+
+// 署名チーム。Config.xcconfig で自分の Team ID を入れる。
+// 空のままだと Xcode が「Signing requires a development team」と言う。
+DEVELOPMENT_TEAM =
+
+// **`?` 付きなので、ファイルが無くてもビルド設定の読み込みで落ちない。**
+// 後から読む方が勝つので、ここで上書きできる。
+#include? "Config.xcconfig"

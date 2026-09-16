@@ -1,11 +1,9 @@
-// 接続先と鍵。**このファイルをコピーして Config.xcconfig を作る。**
+// 接続先・鍵・署名チーム。**このファイルをコピーして Config.xcconfig を作る。**
 //
 //   cp Physique/Config.xcconfig.example Physique/Config.xcconfig
 //
 // Config.xcconfig は .gitignore に入れてある。実値を public リポジトリに入れない。
-//
-// Xcode: PROJECT > Info > Configurations で Debug / Release の両方に
-// この xcconfig を割り当てる。
+// Base.xcconfig から読まれるので、**Xcode での割り当て操作は要らない**。
 
 // Cloud Run の URL。**実機では localhost に届かない**
 API_BASE_URL = https:/$()/physique-api-xxxx-an.a.run.app
@@ -15,3 +13,14 @@ SUPABASE_URL = https:/$()/xxxxxxxx.supabase.co
 
 // 公開前提の鍵。ブラウザにも載るもので、単体では何も読めない
 SUPABASE_ANON_KEY = eyJ...
+
+// 署名チーム（10桁）。Xcode > Settings > Accounts で Apple ID を追加すると出る。
+// Personal Team なら Xcode の Signing & Capabilities に表示される ID を写す。
+//
+// **ここに書く理由**: Xcode の GUI で設定すると project.pbxproj に書き込まれ、
+// 個人の Team ID が public リポジトリに入る。
+DEVELOPMENT_TEAM = XXXXXXXXXX
+
+// bundle ID を変えたいときだけ書く（既定は Base.xcconfig）。
+// 他の Apple ID で入れる場合など、衝突したら変える
+// PRODUCT_BUNDLE_IDENTIFIER = io.github.example.physique

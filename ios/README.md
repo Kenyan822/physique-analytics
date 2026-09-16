@@ -12,25 +12,66 @@ iOS の存在理由は「ジムでの入力速度」と「HealthKit 連携」。
 | `PhysiqueTests/` | `swift test` で回すテスト |
 | `Package.swift` | Xcode を開かずにロジックを回すための SPM 定義 |
 
-## 実機で動かす前に
+## 実機で動かす
 
-**接続先と鍵を入れないと動かない。** 未設定だと `localhost:8080` を見にいき、
-実機からは届かない。
+### 1. 接続先と鍵を入れる
 
 ```bash
 cp Physique/Config.xcconfig.example Physique/Config.xcconfig
-# 中身を実値に置き換える
 ```
-
-Xcode の `PROJECT > Info > Configurations` で Debug / Release の両方に
-この xcconfig を割り当てる。`Config.xcconfig` は `.gitignore` に入れてある
-（実値を public リポジトリに入れない）。
 
 | 変数 | 中身 |
 |---|---|
-| `API_BASE_URL` | Cloud Run の URL |
+| `API_BASE_URL` | Cloud Run の URL。**未設定だと `localhost:8080` を見にいき、実機からは届かない** |
 | `SUPABASE_URL` | Supabase のプロジェクト URL |
 | `SUPABASE_ANON_KEY` | 公開前提の鍵。単体では何も読めない（DB は RLS で閉じている） |
+| `DEVELOPMENT_TEAM` | 署名チーム（10桁）。次項 |
+
+**Xcode での割り当て操作は要らない。** `Physique/Base.xcconfig` がプロジェクトに
+接続済みで、その末尾から `#include? "Config.xcconfig"` している。
+`?` 付きなのでファイルが無くてもビルドは通る（既定値で動く）。
+
+`Config.xcconfig` は `.gitignore` に入れてある。実値を public リポジトリに入れない。
+
+### 2. Apple ID を入れて Team ID を調べる
+
+無料の Apple ID で足りる（**7日で切れる**。§「7日で切れる」）。
+
+1. `Xcode > Settings > Accounts` で Apple ID を追加する
+2. `Physique.xcodeproj` を開き、`TARGETS > Physique > Signing & Capabilities`
+3. `Team` に `(自分の名前) (Personal Team)` を選ぶ
+4. 同じ画面に出る **Team ID（10桁）** を `Config.xcconfig` の `DEVELOPMENT_TEAM` に書く
+
+**4 をやったら 3 の GUI 設定は戻してよい。** GUI で設定すると `project.pbxproj`
+（commit 対象）に個人の Team ID が書き込まれるため、xcconfig 側で渡す。
+
+bundle ID は `io.github.kenyan822.physique`。**`com.example.*` にしない** ——
+Personal Team は App ID を自動登録するので、他人が押さえている名前だと
+`The app identifier cannot be registered` で止まる。
+
+### 3. iPhone 側の準備
+
+1. USB で Mac に繋ぎ、「このコンピュータを信頼しますか？」に **信頼**
+2. iPhone の `設定 > プライバシーとセキュリティ > デベロッパモード` を **オン**（再起動する）
+3. Xcode 左上のデバイス選択で自分の iPhone を選ぶ
+4. **⌘R**
+
+初回起動時に「信頼されていないデベロッパ」と出たら、
+iPhone の `設定 > 一般 > VPNとデバイス管理` で自分の Apple ID を **信頼**する。
+
+### 7日で切れる
+
+無料アカウントの provisioning profile は **7日で失効**し、アプリが起動しなくなる。
+切れたら Xcode から ⌘R で入れ直す。**記録は消えない**（データは Cloud Run の先にある）。
+
+有料の Apple Developer Program（年 $99）に入れば1年になるが、
+[docs/05-インフラ設計.md](../docs/05-インフラ設計.md) の方針では当面申請しない。
+
+### HealthKit はまだ動かない
+
+`Apple Health から取り込む` は失敗する。HealthKit の entitlement は
+**Personal Team では付けられない**ため。押しても落ちず、理由が画面に出るだけで、
+体組成の手入力・食事・トレーニング記録は動く。有料アカウントに移すときに対応する。
 
 ## ログイン
 
