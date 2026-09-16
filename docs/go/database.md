@@ -239,3 +239,47 @@ create table profile (
 
 `insert ... on conflict (id) do update` がそのまま upsert になるのも利点。
 複数ユーザーに広げるときは `user_id` を足して主キーを変える。
+
+## t.Parallel() と接続プールの枯渇
+
+DB を使うテストが CI でだけ落ちた。
+
+```
+--- FAIL: TestCreateMeal_記録して一覧で引ける (10.01s)
+    トランザクションを開始できない: context deadline exceeded
+```
+
+**`p.Begin(ctx)` の10秒超過は接続待ち。** BEGIN 自体はロックを待たないので、
+「ロック競合で遅い」ではなく**プールから接続を取れていない**。
+
+### なぜ -parallel と同数では足りないのか
+
+各テストは `Begin` から `t.Cleanup` の `Rollback` まで接続を握る。ところが
+**Go は本体が終わった時点で次の並列テストを始める。Cleanup はその後**。
+
+```
+テストA: [Begin ────── 本体終了 ─ Cleanup(Rollback)]
+テストB:                    [Begin ────────────────]
+                             ↑ ここでAはまだ接続を握っている
+```
+
+つまり**同時に接続を握るテスト数が `-parallel` を超える**。`pgxpool` の既定は
+`max(4, CPU数)` なので、CPU の少ない runner では4本しかなく、そこで詰まる。
+
+手元（10コア → 10本）では出ず、CI（2〜4コア → 4本）でだけ出る。
+
+### 直し方
+
+```go
+cfg, err := pgxpool.ParseConfig(dsn)
+if err != nil { ... }
+cfg.MaxConns = maxConns()          // 並列数に依存しない余裕を持たせる
+p, err := pgxpool.NewWithConfig(ctx, cfg)
+```
+
+`pgxpool.New(ctx, dsn)` は設定を触れない。**`ParseConfig` → 書き換え →
+`NewWithConfig`** が設定を変える手順。DSN に `pool_max_conns=4` が書いてあっても
+`cfg.MaxConns` の代入が勝つ（再現テストで確認した）。
+
+**判断**: `-parallel` を絞る手もあるが、テストが増えるたびに遅くなる。
+接続は安いので、上限を上げる方を選んだ。
