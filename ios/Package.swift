@@ -20,7 +20,7 @@ let package = Package(
             exclude: [
                 "Info.plist", "PhysiqueApp.swift",
                 // UI と HealthKit は iOS 専用。macOS ビルドで落ちる
-                "LogView.swift", "BodyView.swift", "HealthKitSource.swift",
+                "LogView.swift", "BodyView.swift", "HealthKitSource.swift", "LoginView.swift",
             ]
         ),
         .testTarget(

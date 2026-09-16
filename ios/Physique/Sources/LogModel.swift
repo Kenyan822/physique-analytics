@@ -211,15 +211,29 @@ final class LogModel {
     }
 }
 
-/// 接続先。`Info.plist` の `API_BASE_URL` を使い、無ければローカル。
+/// 接続先と鍵。すべて `Info.plist` から読む。
+///
+/// **実機では localhost に届かない。** 未設定のまま実機に入れると、
+/// 何をしても通信できない画面になる。ビルド設定で必ず入れる。
 enum AppConfig {
     static var apiBaseURL: URL {
-        if let s = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String,
-           let url = URL(string: s) {
-            return url
-        }
+        url(for: "API_BASE_URL") ?? URL(string: "http://localhost:8080")!
+    }
 
-        // シミュレータからは localhost がそのまま届く
-        return URL(string: "http://localhost:8080")!
+    /// Supabase のプロジェクト URL。ログインに使う
+    static var supabaseURL: URL? { url(for: "SUPABASE_URL") }
+
+    /// 公開前提の鍵。単体では何も読めない（DB は RLS で閉じている）
+    static var supabaseAnonKey: String? { string(for: "SUPABASE_ANON_KEY") }
+
+    private static func string(for key: String) -> String? {
+        guard let s = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+              !s.isEmpty else { return nil }
+
+        return s
+    }
+
+    private static func url(for key: String) -> URL? {
+        string(for: key).flatMap(URL.init(string:))
     }
 }

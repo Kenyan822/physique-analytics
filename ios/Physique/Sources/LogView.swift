@@ -5,7 +5,11 @@ import SwiftUI
 /// **片手・手袋・汗の状態で使える**ことが最優先。数値はキーボードではなく
 /// ステッパーで刻み、RIR は1タップで選ぶ。
 struct LogView: View {
-    @State private var model = LogModel()
+    @State private var model: LogModel
+
+    init(api: APIClient = APIClient(baseURL: AppConfig.apiBaseURL)) {
+        _model = State(initialValue: LogModel(api: api))
+    }
 
     var body: some View {
         NavigationStack {
