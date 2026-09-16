@@ -95,7 +95,8 @@ pnpm build
 | 変数 | 内容 |
 |---|---|
 | `API_BASE_URL` | API の場所。**サーバ側でだけ使う**（ブラウザに露出しない） |
-| `API_TOKEN` | Supabase の JWT。API 側の認証を有効にしている場合に要る |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase のプロジェクト URL。**ブラウザに載る**（公開前提） |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase の anon key。**ブラウザに載る**（公開前提）。単体では何も読めない |
 
 ## Next.js 16
 
