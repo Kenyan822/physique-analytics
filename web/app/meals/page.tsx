@@ -4,6 +4,7 @@ import { tolerate } from "@/lib/api/tolerate";
 import { formatJstDate, todayJst } from "@/lib/jst";
 
 import { MealForm } from "./MealForm";
+import { defaultSlot } from "./slot";
 import {
   applyMealSet,
   copyMeals,
@@ -37,6 +38,7 @@ export default async function MealsPage() {
           <MealForm
             date={date}
             yesterday={yesterday}
+            initialSlot={defaultSlot()}
             recorded={items}
             targets={targets.value}
             targetsUnavailable={targets.unavailable}
