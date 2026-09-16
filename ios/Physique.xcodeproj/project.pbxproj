@@ -10,19 +10,8 @@
 		A1000001000000000000003 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Base.xcconfig; path = Physique/Base.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		A1000001000000000000001 /* Sources */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				A1000001000000000000002 /* Exceptions */,
-			);
-			path = Physique/Sources;
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
-
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		A1000001000000000000002 /* Exceptions */ = {
+		A1000001000000000000002 /* Exceptions for "Physique/Sources" folder in "Physique" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -30,6 +19,17 @@
 			target = A1000001000000000000010 /* Physique */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		A1000001000000000000001 /* Physique/Sources */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A1000001000000000000002 /* Exceptions for "Physique/Sources" folder in "Physique" target */,
+			);
+			path = Physique/Sources;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A1000001000000000000020 /* Frameworks */ = {
@@ -46,7 +46,7 @@
 			isa = PBXGroup;
 			children = (
 				A1000001000000000000003 /* Base.xcconfig */,
-				A1000001000000000000001 /* Sources */,
+				A1000001000000000000001 /* Physique/Sources */,
 				A1000001000000000000031 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -54,7 +54,6 @@
 		A1000001000000000000031 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A1000001000000000000040 /* Physique.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -75,11 +74,10 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				A1000001000000000000001 /* Sources */,
+				A1000001000000000000001 /* Physique/Sources */,
 			);
 			name = Physique;
 			productName = Physique;
-			productReference = A1000001000000000000040 /* Physique.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -152,8 +150,8 @@
 					"DEBUG=1",
 					"$(inherited)",
 				);
-				"IPHONEOS_DEPLOYMENT_TARGET[sdk=iphoneos*]" = 17.0;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				"IPHONEOS_DEPLOYMENT_TARGET[sdk=iphoneos*]" = 17.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -173,8 +171,8 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				"IPHONEOS_DEPLOYMENT_TARGET[sdk=iphoneos*]" = 17.0;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				"IPHONEOS_DEPLOYMENT_TARGET[sdk=iphoneos*]" = 17.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
