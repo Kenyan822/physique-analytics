@@ -138,6 +138,42 @@ struct APIClient: Sendable {
         )
     }
 
+    // MARK: - 食事（要件 N-01 / N-02 / N-05）
+
+    func listMeals(from: String, to: String) async throws -> [Meal] {
+        struct Response: Decodable { let items: [Meal] }
+
+        return try await request(
+            Response.self, "GET", "v1/meals",
+            query: [.init(name: "from", value: from), .init(name: "to", value: to)]
+        ).items
+    }
+
+    func createMeal(_ input: MealInput) async throws -> Meal {
+        try await request(Meal.self, "POST", "v1/meals", body: input)
+    }
+
+    func deleteMeal(id: UUID) async throws {
+        try await requestNoContent("DELETE", "v1/meals/\(id.uuidString.lowercased())")
+    }
+
+    /// 過去の記録から候補を引く（要件 N-02）。
+    /// **食品マスタを持たない**ので、記録がそのままマスタになる
+    func mealSuggestions(query: String = "", limit: Int = 20) async throws -> [MealSuggestion] {
+        struct Response: Decodable { let items: [MealSuggestion] }
+
+        return try await request(
+            Response.self, "GET", "v1/meals/suggestions",
+            query: [.init(name: "q", value: query), .init(name: "limit", value: String(limit))]
+        ).items
+    }
+
+    /// その日の摂取目標（要件 N-05）。
+    /// **フェーズ未登録だと 422 になる。** 呼ぶ側で「まだ出せない」として扱う
+    func dailyTargets(date: String) async throws -> DailyTargets {
+        try await request(DailyTargets.self, "GET", "v1/targets/\(date)")
+    }
+
     // MARK: - 体組成（要件 B-02 / B-03 / B-06）
 
     func listDailyMetrics(from: String, to: String) async throws -> [DailyMetrics] {
@@ -170,6 +206,11 @@ struct APIClient: Sendable {
         s.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? s
     }
 
+    /// 本文を返さない経路（204）。読もうとすると decoding で落ちる
+    private func requestNoContent(_ method: String, _ path: String) async throws {
+        _ = try await sendRequest(method, path, query: [], body: Optional<Never>.none)
+    }
+
     private func request<T: Decodable>(
         _ type: T.Type,
         _ method: String,
@@ -177,6 +218,23 @@ struct APIClient: Sendable {
         query: [URLQueryItem] = [],
         body: (some Encodable)? = Optional<String>.none
     ) async throws -> T {
+        let data = try await sendRequest(method, path, query: query, body: body)
+
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            throw APIError.decoding(error)
+        }
+    }
+
+    /// 送って本文をそのまま返す。**デコードしない** ——
+    /// 204 のように本文が無い応答もあるため、解釈は呼ぶ側に任せる
+    private func sendRequest(
+        _ method: String,
+        _ path: String,
+        query: [URLQueryItem],
+        body: (some Encodable)?
+    ) async throws -> Data {
         var components = URLComponents(
             url: baseURL.appendingPathComponent(path),
             resolvingAgainstBaseURL: false
@@ -218,10 +276,6 @@ struct APIClient: Sendable {
             throw APIError.http(status: http.statusCode, problem: problem)
         }
 
-        do {
-            return try JSONDecoder().decode(T.self, from: data)
-        } catch {
-            throw APIError.decoding(error)
-        }
+        return data
     }
 }
