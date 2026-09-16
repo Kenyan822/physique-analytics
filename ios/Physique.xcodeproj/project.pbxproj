@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXFileReference section */
+		A1000001000000000000003 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Base.xcconfig; path = Physique/Base.xcconfig; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A1000001000000000000001 /* Sources */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -41,6 +45,7 @@
 		A1000001000000000000030 = {
 			isa = PBXGroup;
 			children = (
+				A1000001000000000000003 /* Base.xcconfig */,
 				A1000001000000000000001 /* Sources */,
 				A1000001000000000000031 /* Products */,
 			);
@@ -134,6 +139,7 @@
 /* Begin XCBuildConfiguration section */
 		A1000001000000000000070 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1000001000000000000003 /* Base.xcconfig */;
 			buildSettings = {
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
@@ -159,6 +165,7 @@
 		};
 		A1000001000000000000071 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1000001000000000000003 /* Base.xcconfig */;
 			buildSettings = {
 				CLANG_ENABLE_OBJC_WEAK = YES;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
@@ -194,7 +201,6 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.physique;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -219,7 +225,6 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.physique;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = 1;
