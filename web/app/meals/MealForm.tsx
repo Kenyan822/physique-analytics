@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useState, useTransition } from "react";
 
 import type {
@@ -22,8 +23,13 @@ type Props = {
   /** 前日の日付。1操作で写せるようにする（要件 N-04） */
   yesterday: string;
   recorded: Meal[];
-  /** その日の摂取目標（要件 N-05）。TDEE を推定できないときは target が無い */
-  targets: DailyTargets;
+  /**
+   * その日の摂取目標（要件 N-05）。TDEE を推定できないときは target が無い。
+   * **フェーズ未登録だと目標そのものを出せない**ので null になる
+   */
+  targets: DailyTargets | null;
+  /** 目標を出せない理由。出せていれば null */
+  targetsUnavailable: string | null;
   /** 保存してある食事セット（要件 N-03） */
   mealSets: MealSet[];
   loadSuggestions: (q: string) => Promise<MealSuggestion[]>;
@@ -55,6 +61,7 @@ export function MealForm({
   yesterday,
   recorded,
   targets,
+  targetsUnavailable,
   mealSets,
   loadSuggestions,
   createMeal,
@@ -179,17 +186,25 @@ export function MealForm({
     <div className="px-4 pb-12 lg:grid lg:grid-cols-[28rem_minmax(0,1fr)] lg:items-start lg:gap-8 lg:px-6">
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-4 gap-2">
-          <Total label="kcal" value={totals.kcal} target={targets.target?.kcal} />
-          <Total label="P" value={totals.proteinG} unit="g" target={targets.target?.proteinG} />
-          <Total label="F" value={totals.fatG} unit="g" target={targets.target?.fatG} />
-          <Total label="C" value={totals.carbG} unit="g" target={targets.target?.carbG} />
+          <Total label="kcal" value={totals.kcal} target={targets?.target?.kcal} />
+          <Total label="P" value={totals.proteinG} unit="g" target={targets?.target?.proteinG} />
+          <Total label="F" value={totals.fatG} unit="g" target={targets?.target?.fatG} />
+          <Total label="C" value={totals.carbG} unit="g" target={targets?.target?.carbG} />
         </div>
-        {targets.target == null && targets.note && (
+        {targetsUnavailable && (
+          <p className="rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
+            目標を出せない: {targetsUnavailable}
+            <Link href="/settings" className="ml-1 underline">
+              設定へ
+            </Link>
+          </p>
+        )}
+        {targets?.target == null && targets?.note && (
           <p className="rounded-xl border border-line bg-surface px-3 py-2 text-xs text-muted">
             {targets.note}
           </p>
         )}
-        {targets.intakeFloorHit && (
+        {targets?.intakeFloorHit && (
           <p className="rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
             摂取が下限に達している。これ以上削らず、歩数で赤字を作る
           </p>

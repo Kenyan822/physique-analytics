@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { serverApi } from "@/lib/api/server";
+import { tolerate } from "@/lib/api/tolerate";
 import { formatJstDate, todayJst } from "@/lib/jst";
 
 import { MealForm } from "./MealForm";
@@ -22,7 +23,9 @@ export default async function MealsPage() {
   const api = serverApi();
   const [{ items }, targets, { items: mealSets }] = await Promise.all([
     api.listMeals({ from: date, to: date }),
-    api.dailyTargets(date),
+    // **422 で画面を落とさない。** フェーズ未登録は「まだ目標を出せない」であって
+    // 異常ではない。ここで throw すると記録そのものができなくなる
+    tolerate(() => api.dailyTargets(date), [422]),
     api.listMealSets(),
   ]);
 
@@ -43,7 +46,8 @@ export default async function MealsPage() {
           date={date}
           yesterday={yesterday}
           recorded={items}
-          targets={targets}
+          targets={targets.value}
+          targetsUnavailable={targets.unavailable}
           mealSets={mealSets}
           loadSuggestions={loadSuggestions}
           createMeal={createMeal}

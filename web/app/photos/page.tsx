@@ -1,14 +1,15 @@
 import Link from "next/link";
 
-import { ApiError, type BodyPhoto } from "@/lib/api/client";
 import { serverApi } from "@/lib/api/server";
+import { tolerate } from "@/lib/api/tolerate";
 
 import { PhotoTimeline } from "./PhotoTimeline";
 
 export const metadata = { title: "写真 | physique" };
 
 export default async function PhotosPage() {
-  const { photos, unavailable } = await load();
+  // R2 未設定の 503 は「まだ使えない」であって異常ではない（ADR-0008）
+  const { value, unavailable } = await tolerate(() => serverApi().listPhotos({}), [503]);
 
   return (
     <main className="mx-auto w-full max-w-md lg:max-w-4xl">
@@ -29,7 +30,7 @@ export default async function PhotosPage() {
             <p className="mt-1 text-xs text-warn/90">{unavailable}</p>
           </div>
         ) : (
-          <PhotoTimeline photos={photos} />
+          <PhotoTimeline photos={value?.items ?? []} />
         )}
       </div>
     </main>
@@ -40,16 +41,3 @@ export default async function PhotosPage() {
  * **503 でページを落とさない。** 保存先（R2）は課金の判断が要るので
  * 未設定のまま動く（ADR-0008）。設定方法はサーバが detail で返してくる。
  */
-async function load(): Promise<{ photos: BodyPhoto[]; unavailable: string | null }> {
-  try {
-    const { items } = await serverApi().listPhotos({});
-
-    return { photos: items, unavailable: null };
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 503) {
-      return { photos: [], unavailable: e.problem?.detail ?? "R2 の設定が要る" };
-    }
-
-    throw e;
-  }
-}
