@@ -27,7 +27,11 @@
 | | 置き場所 | 公開 |
 |---|---|---|
 | **Go の実装で学んだこと** | `docs/go/<トピック>.md` | **する**（ポートフォリオの一部） |
+| **Swift / iOS の実装で学んだこと** | `docs/swift/<トピック>.md` | **する**（同上） |
 | **サービス・概念の理解メモ**（Sentry とは何か、等） | `private/learning/<トピック>.md` | しない |
+
+Swift も同じ扱いにする（[docs/swift/README.md](docs/swift/README.md)）。
+索引は各 README の表に追加する。
 
 ### 書き方
 
@@ -320,6 +324,7 @@ cd reference && python3 analysis/analyze.py
 | `docs/` | 要件・データモデル・分析ロジック・アーキテクチャ・インフラ |
 | `docs/adr/` | 設計判断の記録 |
 | `docs/go/` | **Go の学び**（公開する。上記ルール） |
+| `docs/swift/` | **Swift / iOS の学びと仕組み**（公開する） |
 | `private/learning/` | **個人の学習メモ**（公開しない）。サービスや概念の理解用 |
 | `infra/` | Terraform。**シークレットの値は state に入れない**（[ADR-0012](docs/adr/0012-terraform.md)） |
 | `private/` | 個人データ。`.gitignore` |

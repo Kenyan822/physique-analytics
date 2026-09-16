@@ -2,6 +2,8 @@
 
 このプロジェクトは Go の学習を兼ねている（[ADR-0006](../adr/0006-go-backend.md)）。実装中に学んだことをトピック別に記録する。
 
+iOS 側は [docs/swift/](../swift/)。
+
 ## 何を書くか
 
 **学習目的なので幅広く書く。** 自分の言葉で書くこと自体が学習になり、検索し直すより手元にある方が速い。
@@ -47,6 +49,8 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 
 | トピック | 内容 |
 |---|---|
+| [request-flow.md](request-flow.md) | **リクエストが入ってから返るまで**。配線・認証・生成物・ハンドラ・SQL を1本の線で |
+| [codegen.md](codegen.md) | **oapi-codegen** が何を作り、どう繋がるか。strict server の効き目 |
 | [project-layout.md](project-layout.md) | `go.mod` の `go` と `toolchain`、`internal/`、`go tool` によるツール管理 |
 | [directory-layout.md](directory-layout.md) | **api/ の構成**。各パッケージの役割、依存の向き、ファイルの分け方 |
 | [http-server.md](http-server.md) | `ServeMux`、タイムアウト、グレースフルシャットダウン、`log/slog` |
