@@ -42,7 +42,11 @@ export function PhotoTimeline({ photos }: Props) {
       {groups.map((g) => (
         <section key={g.date} className="rounded-2xl border border-line bg-surface p-4">
           <h2 className="tnum mb-3 text-sm font-semibold">{g.date}</h2>
-          <ul className="grid grid-cols-3 gap-2 lg:gap-4">
+          {/*
+           * 狭い画面は3枚（正面・側面・背面が1行に収まる）。
+           * 広い画面で3枚のままだと1枚が大きすぎて、日付をまたいで見比べられない
+           */}
+          <ul className="grid grid-cols-3 gap-2 md:grid-cols-6 lg:gap-4 xl:grid-cols-9">
             {g.photos.map((p) => (
               <li key={p.id} className="flex flex-col gap-1.5">
                 <Frame photo={p} />
