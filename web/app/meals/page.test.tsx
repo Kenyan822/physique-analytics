@@ -18,6 +18,11 @@ const api = {
 vi.mock("@/lib/api/server", () => ({ serverApi: () => api }));
 // アクションは列挙せず、下層だけ差し替える（app/__tests__/pages.test.tsx と同じ理由）
 vi.mock("server-only", () => ({}));
+vi.mock("next/navigation", () => ({
+  redirect: vi.fn(),
+  notFound: vi.fn(),
+  usePathname: () => "/",
+}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn() }));
 
 const targets: DailyTargets = {

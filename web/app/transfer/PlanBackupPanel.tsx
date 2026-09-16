@@ -81,12 +81,11 @@ export function PlanBackupPanel({ exportPlan, importPlan }: Props) {
     <section className="rounded-2xl border border-line bg-surface p-4">
       <div className="mb-3 flex items-baseline justify-between gap-2">
         <h2 className="text-sm font-medium">計画の設定</h2>
-        <span className="text-[11px] text-muted">CSV には含まれない</span>
+        <span className="text-[11px] text-muted">記録とは別に保存する</span>
       </div>
 
       <p className="mb-3 text-[11px] text-muted">
-        フェーズ・栄養パラメータ・部位別 MEV/MRV・月次目標の起点・計画ブロック。 DB
-        を消すと3年計画の設計値が消えるので、記録とは別に保管する。
+        フェーズ・栄養・MEV/MRV・起点・ブロック。消えると計画を組み直すことになる。
       </p>
 
       <button
@@ -95,7 +94,7 @@ export function PlanBackupPanel({ exportPlan, importPlan }: Props) {
         disabled={pending}
         className="pressable h-11 w-full rounded-xl border border-line text-sm disabled:opacity-40"
       >
-        {pending ? "処理中…" : "設定を書き出す（JSON）"}
+        {pending ? "処理中…" : "設定を保存"}
       </button>
 
       <input

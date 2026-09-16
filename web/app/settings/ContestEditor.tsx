@@ -85,7 +85,7 @@ export function ContestEditor({ contests, today, createContest, deleteContest }:
       </div>
 
       {list.length === 0 ? (
-        <p className="text-sm text-muted">まだ無い。日程が出る前でも、月末の日付で入れておける</p>
+        <p className="text-sm text-muted">まだ無い。日程が決まる前は月末の日付で入れておく</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {list.map((c) => (

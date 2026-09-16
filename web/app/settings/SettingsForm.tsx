@@ -54,7 +54,7 @@ export function SettingsForm({ plan, today, savePlan }: Props) {
   }
 
   return (
-    <div className="flex flex-col gap-4 px-4 pb-28 lg:px-6">
+    <div className="flex flex-col gap-4 px-4 pb-28 lg:px-0">
       <section className="rounded-2xl border border-line bg-surface p-4">
         <h2 className="mb-3 text-sm font-medium">身体</h2>
         <label className="block">

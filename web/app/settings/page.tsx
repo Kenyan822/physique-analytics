@@ -1,5 +1,4 @@
-import Link from "next/link";
-
+import { SiteHeader } from "@/app/SiteHeader";
 import { serverApi } from "@/lib/api/server";
 import { todayJst } from "@/lib/jst";
 
@@ -20,35 +19,35 @@ export default async function SettingsPage() {
   );
 
   return (
-    <main className="mx-auto w-full max-w-md lg:max-w-3xl">
-      <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-bg/95 px-4 py-3 backdrop-blur lg:px-6 lg:py-4">
-        <h1 className="text-lg font-semibold lg:text-xl">設定</h1>
-        <Link
-          href="/"
-          className="pressable rounded-full border border-line px-3 py-1.5 text-sm text-muted"
-        >
-          今日の記録
-        </Link>
-      </header>
+    <>
+      <SiteHeader title="設定" />
 
-      <div className="pt-4">
-        <div className="flex flex-col gap-4 px-4 pb-4 lg:px-6">
-          <TemplateEditor
-            templates={templates}
-            exercises={exercises}
-            createTemplate={createTemplate}
-            updateTemplate={updateTemplate}
-            deleteTemplate={deleteTemplate}
-          />
-          <ContestEditor
-            contests={contests}
-            today={today}
-            createContest={createContest}
-            deleteContest={deleteContest}
-          />
+      <main className="mx-auto w-full max-w-6xl">
+        {/*
+         * 画面が広いときは2列にする。1列のまま伸ばすと、入力欄が横に間延びして
+         * どこを見ればいいか分からなくなる
+         */}
+        <div className="pt-4 lg:grid lg:grid-cols-2 lg:items-start lg:gap-6 lg:px-6">
+          <div className="flex flex-col gap-4 px-4 pb-4 lg:px-0">
+            <TemplateEditor
+              templates={templates}
+              exercises={exercises}
+              createTemplate={createTemplate}
+              updateTemplate={updateTemplate}
+              deleteTemplate={deleteTemplate}
+            />
+            <ContestEditor
+              contests={contests}
+              today={today}
+              createContest={createContest}
+              deleteContest={deleteContest}
+            />
+          </div>
+          <div className="lg:contents">
+            <SettingsForm plan={plan} today={today} savePlan={savePlan} />
+          </div>
         </div>
-        <SettingsForm plan={plan} today={today} savePlan={savePlan} />
-      </div>
-    </main>
+      </main>
+    </>
   );
 }

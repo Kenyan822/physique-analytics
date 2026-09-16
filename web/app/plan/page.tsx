@@ -1,5 +1,4 @@
-import Link from "next/link";
-
+import { SiteHeader } from "@/app/SiteHeader";
 import { serverApi } from "@/lib/api/server";
 import { tolerate } from "@/lib/api/tolerate";
 
@@ -19,25 +18,19 @@ export default async function PlanPage() {
   ]);
 
   return (
-    <main className="mx-auto w-full max-w-md lg:max-w-4xl">
-      <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-line bg-bg/95 px-4 py-3 backdrop-blur lg:px-6 lg:py-4">
-        <h1 className="text-lg font-semibold lg:text-xl">3年計画</h1>
-        <Link
-          href="/"
-          className="pressable rounded-full border border-line px-3 py-1.5 text-sm text-muted"
-        >
-          今日の記録
-        </Link>
-      </header>
+    <>
+      <SiteHeader title="3年計画" />
 
-      <div className="flex flex-col gap-4 px-4 py-4 lg:px-6">
-        <PlanBlocksEditor blocks={blocks} saveBlocks={saveBlocks} />
-        <MonthlyTargetsView
-          initial={targets.value}
-          initialMessage={targets.unavailable}
-          loadMonthlyTargets={loadMonthlyTargets}
-        />
-      </div>
-    </main>
+      <main className="mx-auto w-full max-w-6xl">
+        <div className="flex flex-col gap-4 px-4 py-4 lg:px-6">
+          <PlanBlocksEditor blocks={blocks} saveBlocks={saveBlocks} />
+          <MonthlyTargetsView
+            initial={targets.value}
+            initialMessage={targets.unavailable}
+            loadMonthlyTargets={loadMonthlyTargets}
+          />
+        </div>
+      </main>
+    </>
   );
 }

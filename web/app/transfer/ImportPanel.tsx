@@ -47,7 +47,7 @@ export function ImportPanel({ importCsv }: Props) {
     <section className="rounded-2xl border border-line bg-surface p-4">
       <div className="mb-3 flex items-baseline justify-between gap-2">
         <h2 className="text-sm font-medium">取り込む</h2>
-        <span className="text-[11px] text-muted">アプリ以前の記録を入れる</span>
+        <span className="text-[11px] text-muted">アプリ以前の記録</span>
       </div>
 
       <div className="flex gap-2 overflow-x-auto">
