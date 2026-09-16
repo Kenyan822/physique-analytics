@@ -107,7 +107,7 @@ struct MealModelTests {
     func initialSlot() {
         var c = DateComponents()
         c.year = 2026; c.month = 9; c.day = 16; c.hour = 12
-        let noon = Calendar.jst.date(from: c)!
+        let noon = JST.calendar.date(from: c)!
         let (client, _) = api([emptyMeals, targets])
 
         let model = MealModel(api: client, date: "2026-09-16", now: noon)
