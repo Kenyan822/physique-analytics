@@ -49,3 +49,6 @@ DerivedData/
 
 # iOS の接続先と鍵。Config.xcconfig.example をコピーして作る
 ios/Physique/Config.xcconfig
+
+# Vercel のリンク情報。projectId / orgId が入る
+.vercel
