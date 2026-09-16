@@ -5,18 +5,14 @@ import Testing
 
 @Suite("食事の区分")
 struct MealSlotTests {
+    /// **JST で組み立てる。** 素の `Calendar` は端末のタイムゾーンで Date を作るので、
+    /// UTC で走る CI だと9時間ずれて全ケースが落ちる。
     private func slot(hour: Int) -> MealSlot {
         var c = DateComponents()
         c.year = 2026; c.month = 9; c.day = 16; c.hour = hour
-        let date = Calendar(identifier: .gregorian).date(from: c)!
+        let date = JST.calendar.date(from: c)!
 
-        return MealSlot.suggested(at: date, calendar: jstCalendar)
-    }
-
-    private var jstCalendar: Calendar {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = TimeZone(identifier: "Asia/Tokyo")!
-        return c
+        return MealSlot.suggested(at: date)
     }
 
     @Test("時刻から区分を推測する")
