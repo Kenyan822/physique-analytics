@@ -13,7 +13,7 @@ enum MealSlot: String, Codable, CaseIterable, Sendable, Identifiable {
     ///
     /// **開くたびに選び直させない。** 外れていても1タップで直せる方が、
     /// 毎回4択から選ぶより速い。境界は食事の時間帯としてありがちな値で切った。
-    static func suggested(at date: Date = Date(), calendar: Calendar = .jst) -> MealSlot {
+    static func suggested(at date: Date = Date(), calendar: Calendar = JST.calendar) -> MealSlot {
         switch calendar.component(.hour, from: date) {
         case 5..<11: return .breakfast
         case 11..<16: return .lunch
@@ -125,15 +125,5 @@ struct MealTotals: Sendable, Equatable {
             fatG: target.fatG - fatG,
             carbG: target.carbG - carbG
         )
-    }
-}
-
-extension Calendar {
-    /// 日付は JST 固定（ADR-0013）
-    static var jst: Calendar {
-        var c = Calendar(identifier: .gregorian)
-        c.timeZone = TimeZone(identifier: "Asia/Tokyo") ?? .current
-
-        return c
     }
 }
