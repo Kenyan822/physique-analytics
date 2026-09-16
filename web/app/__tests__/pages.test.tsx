@@ -40,7 +40,12 @@ vi.mock("@/lib/api/server", () => ({ serverApi: () => api }));
  */
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn() }));
-vi.mock("next/navigation", () => ({ redirect: vi.fn(), notFound: vi.fn() }));
+vi.mock("next/navigation", () => ({
+  redirect: vi.fn(),
+  notFound: vi.fn(),
+  // 共通ヘッダーが現在地の判定に使う
+  usePathname: () => "/",
+}));
 
 const emptyPlan = {
   phases: [],

@@ -37,7 +37,7 @@ export function BloodTestList({ tests, onDeleted, deleteBloodTest }: Props) {
   if (tests.length === 0) {
     return (
       <section className="rounded-2xl border border-line bg-surface p-8 text-center">
-        <p className="text-sm text-muted">まだ記録が無い。検査票を見ながら下から入れる</p>
+        <p className="text-sm text-muted">まだ記録が無い。検査票を見ながら写す</p>
       </section>
     );
   }
