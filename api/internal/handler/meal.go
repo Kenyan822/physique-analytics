@@ -112,6 +112,11 @@ func (s *Server) CopyMeals(ctx context.Context, req openapi.CopyMealsRequestObje
 	if req.Body.FromDate.Format("2006-01-02") == req.Body.ToDate.Format("2006-01-02") {
 		return copyMealsBadRequest("複製元と複製先が同じ日付"), nil
 	}
+	if req.Body.Slot != nil {
+		if msg := checkEnum(*req.Body.Slot); msg != "" {
+			return copyMealsBadRequest("slot: " + msg), nil
+		}
+	}
 
 	items, err := s.meals.Copy(ctx, req.Body.FromDate, req.Body.ToDate, req.Body.Slot)
 	if err != nil {
@@ -131,6 +136,16 @@ func (s *Server) CopyMeals(ctx context.Context, req openapi.CopyMealsRequestObje
 func validateMealInput(in openapi.MealInput) (field, message string) {
 	if strings.TrimSpace(in.Name) == "" {
 		return "name", "名前が空"
+	}
+	if in.Slot != nil {
+		if msg := checkEnum(*in.Slot); msg != "" {
+			return "slot", msg
+		}
+	}
+	if in.Source != nil {
+		if msg := checkEnum(*in.Source); msg != "" {
+			return "source", msg
+		}
 	}
 	if len([]rune(in.Name)) > 200 {
 		return "name", "200文字以下にする"

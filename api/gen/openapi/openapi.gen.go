@@ -4595,6 +4595,22 @@ func (response ApplyMealSet404ApplicationProblemPlusJSONResponse) VisitApplyMeal
 	return err
 }
 
+type ApplyMealSet422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ApplyMealSet422ApplicationProblemPlusJSONResponse) VisitApplyMealSetResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListMealsRequestObject struct {
 	Params ListMealsParams
 }

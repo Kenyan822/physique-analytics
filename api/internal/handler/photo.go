@@ -165,6 +165,9 @@ func (s *Server) photosUnavailable() *openapi.ServiceUnavailableApplicationProbl
 }
 
 func validatePhotoInput(in openapi.PhotoUploadInput) string {
+	if msg := checkEnum(in.Pose); msg != "" {
+		return "pose: " + msg
+	}
 	if in.ByteSize <= 0 || in.ByteSize > maxPhotoBytes {
 		return fmt.Sprintf("サイズは 1 〜 %dMB にする", maxPhotoBytes>>20)
 	}
