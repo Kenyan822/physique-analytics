@@ -858,6 +858,7 @@ paths:
                     items: { $ref: "#/components/schemas/Meal" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
 
   /v1/targets/{date}:
     parameters:
