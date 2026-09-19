@@ -32,8 +32,11 @@ enum MealSource: String, Codable, Sendable {
 struct Meal: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     let date: String
+    /// 食べた時刻 "HH:MM"（JST）。**過去の記録には無い**ので optional
+    var at: String?
     var slot: MealSlot?
-    var name: String
+    /// **任意。** PFC だけの記録を許す（#188）
+    var name: String?
     var qty: String?
     var kcal: Int?
     var proteinG: Double?
@@ -47,8 +50,11 @@ struct MealInput: Codable, Sendable {
     /// クライアントで振る。再送が冪等になる
     var id: UUID?
     var date: String
+    /// 食べた時刻 "HH:MM"（JST）。**送ればサーバが区分を導出する**ので、
+    /// 区分を選ばせる必要が無い
+    var at: String?
     var slot: MealSlot?
-    var name: String
+    var name: String?
     var qty: String?
     var kcal: Int?
     var proteinG: Double?

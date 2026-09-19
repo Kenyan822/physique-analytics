@@ -148,3 +148,33 @@ func TestMacroTargets_炭水化物が負になっても0で止める(t *testing.
 }
 
 func ptrF(v float64) *float64 { return &v }
+
+func TestKcalFromMacros(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		protein, fat, carb float64
+		want               int
+	}{
+		// Atwater 係数: P 4 / F 9 / C 4
+		{"素の計算", 30, 10, 60, 30*4 + 10*9 + 60*4},
+		{"全部0", 0, 0, 0, 0},
+		{"脂質だけ", 0, 10, 0, 90},
+		// **四捨五入する。** 切り捨てだと1日6食で最大6kcal ずれる
+		{"端数は四捨五入", 30.1, 10.2, 60.3, 453}, // 120.4 + 91.8 + 241.2 = 453.4
+		{"0.5 は切り上げ", 0, 0, 0.125, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := analytics.KcalFromMacros(tt.protein, tt.fat, tt.carb)
+			if got != tt.want {
+				t.Errorf("KcalFromMacros(%v, %v, %v) = %d, want %d",
+					tt.protein, tt.fat, tt.carb, got, tt.want)
+			}
+		})
+	}
+}

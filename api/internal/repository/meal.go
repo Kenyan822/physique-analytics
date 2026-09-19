@@ -30,10 +30,13 @@ func NewMeal(db DBTX) *Meal {
 // MealInput は食事の作成・更新の入力。
 type MealInput struct {
 	// ID はクライアント生成の UUID。nil ならサーバが採番する
-	ID       *uuid.UUID
-	Date     openapi_types.Date
-	Slot     *openapi.MealSlot
-	Name     string
+	ID   *uuid.UUID
+	Date openapi_types.Date
+	// At は "HH:MM"。nil は「時刻を記録していない」
+	At   *string
+	Slot *openapi.MealSlot
+	// Name は nil で「記録していない」。PFC だけの記録を許す（#188）
+	Name     *string
 	Qty      *string
 	Kcal     *int
 	ProteinG *float32
@@ -43,7 +46,11 @@ type MealInput struct {
 	Source *openapi.MealSource
 }
 
-const mealColumns = `id, date, slot, name, qty, kcal, protein_g, fat_g, carb_g,
+// **eaten_at は to_char で HH:MM に落とす。** time 型をそのまま返すと
+// "19:40:00" になり、API が約束している形と食い違う。
+// pgtype を挟むより SQL 側で固定する方が、経路が1つで済む
+const mealColumns = `id, date, to_char(eaten_at, 'HH24:MI'), slot, name, qty,
+	kcal, protein_g, fat_g, carb_g,
 	source, created_at, updated_at, deleted_at`
 
 // List は期間内の食事を日付順に返す。
@@ -54,7 +61,8 @@ func (r *Meal) List(ctx context.Context, from, to *openapi_types.Date) ([]openap
 		where deleted_at is null
 		  and ($1::date is null or date >= $1::date)
 		  and ($2::date is null or date <= $2::date)
-		order by date desc, created_at`
+		-- 時刻順に並べる。持っていない既存の記録は後ろへ（nulls last）
+		order by date desc, eaten_at nulls last, created_at`
 
 	rows, err := r.db.Query(ctx, q, dateOrNil(from), dateOrNil(to))
 	if err != nil {
@@ -95,14 +103,15 @@ func (r *Meal) Get(ctx context.Context, id uuid.UUID) (openapi.Meal, error) {
 // Create は食事を記録する。ID 指定で既存なら冪等に既存を返す。
 func (r *Meal) Create(ctx context.Context, in MealInput) (openapi.Meal, error) {
 	const q = `
-		insert into meals (id, date, slot, name, qty, kcal, protein_g, fat_g, carb_g, source)
-		values (coalesce($1, gen_random_uuid()), $2, $3, $4, $5, $6, $7, $8, $9,
-		        coalesce($10, 'manual'))
+		insert into meals (id, date, eaten_at, slot, name, qty,
+			kcal, protein_g, fat_g, carb_g, source)
+		values (coalesce($1, gen_random_uuid()), $2, $3::time, $4, $5, $6, $7, $8, $9, $10,
+		        coalesce($11, 'manual'))
 		on conflict (id) do nothing
 		returning ` + mealColumns
 
 	m, err := scanMeal(r.db.QueryRow(ctx, q,
-		in.ID, in.Date.Time, slotOrNil(in.Slot), in.Name, in.Qty,
+		in.ID, in.Date.Time, in.At, slotOrNil(in.Slot), in.Name, in.Qty,
 		in.Kcal, in.ProteinG, in.FatG, in.CarbG, sourceOrNil(in.Source)))
 	switch {
 	// オフラインからの再送で二重に入らないようにする（要件 T-07 と同じ理由）
@@ -118,14 +127,14 @@ func (r *Meal) Create(ctx context.Context, in MealInput) (openapi.Meal, error) {
 // Update は食事を更新する。
 func (r *Meal) Update(ctx context.Context, id uuid.UUID, in MealInput) (openapi.Meal, error) {
 	const q = `
-		update meals set date = $2, slot = $3, name = $4, qty = $5,
-			kcal = $6, protein_g = $7, fat_g = $8, carb_g = $9,
-			source = coalesce($10, source), updated_at = $11
+		update meals set date = $2, eaten_at = $3::time, slot = $4, name = $5, qty = $6,
+			kcal = $7, protein_g = $8, fat_g = $9, carb_g = $10,
+			source = coalesce($11, source), updated_at = $12
 		where id = $1 and deleted_at is null
 		returning ` + mealColumns
 
 	m, err := scanMeal(r.db.QueryRow(ctx, q,
-		id, in.Date.Time, slotOrNil(in.Slot), in.Name, in.Qty,
+		id, in.Date.Time, in.At, slotOrNil(in.Slot), in.Name, in.Qty,
 		in.Kcal, in.ProteinG, in.FatG, in.CarbG, sourceOrNil(in.Source), timeutil.Now()))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return openapi.Meal{}, fmt.Errorf("食事 %s: %w", id, ErrNotFound)
@@ -256,7 +265,7 @@ func sortByCountDesc(items []openapi.MealSuggestion) {
 func scanMeal(row pgx.Row) (openapi.Meal, error) {
 	var m openapi.Meal
 	var slot, source *string
-	err := row.Scan(&m.Id, &m.Date.Time, &slot, &m.Name, &m.Qty,
+	err := row.Scan(&m.Id, &m.Date.Time, &m.At, &slot, &m.Name, &m.Qty,
 		&m.Kcal, &m.ProteinG, &m.FatG, &m.CarbG, &source,
 		&m.CreatedAt, &m.UpdatedAt, &m.DeletedAt)
 	if err != nil {

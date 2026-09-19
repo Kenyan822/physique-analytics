@@ -98,6 +98,11 @@ fi
 
 echo "==> 起動"
 if ! out="$(xcrun devicectl device process launch --device "$DEVICE" "$BUNDLE_ID" 2>&1)"; then
+  # ロック中は launch が Locked で断られる。インストール自体は済んでいる
+  if printf '%s' "$out" | grep -q "could not be, unlocked"; then
+    echo "iPhone がロックされている。解除してから開く。アプリはもう入っている。" >&2
+    exit 1
+  fi
   if printf '%s' "$out" | grep -q "not been explicitly trusted"; then
     cat >&2 <<'MSG'
 開発者証明書が信頼されていない。iPhone で

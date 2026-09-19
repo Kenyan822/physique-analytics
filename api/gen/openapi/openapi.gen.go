@@ -606,6 +606,12 @@ type Macros struct {
 
 // Meal defines model for Meal.
 type Meal struct {
+	// At 食べた時刻（JST の壁時計・ADR-0013）。`slot` を省いたときは
+	// これから導出する。`timestamptz` にしないのは `date` と二重になるため
+	//
+	//
+	// Examples: 19:40
+	At        *string   `json:"at,omitempty"`
 	CarbG     *float32  `json:"carbG,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 
@@ -616,14 +622,22 @@ type Meal struct {
 	DeletedAt *time.Time         `json:"deletedAt,omitempty"`
 	FatG      *float32           `json:"fatG,omitempty"`
 	Id        openapi_types.UUID `json:"id"`
-	Kcal      *int               `json:"kcal,omitempty"`
 
-	// Name Examples: サラダチキン
-	Name     string   `json:"name"`
+	// Kcal 省くと PFC から計算される（Atwater 係数 4/9/4）
+	Kcal *int `json:"kcal,omitempty"`
+
+	// Name **任意。** PFC だけ入れて済ませられるようにしてある（#188）。
+	// 名前が無い記録は N-02 の候補には出ない
+	//
+	//
+	// Examples: サラダチキン
+	Name     *string  `json:"name,omitempty"`
 	ProteinG *float32 `json:"proteinG,omitempty"`
 
 	// Qty 「1個」「200g」のような自由記述。単位を型で縛ると入力が止まる
-	Qty  *string   `json:"qty,omitempty"`
+	Qty *string `json:"qty,omitempty"`
+
+	// Slot 省くと `at` から導出される
 	Slot *MealSlot `json:"slot,omitempty"`
 
 	// Source 手入力か AI 推定か（docs/02-データモデル.md）。
@@ -657,17 +671,27 @@ type MealEstimate struct {
 
 // MealInput defines model for MealInput.
 type MealInput struct {
+	// At 食べた時刻（JST）。`slot` を省くとこれから導出される
+	//
+	// Examples: 19:40
+	At    *string            `json:"at,omitempty"`
 	CarbG *float32           `json:"carbG,omitempty"`
 	Date  openapi_types.Date `json:"date"`
 	FatG  *float32           `json:"fatG,omitempty"`
 
 	// Id クライアント生成の UUID（冪等性のため）
-	Id       *openapi_types.UUID `json:"id,omitempty"`
-	Kcal     *int                `json:"kcal,omitempty"`
-	Name     string              `json:"name"`
-	ProteinG *float32            `json:"proteinG,omitempty"`
-	Qty      *string             `json:"qty,omitempty"`
-	Slot     *MealSlot           `json:"slot,omitempty"`
+	Id *openapi_types.UUID `json:"id,omitempty"`
+
+	// Kcal 省くと PFC から計算される（Atwater 係数 4/9/4）
+	Kcal *int `json:"kcal,omitempty"`
+
+	// Name 任意。空白だけなら「無し」として扱う
+	Name     *string  `json:"name,omitempty"`
+	ProteinG *float32 `json:"proteinG,omitempty"`
+	Qty      *string  `json:"qty,omitempty"`
+
+	// Slot 省くと `at` から導出される
+	Slot *MealSlot `json:"slot,omitempty"`
 
 	// Source 手入力か AI 推定か（docs/02-データモデル.md）。
 	// 推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため

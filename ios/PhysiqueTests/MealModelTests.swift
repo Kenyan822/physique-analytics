@@ -64,7 +64,9 @@ struct MealModelTests {
         await model.load()
 
         model.draft.name = "卵"
-        model.draft.kcal = "80"
+        model.draft.proteinG = "7"
+        model.draft.fatG = "5"
+        model.draft.carbG = "0.3"
         await model.record()
 
         #expect(model.meals.count == 1)
@@ -99,21 +101,14 @@ struct MealModelTests {
 
         // **選んだ時点で入力が終わる**のが狙い
         #expect(model.draft.name == "鶏むね")
-        #expect(model.draft.kcal == "330")
         #expect(model.draft.proteinG == "62")
+        // kcal は候補から写さず、PFC から出す
+        #expect(model.draft.kcal == 62 * 4 + 7 * 9 + 0 * 4)
     }
 
-    @Test("時刻から区分を初期選択する")
-    func initialSlot() {
-        var c = DateComponents()
-        c.year = 2026; c.month = 9; c.day = 16; c.hour = 12
-        let noon = JST.calendar.date(from: c)!
-        let (client, _) = api([emptyMeals, targets])
-
-        let model = MealModel(api: client, date: "2026-09-16", now: noon)
-
-        #expect(model.slot == .lunch)
-    }
+    // 区分の初期選択は消えた。**サーバが時刻から導出する**ので
+    // クライアントは持たない（#191）。送る内容の検証は MealTests の
+    // 「記録に時刻を載せる」にある
 }
 
 @Suite("入力の読み取り")
@@ -122,13 +117,13 @@ struct MealDraftTests {
     func parses() {
         var d = MealDraft()
         d.name = " 鶏むね "
-        d.kcal = "330"
         d.proteinG = "62.5"
 
-        let input = d.toInput(date: "2026-09-16", slot: .lunch)
+        let input = d.toInput(date: "2026-09-16", at: "12:00")
 
         #expect(input.name == "鶏むね")
-        #expect(input.kcal == 330)
+        // kcal は送らない。サーバが PFC から計算する（#188）
+        #expect(input.kcal == nil)
         #expect(input.proteinG == 62.5)
     }
 
@@ -138,7 +133,7 @@ struct MealDraftTests {
         var d = MealDraft()
         d.name = "水"
 
-        let input = d.toInput(date: "2026-09-16", slot: .snack)
+        let input = d.toInput(date: "2026-09-16", at: "22:30")
 
         #expect(input.kcal == nil)
         #expect(input.proteinG == nil)
@@ -148,8 +143,9 @@ struct MealDraftTests {
     func garbage() {
         var d = MealDraft()
         d.name = "x"
-        d.kcal = "だいたい300"
+        d.proteinG = "だいたい30"
 
-        #expect(d.toInput(date: "2026-09-16", slot: .lunch).kcal == nil)
+        #expect(d.toInput(date: "2026-09-16", at: "12:00").proteinG == nil)
+        #expect(d.kcal == nil)
     }
 }

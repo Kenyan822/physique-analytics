@@ -191,3 +191,114 @@ struct MealAPITests {
         #expect(req.url?.path == "/v1/meals/\(id.uuidString.lowercased())")
     }
 }
+
+@Suite("記録に時刻を載せる")
+struct MealTimeTests {
+    @Test("JST の時刻を HH:mm で返す")
+    func timeString() {
+        var c = DateComponents()
+        c.year = 2026; c.month = 9; c.day = 19; c.hour = 19; c.minute = 40
+        let d = JST.calendar.date(from: c)!
+
+        #expect(JST.timeString(from: d) == "19:40")
+    }
+
+    // **ホストのタイムゾーンで答えが変わらない**（#171 と同じ罠）
+    @Test("UTC の時刻ではなく JST で出す")
+    func timeStringIsJST() {
+        // JST 8:00 = UTC 23:00（前日）
+        #expect(JST.timeString(from: Date(timeIntervalSince1970: 1_789_772_400)) == "08:00")
+    }
+
+    @Test("0時台も2桁で揃える")
+    func padsHour() {
+        var c = DateComponents()
+        c.year = 2026; c.month = 9; c.day = 19; c.hour = 3; c.minute = 5
+        let d = JST.calendar.date(from: c)!
+
+        #expect(JST.timeString(from: d) == "03:05")
+    }
+
+    @Test("**区分ではなく時刻を送る**")
+    func inputCarriesTime() {
+        var d = MealDraft()
+        d.name = "鶏むね"
+
+        let input = d.toInput(date: "2026-09-19", at: "19:40")
+
+        #expect(input.at == "19:40")
+        // 区分はサーバが導出する。クライアントは決めない（#191）
+        #expect(input.slot == nil)
+    }
+}
+
+@Suite("PFC 中心の入力")
+struct MealDraftPFCTests {
+    private func draft(p: String = "", f: String = "", c: String = "", name: String = "") -> MealDraft {
+        var d = MealDraft()
+        d.proteinG = p; d.fatG = f; d.carbG = c; d.name = name
+
+        return d
+    }
+
+    @Test("**PFC だけで記録できる**")
+    func pfcOnly() {
+        let input = draft(p: "30", f: "10", c: "60").toInput(date: "2026-09-19", at: "19:40")
+
+        #expect(input.name == nil)
+        #expect(input.proteinG == 30)
+        #expect(input.carbG == 60)
+    }
+
+    @Test("**kcal を送らない。** サーバが PFC から計算する")
+    func doesNotSendKcal() {
+        #expect(draft(p: "30", f: "10", c: "60").toInput(date: "d", at: "12:00").kcal == nil)
+    }
+
+    @Test("表示用の kcal はサーバと同じ式で出す")
+    func showsKcal() {
+        // Atwater 4/9/4。サーバの analytics.KcalFromMacros と一致させる
+        #expect(draft(p: "30", f: "10", c: "60").kcal == 450)
+        #expect(draft(p: "30.1", f: "10.2", c: "60.3").kcal == 453)
+    }
+
+    // **空欄を 0 とみなす。** 鶏むねの C のように「本当に 0」で
+    // 空のまま済ませる場面が普通にある。全部揃うまで出さないと、
+    // 爆速入力のつもりが「なぜ出ないのか」を考える時間になる
+    @Test("**1つでも入っていれば残りは 0 として計算する**")
+    func kcalWithBlanks() {
+        #expect(draft(p: "30", f: "10").kcal == 30 * 4 + 10 * 9)
+        #expect(draft(p: "45").kcal == 180)
+        #expect(draft(c: "60").kcal == 240)
+    }
+
+    @Test("PFC が1つも無ければ kcal を出さない")
+    func noKcalWhenNothingEntered() {
+        #expect(draft().kcal == nil)
+        // 名前だけの記録に 0 kcal を付けない
+        #expect(draft(name: "外食").kcal == nil)
+    }
+
+    @Test("全部空なら記録しない")
+    func emptyDraft() {
+        #expect(draft().isEmpty)
+    }
+
+    @Test("**PFC のどれかが入っていれば記録できる**")
+    func pfcMakesItRecordable() {
+        #expect(!draft(p: "30").isEmpty)
+        #expect(!draft(c: "60").isEmpty)
+    }
+
+    @Test("名前だけでも記録できる")
+    func nameOnly() {
+        let d = draft(name: "外食")
+        #expect(!d.isEmpty)
+        #expect(d.toInput(date: "d", at: "12:00").name == "外食")
+    }
+
+    @Test("空白だけの名前は送らない")
+    func blankName() {
+        #expect(draft(p: "1", name: "   ").toInput(date: "d", at: "12:00").name == nil)
+    }
+}

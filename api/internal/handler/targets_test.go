@@ -70,8 +70,8 @@ func TestGetDailyTargets_目標と残量を返す(t *testing.T) {
 	t.Parallel()
 
 	meals := &stubMeals{items: []openapi.Meal{
-		{Name: "a", Kcal: ptr32i(600), ProteinG: ptr32(50), FatG: ptr32(20), CarbG: ptr32(45)},
-		{Name: "b", Kcal: ptr32i(400), ProteinG: ptr32(30)},
+		{Name: ptr("a"), Kcal: ptr32i(600), ProteinG: ptr32(50), FatG: ptr32(20), CarbG: ptr32(45)},
+		{Name: ptr("b"), Kcal: ptr32i(400), ProteinG: ptr32(30)},
 	}}
 	srv := targetsServer(&stubPlan{plan: planWithPhase()},
 		&stubSeries{points: series(21, "2026-10-31", 75, 2100)}, meals)

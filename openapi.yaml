@@ -1763,19 +1763,37 @@ components:
       allOf:
         - $ref: "#/components/schemas/Timestamps"
         - type: object
-          required: [id, date, name, source]
+          required: [id, date, source]
           properties:
             id: { type: string, format: uuid }
             date:
               type: string
               format: date
               description: JST の日付（ADR-0013）
-            slot: { $ref: "#/components/schemas/MealSlot" }
-            name: { type: string, examples: [サラダチキン] }
+            at:
+              type: [string, "null"]
+              pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+              description: |
+                食べた時刻（JST の壁時計・ADR-0013）。`slot` を省いたときは
+                これから導出する。`timestamptz` にしないのは `date` と二重になるため
+              examples: ["19:40"]
+            slot:
+              allOf: [{ $ref: "#/components/schemas/MealSlot" }]
+              description: 省くと `at` から導出される
+            name:
+              type: [string, "null"]
+              description: |
+                **任意。** PFC だけ入れて済ませられるようにしてある（#188）。
+                名前が無い記録は N-02 の候補には出ない
+              examples: [サラダチキン]
             qty:
               type: [string, "null"]
               description: 「1個」「200g」のような自由記述。単位を型で縛ると入力が止まる
-            kcal: { type: [integer, "null"], minimum: 0, maximum: 10000 }
+            kcal:
+              type: [integer, "null"]
+              minimum: 0
+              maximum: 10000
+              description: 省くと PFC から計算される（Atwater 係数 4/9/4）
             proteinG: { type: [number, "null"], minimum: 0, maximum: 1000 }
             fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
             carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
@@ -1783,17 +1801,31 @@ components:
 
     MealInput:
       type: object
-      required: [date, name]
+      required: [date]
       properties:
         id:
           type: string
           format: uuid
           description: クライアント生成の UUID（冪等性のため）
         date: { type: string, format: date }
-        slot: { $ref: "#/components/schemas/MealSlot" }
-        name: { type: string, minLength: 1, maxLength: 200 }
+        at:
+          type: [string, "null"]
+          pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+          description: 食べた時刻（JST）。`slot` を省くとこれから導出される
+          examples: ["19:40"]
+        slot:
+          allOf: [{ $ref: "#/components/schemas/MealSlot" }]
+          description: 省くと `at` から導出される
+        name:
+          type: [string, "null"]
+          maxLength: 200
+          description: 任意。空白だけなら「無し」として扱う
         qty: { type: [string, "null"], maxLength: 50 }
-        kcal: { type: [integer, "null"], minimum: 0, maximum: 10000 }
+        kcal:
+          type: [integer, "null"]
+          minimum: 0
+          maximum: 10000
+          description: 省くと PFC から計算される（Atwater 係数 4/9/4）
         proteinG: { type: [number, "null"], minimum: 0, maximum: 1000 }
         fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
         carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }

@@ -29,6 +29,23 @@ enum JST {
         formatter.string(from: date)
     }
 
+    /// JST の時刻を `HH:mm` で返す。食事の記録時刻に使う。
+    ///
+    /// **区分（朝食/昼食/…）はここで決めない。** サーバが導出する。
+    /// クライアントごとに境界がずれるのを避けるため（#191）
+    static func timeString(from date: Date = Date()) -> String {
+        timeFormatter.string(from: date)
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = calendar
+        f.timeZone = timeZone
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "HH:mm"
+        return f
+    }()
+
     /// `yyyy-MM-dd` を Date にする（その日の JST 0:00）。
     static func date(from string: String) -> Date? {
         formatter.date(from: string)
