@@ -51,6 +51,27 @@ enum JST {
         formatter.date(from: string)
     }
 
+    /// `HH:mm` を Date にする。**時刻を選ぶ UI に渡すための器**で、
+    /// 日付部分に意味は無い（JST の基準日に載せているだけ）。
+    ///
+    /// 読めない値は nil。空欄＝「時刻を記録していない」と区別する
+    static func time(from string: String) -> Date? {
+        timeFormatter.date(from: string)
+    }
+
+    /// `yyyy-MM-dd` を n 日ずらす。
+    ///
+    /// **文字列のまま足さない。** 月末・年末をまたぐと壊れる。
+    /// 日付は JST 固定なので、UTC の正午を基準にすれば夏時間も関係ない
+    static func shift(_ dateString: String, days: Int) -> String {
+        guard let d = date(from: dateString),
+              let shifted = calendar.date(byAdding: .day, value: days, to: d) else {
+            return dateString
+        }
+
+        return self.dateString(from: shifted)
+    }
+
     /// `9/13(土)` のような表示にする。
     static func displayString(from dateString: String) -> String {
         guard let date = self.date(from: dateString) else { return dateString }

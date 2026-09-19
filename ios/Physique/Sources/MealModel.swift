@@ -85,15 +85,105 @@ final class MealModel {
 
     var draft = MealDraft()
 
-    let date: String
+    /// 表示している日。**前日・翌日に移動できる**（#193）
+    private(set) var date: String
+    /// 「今日」。これより先には進めない。テストで固定するため引数にする
+    private let today: String
     private let api: APIClient
 
     var totals: MealTotals { MealTotals(of: meals) }
     var remaining: Macros? { target.map { totals.remaining(from: $0) } }
 
-    init(api: APIClient, date: String = JST.dateString()) {
+    init(api: APIClient, date: String = JST.dateString(), today: String = JST.dateString()) {
         self.api = api
         self.date = date
+        self.today = today
+    }
+
+    // MARK: - 記録を直す（#193）
+
+    /// 開いている行。nil なら誰も開いていない
+    private(set) var editingID: UUID?
+    var editDraft = MealDraft()
+    /// 編集中の時刻 "HH:MM"。**空なら時刻を消す**
+    var editTime = ""
+
+    /// 行を開く。**いまの値を入れておく** —— 直したいのは一部なので、
+    /// 空から打ち直させない
+    func beginEditing(_ meal: Meal) {
+        editingID = meal.id
+        editTime = meal.at ?? ""
+        errorMessage = nil
+
+        var d = MealDraft()
+        d.name = meal.name ?? ""
+        d.qty = meal.qty ?? ""
+        // **0 を空欄にしない。** 「0 と記録した」と「入れていない」は別
+        d.proteinG = meal.proteinG.map { trim($0) } ?? ""
+        d.fatG = meal.fatG.map { trim($0) } ?? ""
+        d.carbG = meal.carbG.map { trim($0) } ?? ""
+        editDraft = d
+    }
+
+    func cancelEditing() {
+        editingID = nil
+        editDraft = MealDraft()
+        editTime = ""
+    }
+
+    func saveEdit() async {
+        guard let id = editingID else { return }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+
+        var input = editDraft.toInput(date: date, at: editTime)
+        // 新規記録と違い、id はサーバ側のものを使う（採番し直さない）
+        input.id = nil
+
+        do {
+            let updated = try await api.updateMeal(id: id, input)
+            if let i = meals.firstIndex(where: { $0.id == id }) {
+                meals[i] = updated
+            }
+            // 時刻を直すと並び順が変わる
+            meals.sort { ($0.at ?? "~") < ($1.at ?? "~") }
+            cancelEditing()
+        } catch {
+            // **閉じない。** 閉じると打ち直しになる
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "直せない"
+        }
+    }
+
+    // MARK: - 日付の行き来（#193）
+
+    /// `9/19(土)` の形。
+    var dateLabel: String { JST.displayString(from: date) }
+
+    /// **今日より先には進めない。** 記録できない日を開いても意味が無い
+    var canGoNext: Bool { date < today }
+
+    func goToPreviousDay() {
+        move(to: JST.shift(date, days: -1))
+    }
+
+    func goToNextDay() {
+        guard canGoNext else { return }
+        move(to: JST.shift(date, days: 1))
+    }
+
+    /// 日付を選び直す。未来を選んだら今日に丸める
+    func goTo(_ newDate: String) {
+        move(to: min(newDate, today))
+    }
+
+    private func move(to newDate: String) {
+        guard newDate != date else { return }
+        date = newDate
+        // 前の日の記録が残ったまま見えないよう、先に空にする
+        meals = []
+        target = nil
+        targetsMessage = nil
     }
 
     func load() async {
