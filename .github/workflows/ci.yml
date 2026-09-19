@@ -290,9 +290,9 @@ jobs:
       - name: Build（シミュレータ）
         run: |
           xcodebuild -project Physique.xcodeproj -scheme Physique \
-            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+            -destination 'platform=iOS Simulator,name=iPhone 17' \
             -derivedDataPath "$RUNNER_TEMP/dd" \
             build | xcbeautify || \
           xcodebuild -project Physique.xcodeproj -scheme Physique \
-            -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+            -destination 'platform=iOS Simulator,name=iPhone 17' \
             -derivedDataPath "$RUNNER_TEMP/dd" build

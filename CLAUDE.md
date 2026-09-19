@@ -302,7 +302,7 @@ docker compose run --rm migrate version
 # iOS（Swift）
 cd ios && swift test              # ロジックのテスト（Xcode 不要）
 cd ios && xcodebuild -project Physique.xcodeproj -scheme Physique \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+  -destination 'platform=iOS Simulator,name=iPhone 17' build
 
 # リファレンス実装（Phase 0 の Python プロトタイプ。Go 移植の検証基準）
 cd reference && pytest analysis/tests -v
