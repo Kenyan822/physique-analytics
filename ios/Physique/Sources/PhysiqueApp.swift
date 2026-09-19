@@ -39,12 +39,14 @@ private struct MainTabs: View {
     }
 
     var body: some View {
-        // ジムで開くのは記録画面。体組成は朝に触るものなのでタブを分ける
+        // **食事を先頭にする。** 開く頻度が違う —— 食事は1日4〜6回、
+        // トレーニングは週3〜5回。起動直後に出る画面が食事である方が、
+        // 合計の操作回数が減る。体組成は朝に触るものなのでタブを分ける
         TabView {
-            LogView(api: api)
-                .tabItem { Label("記録", systemImage: "dumbbell") }
             MealView(api: api)
                 .tabItem { Label("食事", systemImage: "fork.knife") }
+            LogView(api: api)
+                .tabItem { Label("記録", systemImage: "dumbbell") }
             BodyView(api: api, health: HealthKitSource())
                 .tabItem { Label("体組成", systemImage: "figure") }
             SettingsView(auth: auth)

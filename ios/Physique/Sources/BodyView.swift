@@ -28,6 +28,7 @@ struct BodyView: View {
                 }
             }
             .navigationTitle("体組成 \(date)")
+            .dismissesKeyboardOnTap()
             .task { await model.load(date: date) }
         }
     }
