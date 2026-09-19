@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -72,7 +73,7 @@ func mealServer(m *stubMeals) http.Handler {
 func TestCreateMeal_入力を渡して201(t *testing.T) {
 	t.Parallel()
 
-	stub := &stubMeals{created: openapi.Meal{Id: uuid.New(), Name: "サラダチキン"}}
+	stub := &stubMeals{created: openapi.Meal{Id: uuid.New(), Name: ptr("サラダチキン")}}
 	rec := postJSON(t, mealServer(stub), http.MethodPost, "/v1/meals",
 		json.RawMessage(`{"date":"2032-05-01","name":"サラダチキン","slot":"昼食","kcal":114,"proteinG":24.1}`))
 
@@ -82,19 +83,21 @@ func TestCreateMeal_入力を渡して201(t *testing.T) {
 	if stub.gotInput == nil {
 		t.Fatal("Create が呼ばれていない")
 	}
-	if stub.gotInput.Name != "サラダチキン" {
-		t.Errorf("Name = %q", stub.gotInput.Name)
+	if stub.gotInput.Name == nil || *stub.gotInput.Name != "サラダチキン" {
+		t.Errorf("Name = %v", stub.gotInput.Name)
 	}
 	if stub.gotInput.Slot == nil || *stub.gotInput.Slot != openapi.Lunch {
 		t.Errorf("Slot = %v, want 昼食", stub.gotInput.Slot)
 	}
 }
 
-func TestCreateMeal_名前が空なら422(t *testing.T) {
+func TestCreateMeal_名前が200文字を超えたら422(t *testing.T) {
 	t.Parallel()
 
+	// 名前そのものは任意になった（#188）。長すぎるものだけ弾く
+	long := strings.Repeat("あ", 201)
 	rec := postJSON(t, mealServer(&stubMeals{}), http.MethodPost, "/v1/meals",
-		json.RawMessage(`{"date":"2032-05-01","name":"  "}`))
+		json.RawMessage(`{"date":"2032-05-01","name":"`+long+`"}`))
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422, body = %s", rec.Code, rec.Body)
@@ -169,7 +172,7 @@ func TestListMealSuggestions_既定の件数(t *testing.T) {
 func TestCopyMeals_日付とslotを渡す(t *testing.T) {
 	t.Parallel()
 
-	stub := &stubMeals{copied: []openapi.Meal{{Id: uuid.New(), Name: "x"}}}
+	stub := &stubMeals{copied: []openapi.Meal{{Id: uuid.New(), Name: ptr("x")}}}
 	rec := postJSON(t, mealServer(stub), http.MethodPost, "/v1/meals/copy",
 		json.RawMessage(`{"fromDate":"2032-05-10","toDate":"2032-05-11","slot":"朝食"}`))
 
@@ -277,3 +280,187 @@ func TestApplyMealSet_enum外のslotは422(t *testing.T) {
 		t.Errorf("status = %d, want 422, body = %s", rec.Code, rec.Body)
 	}
 }
+
+func TestCreateMeal_時刻から区分を導出する(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		at   string
+		want openapi.MealSlot
+	}{
+		{"朝", "07:20", openapi.Breakfast},
+		{"昼", "12:15", openapi.Lunch},
+		{"夕", "19:40", openapi.Dinner},
+		{"深夜は間食", "03:00", openapi.Snack},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			stub := &stubMeals{created: openapi.Meal{Id: uuid.New()}}
+			body := json.RawMessage(
+				`{"date":"2032-05-01","name":"x","at":"` + tt.at + `"}`)
+			rec := postJSON(t, mealServer(stub), http.MethodPost, "/v1/meals", body)
+
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+			}
+			if stub.gotInput.At == nil || *stub.gotInput.At != tt.at {
+				t.Errorf("At = %v, want %s", stub.gotInput.At, tt.at)
+			}
+			if stub.gotInput.Slot == nil || *stub.gotInput.Slot != tt.want {
+				t.Errorf("Slot = %v, want %v", stub.gotInput.Slot, tt.want)
+			}
+		})
+	}
+}
+
+func TestCreateMeal_明示した区分が優先される(t *testing.T) {
+	t.Parallel()
+
+	// **Web と食事セットは区分を明示して送る。** 時刻から上書きすると既存の動作が壊れる
+	stub := &stubMeals{created: openapi.Meal{Id: uuid.New()}}
+	rec := postJSON(t, mealServer(stub), http.MethodPost, "/v1/meals",
+		json.RawMessage(`{"date":"2032-05-01","name":"x","at":"19:40","slot":"間食"}`))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if stub.gotInput.Slot == nil || *stub.gotInput.Slot != openapi.Snack {
+		t.Errorf("Slot = %v, want 間食", stub.gotInput.Slot)
+	}
+}
+
+func TestCreateMeal_時刻が無ければ区分も無いまま(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubMeals{created: openapi.Meal{Id: uuid.New()}}
+	rec := postJSON(t, mealServer(stub), http.MethodPost, "/v1/meals",
+		json.RawMessage(`{"date":"2032-05-01","name":"x"}`))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if stub.gotInput.Slot != nil {
+		t.Errorf("Slot = %v, want nil", stub.gotInput.Slot)
+	}
+}
+
+func TestCreateMeal_不正な時刻は422(t *testing.T) {
+	t.Parallel()
+
+	// **黙って無視しない。** 時刻を送ったのに落とされると、区分がずれた理由が分からない
+	for _, at := range []string{"25:00", "12:60", "1940", "19:40:00", "9:40"} {
+		t.Run(at, func(t *testing.T) {
+			t.Parallel()
+
+			rec := postJSON(t, mealServer(&stubMeals{}), http.MethodPost, "/v1/meals",
+				json.RawMessage(`{"date":"2032-05-01","name":"x","at":"`+at+`"}`))
+
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Errorf("at=%q: status = %d, want 422, body = %s", at, rec.Code, rec.Body)
+			}
+		})
+	}
+}
+
+func TestCreateMeal_PFCからkcalを計算する(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubMeals{created: openapi.Meal{Id: uuid.New()}}
+	rec := postJSON(t, mealServer(stub), http.MethodPost, "/v1/meals",
+		json.RawMessage(`{"date":"2032-05-01","name":"x","proteinG":30,"fatG":10,"carbG":60}`))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	// 30*4 + 10*9 + 60*4 = 450
+	if stub.gotInput.Kcal == nil || *stub.gotInput.Kcal != 450 {
+		t.Errorf("Kcal = %v, want 450", stub.gotInput.Kcal)
+	}
+}
+
+func TestCreateMeal_明示したkcalが優先される(t *testing.T) {
+	t.Parallel()
+
+	// **AI 推定（N-06）は kcal を直接持ってくる。** 計算値で上書きしない
+	stub := &stubMeals{created: openapi.Meal{Id: uuid.New()}}
+	rec := postJSON(t, mealServer(stub), http.MethodPost, "/v1/meals",
+		json.RawMessage(`{"date":"2032-05-01","name":"x","kcal":500,"proteinG":30,"fatG":10,"carbG":60}`))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if stub.gotInput.Kcal == nil || *stub.gotInput.Kcal != 500 {
+		t.Errorf("Kcal = %v, want 500", stub.gotInput.Kcal)
+	}
+}
+
+func TestCreateMeal_欠けたPFCは0として計算する(t *testing.T) {
+	t.Parallel()
+
+	// **空欄は 0 とみなす。** 鶏むねの C のように「本当に 0」で
+	// 空のまま済ませる場面が普通にある。クライアントの表示と同じ規則にする
+	stub := &stubMeals{created: openapi.Meal{Id: uuid.New()}}
+	rec := postJSON(t, mealServer(stub), http.MethodPost, "/v1/meals",
+		json.RawMessage(`{"date":"2032-05-01","name":"x","proteinG":30,"fatG":10}`))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	// 30*4 + 10*9 = 210
+	if stub.gotInput.Kcal == nil || *stub.gotInput.Kcal != 210 {
+		t.Errorf("Kcal = %v, want 210", stub.gotInput.Kcal)
+	}
+}
+
+func TestCreateMeal_PFCが1つも無ければkcalを計算しない(t *testing.T) {
+	t.Parallel()
+
+	// 名前だけの記録に 0 kcal を付けない
+	stub := &stubMeals{created: openapi.Meal{Id: uuid.New()}}
+	rec := postJSON(t, mealServer(stub), http.MethodPost, "/v1/meals",
+		json.RawMessage(`{"date":"2032-05-01","name":"外食","at":"19:40"}`))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if stub.gotInput.Kcal != nil {
+		t.Errorf("Kcal = %v, want nil", stub.gotInput.Kcal)
+	}
+}
+
+func TestCreateMeal_名前が無くても記録できる(t *testing.T) {
+	t.Parallel()
+
+	// **PFC だけ入れて済ませたい**（#188）。名前は後から足せる
+	stub := &stubMeals{created: openapi.Meal{Id: uuid.New()}}
+	rec := postJSON(t, mealServer(stub), http.MethodPost, "/v1/meals",
+		json.RawMessage(`{"date":"2032-05-01","at":"19:40","proteinG":30,"fatG":10,"carbG":60}`))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+	if stub.gotInput.Name != nil {
+		t.Errorf("Name = %v, want nil", stub.gotInput.Name)
+	}
+}
+
+func TestCreateMeal_空白だけの名前は無しとして扱う(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubMeals{created: openapi.Meal{Id: uuid.New()}}
+	rec := postJSON(t, mealServer(stub), http.MethodPost, "/v1/meals",
+		json.RawMessage(`{"date":"2032-05-01","name":"   ","proteinG":1,"fatG":1,"carbG":1}`))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201, body = %s", rec.Code, rec.Body)
+	}
+	if stub.gotInput.Name != nil {
+		t.Errorf("Name = %v, want nil", stub.gotInput.Name)
+	}
+}
+
+func ptr[T any](v T) *T { return &v }

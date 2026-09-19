@@ -4,23 +4,51 @@ import Observation
 /// 入力中の1件。**数値は文字列のまま持つ。**
 /// 数値に直しながら持つと「62.」と打った時点で 62 に丸められ、続きが打てない
 struct MealDraft: Sendable, Equatable {
-    var name = ""
-    var qty = ""
-    var kcal = ""
+    // **PFC を先頭に置く。** 入力の主目的がこれで、名前と量は後回しでよい（#188）
     var proteinG = ""
     var fatG = ""
     var carbG = ""
 
-    var isEmpty: Bool { name.trimmingCharacters(in: .whitespaces).isEmpty }
+    var name = ""
+    var qty = ""
 
-    func toInput(date: String, slot: MealSlot) -> MealInput {
+    /// **PFC が1つでも入っていれば記録できる。** 名前は任意
+    var isEmpty: Bool {
+        [proteinG, fatG, carbG, name].allSatisfy {
+            $0.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+    }
+
+    /// 表示用の kcal（Atwater 4/9/4）。
+    ///
+    /// **送らない。** サーバが同じ式で計算する（`analytics.KcalFromMacros`）。
+    /// 二重に持つと、どちらが正かの判断が要る。ここは打ちながら見えると
+    /// 便利、というだけの値
+    /// **空欄は 0 とみなす。** 鶏むねの C のように「本当に 0」で空のまま
+    /// 済ませる場面が普通にある。全部揃うまで出さないと、爆速入力のつもりが
+    /// 「なぜ出ないのか」を考える時間になる。
+    ///
+    /// ただし**1つも入っていなければ nil**。名前だけの記録に 0 kcal を付けない
+    var kcal: Int? {
+        let p = number(proteinG), f = number(fatG), c = number(carbG)
+        guard p != nil || f != nil || c != nil else { return nil }
+
+        return Int((((p ?? 0) * 4) + ((f ?? 0) * 9) + ((c ?? 0) * 4)).rounded())
+    }
+
+    /// 記録用の入力にする。
+    ///
+    /// **区分も kcal も載せない。** どちらもサーバが導出する。
+    /// クライアントごとに答えがずれるのを避けるため（#191）
+    func toInput(date: String, at: String) -> MealInput {
         MealInput(
             id: UUID(),
             date: date,
-            slot: slot,
-            name: name.trimmingCharacters(in: .whitespaces),
+            at: at,
+            slot: nil,
+            name: text(name),
             qty: text(qty),
-            kcal: int(kcal),
+            kcal: nil,
             proteinG: number(proteinG),
             fatG: number(fatG),
             carbG: number(carbG),
@@ -34,10 +62,6 @@ struct MealDraft: Sendable, Equatable {
         let t = s.trimmingCharacters(in: .whitespaces)
 
         return t.isEmpty ? nil : Double(t)
-    }
-
-    private func int(_ s: String) -> Int? {
-        number(s).map { Int($0) }
     }
 
     private func text(_ s: String) -> String? {
@@ -60,7 +84,6 @@ final class MealModel {
     private(set) var isWorking = false
 
     var draft = MealDraft()
-    var slot: MealSlot
 
     let date: String
     private let api: APIClient
@@ -68,10 +91,9 @@ final class MealModel {
     var totals: MealTotals { MealTotals(of: meals) }
     var remaining: Macros? { target.map { totals.remaining(from: $0) } }
 
-    init(api: APIClient, date: String = JST.dateString(), now: Date = Date()) {
+    init(api: APIClient, date: String = JST.dateString()) {
         self.api = api
         self.date = date
-        self.slot = MealSlot.suggested(at: now)
     }
 
     func load() async {
@@ -109,7 +131,7 @@ final class MealModel {
     func pick(_ s: MealSuggestion) {
         draft.name = s.name
         draft.qty = s.qty ?? ""
-        draft.kcal = s.kcal.map(String.init) ?? ""
+        // kcal は入れない。PFC から計算される
         draft.proteinG = s.proteinG.map { trim($0) } ?? ""
         draft.fatG = s.fatG.map { trim($0) } ?? ""
         draft.carbG = s.carbG.map { trim($0) } ?? ""
@@ -123,7 +145,9 @@ final class MealModel {
         defer { isWorking = false }
 
         do {
-            let created = try await api.createMeal(draft.toInput(date: date, slot: slot))
+            // **時刻はここで決める。** 記録ボタンを押した時刻が「食べた時刻」
+            let created = try await api.createMeal(
+                draft.toInput(date: date, at: JST.timeString()))
             meals.append(created)
             // 続けて入れられるよう空に戻す。区分は据え置き
             draft = MealDraft()

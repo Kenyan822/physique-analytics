@@ -1,5 +1,7 @@
 package analytics
 
+import "math"
+
 // 摂取量とマクロ栄養素の目標（要件 A-02 / A-03）。
 // 仕様は docs/03-分析ロジック.md の「分析1」と「分析5（摂取の下限）」。
 
@@ -14,6 +16,19 @@ const (
 	kcalPerGFat     = 9.0
 	kcalPerGCarb    = 4.0
 )
+
+// KcalFromMacros は PFC からカロリーを出す（Atwater 係数）。
+//
+// **入力画面で kcal を打たせないために使う。** 手入力と計算値が食い違うと、
+// どちらが正しいか分からなくなる。PFC が揃っていれば kcal は導ける。
+//
+// 四捨五入する。切り捨てだと1日6食で最大6kcal ずれ、
+// 21日窓の TDEE 推定（EstimateTDEE）に効いてくる。
+func KcalFromMacros(protein, fat, carb float64) int {
+	kcal := protein*kcalPerGProtein + fat*kcalPerGFat + carb*kcalPerGCarb
+
+	return int(math.Round(kcal))
+}
 
 // NutritionPhase は PFC の適用モード。体脂肪率と増減の方向で決まる。
 type NutritionPhase string

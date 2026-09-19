@@ -12,10 +12,13 @@ import {
 } from "@/lib/api/client";
 import { serverApi } from "@/lib/api/server";
 
-export type MealResult = { ok: true; meal: Meal } | { ok: false; message: string };
-export type CopyResult = { ok: true; count: number } | { ok: false; message: string };
+export type MealResult =
+  { ok: true; meal: Meal } | { ok: false; message: string };
+export type CopyResult =
+  { ok: true; count: number } | { ok: false; message: string };
 export type EstimateResult =
-  { ok: true; estimate: MealEstimate } | { ok: false; message: string; unavailable: boolean };
+  | { ok: true; estimate: MealEstimate }
+  | { ok: false; message: string; unavailable: boolean };
 
 /** 食事を1件記録する（要件 N-01）。 */
 export async function createMeal(input: MealInput): Promise<MealResult> {
@@ -30,7 +33,9 @@ export async function createMeal(input: MealInput): Promise<MealResult> {
 }
 
 /** 食事を削除する。 */
-export async function deleteMeal(id: string): Promise<{ ok: boolean; message?: string }> {
+export async function deleteMeal(
+  id: string,
+): Promise<{ ok: boolean; message?: string }> {
   try {
     await serverApi().deleteMeal(id);
     revalidatePath("/meals");
@@ -90,7 +95,11 @@ function reason(e: unknown, fallback: string): string {
 }
 
 /** 食事セットをその日に展開する（要件 N-03）。 */
-export async function applyMealSet(id: string, date: string, slot?: MealSlot): Promise<CopyResult> {
+export async function applyMealSet(
+  id: string,
+  date: string,
+  slot?: MealSlot,
+): Promise<CopyResult> {
   try {
     const { items } = await serverApi().applyMealSet(id, { date, slot });
     revalidatePath("/meals");
@@ -110,14 +119,19 @@ export async function createMealSetFrom(
   const input: MealSetInput = {
     name,
     slot,
-    items: meals.map((m) => ({
-      name: m.name,
-      qty: m.qty ?? null,
-      kcal: m.kcal ?? null,
-      proteinG: m.proteinG ?? null,
-      fatG: m.fatG ?? null,
-      carbG: m.carbG ?? null,
-    })),
+    // **名前の無い記録は入れない。** 食事セットは「朝食セット」のように
+    // 名前で選んで展開するもので、中身に名前が無いと選びようがない
+    // （meal_set_items.name は NOT NULL）
+    items: meals
+      .filter((m): m is Meal & { name: string } => Boolean(m.name))
+      .map((m) => ({
+        name: m.name,
+        qty: m.qty ?? null,
+        kcal: m.kcal ?? null,
+        proteinG: m.proteinG ?? null,
+        fatG: m.fatG ?? null,
+        carbG: m.carbG ?? null,
+      })),
   };
 
   try {

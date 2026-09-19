@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
+	"github.com/Kenyan822/physique-analytics/api/internal/analytics"
+	"github.com/Kenyan822/physique-analytics/api/internal/mealslot"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 )
 
@@ -134,20 +136,23 @@ func (s *Server) CopyMeals(ctx context.Context, req openapi.CopyMealsRequestObje
 // DB に任せると 23514 が 500 になり、何が悪いか返らない。
 // 範囲は api/migrations/000005 の check と合わせてある。
 func validateMealInput(in openapi.MealInput) (field, message string) {
-	if strings.TrimSpace(in.Name) == "" {
-		return "name", "名前が空"
-	}
+
 	if in.Slot != nil {
 		if msg := checkEnum(*in.Slot); msg != "" {
 			return "slot", msg
 		}
+	}
+	// **黙って無視しない。** 時刻を送ったのに落とされると、
+	// 区分がずれた理由が分からなくなる
+	if in.At != nil && !mealslot.Valid(*in.At) {
+		return "at", "時刻は HH:MM で指定する（00:00〜23:59）"
 	}
 	if in.Source != nil {
 		if msg := checkEnum(*in.Source); msg != "" {
 			return "source", msg
 		}
 	}
-	if len([]rune(in.Name)) > 200 {
+	if in.Name != nil && len([]rune(*in.Name)) > 200 {
 		return "name", "200文字以下にする"
 	}
 	if in.Qty != nil && len([]rune(*in.Qty)) > 50 {
@@ -178,8 +183,9 @@ func validateMealInput(in openapi.MealInput) (field, message string) {
 func toMealInput(in openapi.MealInput) repository.MealInput {
 	out := repository.MealInput{
 		Date:     in.Date,
+		At:       in.At,
 		Slot:     in.Slot,
-		Name:     strings.TrimSpace(in.Name),
+		Name:     trimmedOrNil(in.Name),
 		Qty:      in.Qty,
 		Kcal:     in.Kcal,
 		ProteinG: in.ProteinG,
@@ -192,7 +198,57 @@ func toMealInput(in openapi.MealInput) repository.MealInput {
 		out.ID = &id
 	}
 
+	// **明示された区分を上書きしない。** Web と食事セット（N-03）は
+	// 区分を指定して送ってくる。時刻から導けるのは「指定が無いとき」だけ。
+	//
+	// 検証済みなのでここでのエラーは起きない。落ちたら区分なしで通す ——
+	// 区分は分析が使っていないので、記録そのものを止める理由にならない
+	if out.Slot == nil && in.At != nil {
+		if derived, err := mealslot.FromTime(*in.At); err == nil {
+			out.Slot = &derived
+		}
+	}
+
+	// **明示された kcal を上書きしない。** AI 推定（N-06）は kcal を直接持ってくる。
+	//
+	// **空欄は 0 とみなす。** 鶏むねの C のように「本当に 0」で空のまま
+	// 済ませる場面が普通にある。全部揃うまで計算しないと、入力側で
+	// 「なぜ出ないのか」を考えることになる（クライアントの表示と同じ規則）。
+	//
+	// ただし1つも入っていなければ計算しない。名前だけの記録に 0 kcal を付けない
+	if out.Kcal == nil && (in.ProteinG != nil || in.FatG != nil || in.CarbG != nil) {
+		kcal := analytics.KcalFromMacros(
+			zeroIfNil(in.ProteinG), zeroIfNil(in.FatG), zeroIfNil(in.CarbG))
+		out.Kcal = &kcal
+	}
+
 	return out
+}
+
+// zeroIfNil は未入力を 0 として読む。**kcal の計算にだけ使う。**
+// 生の P/F/C は nil のまま保存するので、「未入力」と「0」の区別は残る
+func zeroIfNil(v *float32) float64 {
+	if v == nil {
+		return 0
+	}
+
+	return float64(*v)
+}
+
+// trimmedOrNil は前後の空白を落とし、空になったら nil を返す。
+//
+// **空白だけの名前を保存しない。** 「無し」と「空白1文字」が混ざると、
+// 一覧で空行に見えるのに削除もできない行ができる。
+func trimmedOrNil(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	t := strings.TrimSpace(*s)
+	if t == "" {
+		return nil
+	}
+
+	return &t
 }
 
 func createMealFailed(field, message string) openapi.CreateMeal422ApplicationProblemPlusJSONResponse {

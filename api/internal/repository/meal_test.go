@@ -11,7 +11,7 @@ import (
 func mealInput(day int, name string) repository.MealInput {
 	return repository.MealInput{
 		Date:     jstDate(2032, 5, day),
-		Name:     name,
+		Name:     &name,
 		Kcal:     ptr(300),
 		ProteinG: ptr(float32(25)),
 	}
@@ -31,8 +31,8 @@ func TestCreateMeal_記録して一覧で引ける(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if created.Name != "サラダチキン" {
-		t.Errorf("Name = %q, want サラダチキン", created.Name)
+	if created.Name == nil || *created.Name != "サラダチキン" {
+		t.Errorf("Name = %v, want サラダチキン", created.Name)
 	}
 	if created.Slot == nil || *created.Slot != openapi.Lunch {
 		t.Errorf("Slot = %v, want 昼食", created.Slot)
@@ -97,7 +97,7 @@ func TestUpdateMeal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if got.Name != "白米 200g" || got.Kcal == nil || *got.Kcal != 336 {
+	if got.Name == nil || *got.Name != "白米 200g" || got.Kcal == nil || *got.Kcal != 336 {
 		t.Errorf("更新されていない: %+v", got)
 	}
 }
@@ -248,7 +248,90 @@ func TestCopyMeals_slotで絞れる(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("複製 = %d 件, want 1", len(got))
 	}
-	if got[0].Name != "朝のもの" {
-		t.Errorf("Name = %q, want 朝のもの", got[0].Name)
+	if got[0].Name == nil || *got[0].Name != "朝のもの" {
+		t.Errorf("Name = %v, want 朝のもの", got[0].Name)
+	}
+}
+
+func TestCreateMeal_時刻を記録して読み出せる(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	repo := repository.NewMeal(testdb.Begin(t))
+
+	in := mealInput(11, "鶏むね")
+	in.At = ptr("19:40")
+
+	created, err := repo.Create(ctx, in)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// **秒を返さない。** DB は time 型で 19:40:00 を持つが、API は HH:MM で揃える
+	if created.At == nil || *created.At != "19:40" {
+		t.Fatalf("At = %v, want 19:40", created.At)
+	}
+
+	got, err := repo.Get(ctx, created.Id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.At == nil || *got.At != "19:40" {
+		t.Errorf("Get の At = %v, want 19:40", got.At)
+	}
+}
+
+func TestCreateMeal_時刻が無い記録も読める(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	repo := repository.NewMeal(testdb.Begin(t))
+
+	// **既存の記録には時刻が無い。** null のまま読めないと過去分が全部落ちる
+	created, err := repo.Create(ctx, mealInput(12, "時刻なし"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.At != nil {
+		t.Errorf("At = %v, want nil", created.At)
+	}
+}
+
+func TestCreateMeal_真夜中と正午(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	repo := repository.NewMeal(testdb.Begin(t))
+
+	// 00:00 は「時刻が無い」と取り違えられやすい
+	for _, at := range []string{"00:00", "12:00", "23:59"} {
+		in := mealInput(13, "境界"+at)
+		in.At = &at
+
+		created, err := repo.Create(ctx, in)
+		if err != nil {
+			t.Fatalf("Create(%s): %v", at, err)
+		}
+		if created.At == nil || *created.At != at {
+			t.Errorf("At = %v, want %s", created.At, at)
+		}
+	}
+}
+
+func TestUpdateMeal_時刻を変えられる(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	repo := repository.NewMeal(testdb.Begin(t))
+
+	in := mealInput(14, "昼")
+	in.At = ptr("12:00")
+	created, err := repo.Create(ctx, in)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	in.At = ptr("13:30")
+	updated, err := repo.Update(ctx, created.Id, in)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.At == nil || *updated.At != "13:30" {
+		t.Errorf("At = %v, want 13:30", updated.At)
 	}
 }

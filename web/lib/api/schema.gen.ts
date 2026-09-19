@@ -1065,11 +1065,23 @@ export interface components {
              * @description JST の日付（ADR-0013）
              */
             date: string;
+            /**
+             * @description 食べた時刻（JST の壁時計・ADR-0013）。`slot` を省いたときは
+             *     これから導出する。`timestamptz` にしないのは `date` と二重になるため
+             * @example 19:40
+             */
+            at?: string | null;
+            /** @description 省くと `at` から導出される */
             slot?: components["schemas"]["MealSlot"];
-            /** @example サラダチキン */
-            name: string;
+            /**
+             * @description **任意。** PFC だけ入れて済ませられるようにしてある（#188）。
+             *     名前が無い記録は N-02 の候補には出ない
+             * @example サラダチキン
+             */
+            name?: string | null;
             /** @description 「1個」「200g」のような自由記述。単位を型で縛ると入力が止まる */
             qty?: string | null;
+            /** @description 省くと PFC から計算される（Atwater 係数 4/9/4） */
             kcal?: number | null;
             proteinG?: number | null;
             fatG?: number | null;
@@ -1084,9 +1096,17 @@ export interface components {
             id?: string;
             /** Format: date */
             date: string;
+            /**
+             * @description 食べた時刻（JST）。`slot` を省くとこれから導出される
+             * @example 19:40
+             */
+            at?: string | null;
+            /** @description 省くと `at` から導出される */
             slot?: components["schemas"]["MealSlot"];
-            name: string;
+            /** @description 任意。空白だけなら「無し」として扱う */
+            name?: string | null;
             qty?: string | null;
+            /** @description 省くと PFC から計算される（Atwater 係数 4/9/4） */
             kcal?: number | null;
             proteinG?: number | null;
             fatG?: number | null;

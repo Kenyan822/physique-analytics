@@ -157,7 +157,7 @@ func TestDeleteMealSet_204(t *testing.T) {
 func TestApplyMealSet_日付と区分を渡す(t *testing.T) {
 	t.Parallel()
 
-	stub := &stubMealSets{applied: []openapi.Meal{{Id: uuid.New(), Name: "オートミール"}}}
+	stub := &stubMealSets{applied: []openapi.Meal{{Id: uuid.New(), Name: ptr("オートミール")}}}
 	rec := postJSON(t, mealSetServer(stub), http.MethodPost,
 		"/v1/meal-sets/"+uuid.New().String()+"/apply",
 		map[string]any{"date": "2033-03-01", "slot": "夕食"})
