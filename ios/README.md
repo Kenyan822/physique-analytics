@@ -113,7 +113,10 @@ Supabase Auth（メール＋パスワード）。**SDK は入れていない** �
 
 ```bash
 swift test                 # ロジック。速いので普段はこれ
+./scripts/device.sh        # 実機にビルドして入れて起動する
 ```
+
+開発の流れ（シミュレータを含む）は [docs/swift/dev-flow.md](../docs/swift/dev-flow.md)。
 
 UI（`*View.swift` と `PhysiqueApp.swift`）は SPM の対象から外している。
 SwiftUI の iOS 専用 API（`.keyboardType` など）が macOS ビルドで落ちるため。

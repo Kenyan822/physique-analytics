@@ -81,6 +81,24 @@ No such process
 
 `boot` は**非同期で戻る**。`bootstatus <device> -b` を挟むと起動完了まで待つ。
 
+### 画面を見る
+
+```bash
+xcrun simctl io "iPhone 17" screenshot /tmp/sim.png
+xcrun simctl ui "iPhone 17" appearance dark      # ダークモード
+```
+
+**レイアウト崩れはここで潰す。** `swift test` は View を見ないので、
+「型は通るが表示が変」はスクリーンショットでしか分からない。
+
+#### シミュレータは既定でソフトウェアキーボードが出ない
+
+Mac のキーボードに繋がるため。`.onAppear { focus = .email }` のように
+起動直後にフォーカスを当てる画面は、**実機と見え方が変わる**。
+
+キーボードが出た状態のレイアウトを確かめたいときは、
+Simulator の `I/O > Keyboard > Connect Hardware Keyboard` を切る。
+
 ### ログを見る
 
 `print` は Xcode を通さないと見えない。`os.Logger` を使えば `simctl` から拾える。
@@ -111,28 +129,32 @@ xcrun simctl erase "iPhone 17"                                     # まっさ�
 
 ## 3. 実機
 
-**Xcode を開かなくてよい。** 2コマンドで入る。
+**Xcode を開かなくてよい。1コマンドで入る。**
 
 ```bash
 cd ios
-DEVICE="<iPhone の名前>"      # xcrun devicectl list devices の Name 列
+./scripts/device.sh              # ビルド → インストール → 起動
+./scripts/device.sh --no-launch  # 入れるだけ
+```
 
+**デバイスは自動検出する。** 端末名も UDID も打たない（公開リポジトリに
+個人の端末が特定できる情報を置かないため）。繋がっていない・複数繋がっている・
+デベロッパモードが無効、はそれぞれ対処つきで止まる。
+
+中でやっているのはこの2つ。
+
+```bash
 xcodebuild -project Physique.xcodeproj -scheme Physique \
   -destination "platform=iOS,name=$DEVICE" \
-  -derivedDataPath /tmp/dd-device -allowProvisioningUpdates build
+  -derivedDataPath "$DERIVED" -allowProvisioningUpdates build
 
 xcrun devicectl device install app --device "$DEVICE" \
-  /tmp/dd-device/Build/Products/Debug-iphoneos/Physique.app
+  "$DERIVED/Build/Products/Debug-iphoneos/Physique.app"
 ```
 
 **UDID を調べる必要は無い。** `xcodebuild -destination` も `devicectl --device` も
-**デバイス名を受け付ける**。名前は
-
-```bash
-xcrun devicectl list devices
-```
-
-の `Name` 列（iPhone の `設定 > 一般 > 情報 > 名前`）。
+**デバイス名を受け付ける**。名前は `xcrun devicectl list devices` の `Name` 列
+（iPhone の `設定 > 一般 > 情報 > 名前`）。
 
 `-allowProvisioningUpdates` が要るのは、**デバイスを Personal Team に登録して
 provisioning profile を作らせる**ため。付けないと初回に
