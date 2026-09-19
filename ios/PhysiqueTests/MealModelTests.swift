@@ -149,3 +149,152 @@ struct MealDraftTests {
         #expect(d.kcal == nil)
     }
 }
+
+@Suite("日付を行き来する")
+@MainActor
+struct MealDateTests {
+    private func model(date: String) -> MealModel {
+        let (client, _) = api([emptyMeals, targets])
+
+        return MealModel(api: client, date: date, today: "2026-09-19")
+    }
+
+    @Test("前日に戻れる")
+    func previous() {
+        let m = model(date: "2026-09-19")
+        m.goToPreviousDay()
+
+        #expect(m.date == "2026-09-18")
+    }
+
+    @Test("翌日に進める")
+    func next() {
+        let m = model(date: "2026-09-17")
+        m.goToNextDay()
+
+        #expect(m.date == "2026-09-18")
+    }
+
+    @Test("月をまたぐ")
+    func acrossMonths() {
+        let m = model(date: "2026-10-01")
+        m.goToPreviousDay()
+
+        #expect(m.date == "2026-09-30")
+    }
+
+    // **未来には進めない。** 記録できない日を開いても意味が無い
+    @Test("**今日より先には進めない**")
+    func noFuture() {
+        let m = model(date: "2026-09-19")
+        #expect(!m.canGoNext)
+
+        m.goToNextDay()
+        #expect(m.date == "2026-09-19")
+    }
+
+    @Test("今日より前なら進める")
+    func canAdvanceFromPast() {
+        #expect(model(date: "2026-09-18").canGoNext)
+    }
+
+    @Test("表示は 9/19(土) の形")
+    func label() {
+        #expect(model(date: "2026-09-19").dateLabel == JST.displayString(from: "2026-09-19"))
+    }
+}
+
+@Suite("記録を直す")
+@MainActor
+struct MealEditTests {
+    private let existing = #"""
+    {"items":[{"id":"11111111-1111-1111-1111-111111111111","date":"2026-09-19",
+      "at":"19:40","slot":"夕食","name":"鶏むね","qty":"200g",
+      "kcal":220,"proteinG":45,"fatG":5,"carbG":0,"source":"manual"}]}
+    """#
+
+    private func loaded() async -> (MealModel, FakeTransport) {
+        let (client, t) = api([(existing, 200), targets])
+        let m = MealModel(api: client, date: "2026-09-19")
+        await m.load()
+
+        return (m, t)
+    }
+
+    @Test("開くと今の値が入る")
+    func beginEdit() async {
+        let (m, _) = await loaded()
+        let meal = m.meals[0]
+
+        m.beginEditing(meal)
+
+        #expect(m.editingID == meal.id)
+        #expect(m.editDraft.proteinG == "45")
+        #expect(m.editDraft.name == "鶏むね")
+        #expect(m.editDraft.qty == "200g")
+        #expect(m.editTime == "19:40")
+    }
+
+    @Test("**0 は 0 として出す。** 空欄と混ぜない")
+    func keepsZero() async {
+        let (m, _) = await loaded()
+        m.beginEditing(m.meals[0])
+
+        #expect(m.editDraft.carbG == "0")
+    }
+
+    @Test("閉じると編集をやめる")
+    func cancel() async {
+        let (m, _) = await loaded()
+        m.beginEditing(m.meals[0])
+        m.cancelEditing()
+
+        #expect(m.editingID == nil)
+    }
+
+    @Test("保存すると一覧が置き換わる")
+    func save() async {
+        let (client, _) = api([
+            (existing, 200),
+            targets,
+            (#"""
+            {"id":"11111111-1111-1111-1111-111111111111","date":"2026-09-19",
+             "at":"20:10","slot":"夕食","name":"鶏むね","kcal":260,
+             "proteinG":50,"fatG":6,"carbG":0,"source":"manual",
+             "createdAt":"2026-09-19T10:00:00Z","updatedAt":"2026-09-19T11:00:00Z"}
+            """#, 200),
+        ])
+        let m = MealModel(api: client, date: "2026-09-19")
+        await m.load()
+
+        m.beginEditing(m.meals[0])
+        m.editDraft.proteinG = "50"
+        m.editTime = "20:10"
+        await m.saveEdit()
+
+        #expect(m.editingID == nil)
+        #expect(m.meals.count == 1)
+        #expect(m.meals[0].proteinG == 50)
+        // 時刻を直すと区分も付け直される（サーバが導出する）
+        #expect(m.meals[0].at == "20:10")
+    }
+
+    @Test("失敗したら開いたままにする")
+    func keepsOpenOnFailure() async {
+        let (client, _) = api([
+            (existing, 200),
+            targets,
+            (#"{"type":"about:blank","title":"だめ","status":422}"#, 422),
+        ])
+        let m = MealModel(api: client, date: "2026-09-19")
+        await m.load()
+
+        m.beginEditing(m.meals[0])
+        m.editDraft.proteinG = "50"
+        await m.saveEdit()
+
+        // **閉じない。** 閉じると打ち直しになる
+        #expect(m.editingID != nil)
+        #expect(m.errorMessage != nil)
+    }
+}

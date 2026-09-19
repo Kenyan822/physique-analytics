@@ -153,6 +153,11 @@ struct APIClient: Sendable {
         try await request(Meal.self, "POST", "v1/meals", body: input)
     }
 
+    /// 記録を直す。**時刻を変えると区分も付け直される**（サーバが導出する）
+    func updateMeal(id: UUID, _ input: MealInput) async throws -> Meal {
+        try await request(Meal.self, "PATCH", "v1/meals/\(id.uuidString.lowercased())", body: input)
+    }
+
     func deleteMeal(id: UUID) async throws {
         try await requestNoContent("DELETE", "v1/meals/\(id.uuidString.lowercased())")
     }

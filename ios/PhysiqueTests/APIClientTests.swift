@@ -226,3 +226,27 @@ private actor Counter {
         return "jwt-\(n)"
     }
 }
+
+@Suite("食事の更新")
+struct MealUpdateTests {
+    @Test("PATCH で送る")
+    func patches() async throws {
+        let t = FakeTransport(json: #"""
+        {"id":"11111111-1111-1111-1111-111111111111","date":"2026-09-19","at":"20:10",
+         "slot":"夕食","name":"鶏むね","kcal":220,"source":"manual",
+         "createdAt":"2026-09-19T10:00:00Z","updatedAt":"2026-09-19T11:00:00Z"}
+        """#)
+        let api = APIClient(baseURL: base, transport: t)
+
+        let id = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        var input = MealInput(date: "2026-09-19", name: "鶏むね")
+        input.at = "20:10"
+
+        let updated = try await api.updateMeal(id: id, input)
+
+        #expect(updated.at == "20:10")
+        let req = try #require(t.requests.first)
+        #expect(req.httpMethod == "PATCH")
+        #expect(req.url?.path == "/v1/meals/11111111-1111-1111-1111-111111111111")
+    }
+}

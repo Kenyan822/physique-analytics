@@ -302,3 +302,30 @@ struct MealDraftPFCTests {
         #expect(draft(p: "1", name: "   ").toInput(date: "d", at: "12:00").name == nil)
     }
 }
+
+@Suite("時刻と Date の行き来")
+struct JSTTimeRoundTripTests {
+    @Test("HH:MM から Date にできる")
+    func parses() {
+        let d = try! #require(JST.time(from: "19:40"))
+        let c = JST.calendar.dateComponents([.hour, .minute], from: d)
+
+        #expect(c.hour == 19)
+        #expect(c.minute == 40)
+    }
+
+    @Test("往復しても変わらない")
+    func roundTrip() {
+        for s in ["00:00", "07:05", "12:30", "23:59"] {
+            let d = try! #require(JST.time(from: s))
+            #expect(JST.timeString(from: d) == s)
+        }
+    }
+
+    @Test("読めない値は nil")
+    func invalid() {
+        #expect(JST.time(from: "25:00") == nil)
+        #expect(JST.time(from: "") == nil)
+        #expect(JST.time(from: "1940") == nil)
+    }
+}
