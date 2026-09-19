@@ -48,6 +48,7 @@ struct LogView: View {
                 }
             }
             .navigationTitle("記録 \(JST.displayString(from: model.date))")
+            .dismissesKeyboardOnTap()
             .task { await model.load() }
             .onChange(of: model.selectedExerciseId) { _, id in
                 Task { await model.selectExercise(id) }

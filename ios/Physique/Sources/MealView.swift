@@ -22,6 +22,7 @@ struct MealView: View {
                 recorded
             }
             .navigationTitle("食事")
+            .dismissesKeyboardOnTap()
             .task { await model.load() }
             .refreshable { await model.load() }
         }
