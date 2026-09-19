@@ -215,7 +215,7 @@ private func int(_ s: String) -> Int? {
 # 画面まで含めてコンパイルが通ることを確かめる
 - name: Build（シミュレータ）
   run: xcodebuild -project Physique.xcodeproj -scheme Physique \
-         -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+         -destination 'platform=iOS Simulator,name=iPhone 17' build
 ```
 
 **UI は「コンパイルが通る」までしか見ていない。** SwiftUI の

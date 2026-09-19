@@ -17,6 +17,7 @@ Go 側は [docs/go/](../go/)。
 
 | トピック | 内容 |
 |---|---|
+| [dev-flow.md](dev-flow.md) | **直したあと何をするか**。`swift test` → シミュレータ → 実機 → PR。実測つき |
 | [app-structure.md](app-structure.md) | **ios/ の構成**。SPM と `.xcodeproj` の二重ビルド、依存の向き、`exclude` の理由 |
 | [observation.md](observation.md) | `@Observable` / `@State` / `@Bindable`。**どうして画面が描き直されるのか** |
 | [concurrency.md](concurrency.md) | `async`/`await`、`@MainActor`、`Sendable`。コンパイラがデータ競合を落とす仕組み |
