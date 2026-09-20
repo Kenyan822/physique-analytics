@@ -23,6 +23,8 @@ let package = Package(
                 "LogView.swift", "BodyView.swift", "HealthKitSource.swift", "LoginView.swift", "MealView.swift",
                 // UIApplication は iOS 専用
                 "KeyboardDismiss.swift",
+                // UI テスト専用。swift test では使わない
+                "UITestSupport.swift",
             ]
         ),
         .testTarget(

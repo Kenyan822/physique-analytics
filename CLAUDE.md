@@ -114,11 +114,29 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 | **分析ロジック**（`api/internal/analytics`） | **必須** |
 | **API ハンドラ** | **必須** |
 | **DB アクセス層** | **必須** |
-| UI（Web / iOS） | 任意 |
+| UI の見た目・文言 | 任意 |
+| **iOS で「押せるか」** | **必須**（下記） |
 
 分析ロジックは仕様が [docs/03-分析ロジック.md](docs/03-分析ロジック.md) に明文化されているため、**仕様がそのままテストケースになる**。TDD が最も機能する領域。
 
-UI のテストは費用対効果が低いため必須としない。
+UI の見た目や文言のテストは費用対効果が低いため必須としない。
+
+### ただし iOS の「押せるか」は必須（#202）
+
+**ボタンが画面外・キーボードの下・タップ領域ゼロになる事故が繰り返し起きた。**
+これは実機でしか出ず、`swift test` も `xcodebuild build` も型しか見ていないので
+検出できない。
+
+```bash
+cd ios && xcodebuild test -project Physique.xcodeproj -scheme Physique \
+  -destination 'platform=iOS Simulator,name=iPhone 17'
+```
+
+**操作の入口になるボタンを足したら、`PhysiqueUITests` に1本足す。**
+`isHittable` を見る。書き方は [docs/swift/testing.md](docs/swift/testing.md)。
+
+対象を広げない。1本15〜60秒かかる。**ロジックは `swift test` が見ている**ので、
+ここで見るのは「届くか」だけ。
 
 ### Go でのテストの書き方
 
@@ -301,6 +319,9 @@ docker compose run --rm migrate version
 
 # iOS（Swift）
 cd ios && swift test              # ロジックのテスト（Xcode 不要）
+cd ios && ./scripts/device.sh     # 実機にビルドして入れて起動する
+cd ios && xcodebuild test -project Physique.xcodeproj -scheme Physique \
+  -destination 'platform=iOS Simulator,name=iPhone 17'   # UI テスト（押せるか）
 cd ios && xcodebuild -project Physique.xcodeproj -scheme Physique \
   -destination 'platform=iOS Simulator,name=iPhone 17' build
 

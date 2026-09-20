@@ -6,15 +6,29 @@ import SwiftUI
 /// iOS の存在理由は「ジムでの入力速度」と「HealthKit 連携」。
 @main
 struct PhysiqueApp: App {
-    @State private var auth = AuthModel(
-        auth: AuthClient(
-            // 未設定なら明らかに失敗する URL にする。黙って localhost を
-            // 叩いて「なぜか繋がらない」にするより、設定漏れが分かる方がいい
-            url: AppConfig.supabaseURL ?? URL(string: "https://supabase-url-未設定.invalid")!,
-            anonKey: AppConfig.supabaseAnonKey ?? ""
-        ),
-        store: KeychainSessionStore()
-    )
+    @State private var auth: AuthModel
+
+    init() {
+        #if DEBUG
+        // **UI テストのときだけ差し替える。** 本番の経路は変えず、
+        // 既存の protocol に偽物を挿す（UITestSupport）
+        if UITestSupport.isActive {
+            _auth = State(initialValue: UITestSupport.makeAuth())
+
+            return
+        }
+        #endif
+
+        _auth = State(initialValue: AuthModel(
+            auth: AuthClient(
+                // 未設定なら明らかに失敗する URL にする。黙って localhost を
+                // 叩いて「なぜか繋がらない」にするより、設定漏れが分かる方がいい
+                url: AppConfig.supabaseURL ?? URL(string: "https://supabase-url-未設定.invalid")!,
+                anonKey: AppConfig.supabaseAnonKey ?? ""
+            ),
+            store: KeychainSessionStore()
+        ))
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -32,7 +46,11 @@ private struct MainTabs: View {
 
     /// API はログイン中のトークンを都度取りに行く（APIClient.TokenProvider）
     private var api: APIClient {
-        APIClient(
+        #if DEBUG
+        if UITestSupport.isActive { return UITestSupport.makeAPI() }
+        #endif
+
+        return APIClient(
             baseURL: AppConfig.apiBaseURL,
             tokenProvider: { [auth] in try await auth.accessToken() }
         )
