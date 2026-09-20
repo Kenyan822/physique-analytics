@@ -27,5 +27,6 @@
 | [0014](0014-sync-conflict-resolution.md) | **同期の競合は LWW + 論理削除で解決する** | Accepted |
 | [0015](0015-plan-settings-in-db.md) | 計画の設定は DB を正とする | Accepted |
 | [0016](0016-auto-migrate-on-deploy.md) | マイグレーションはデプロイの前段で自動適用する | Accepted |
+| [0017](0017-food-master-with-parameters.md) | 食品マスタを持つ。ただし「引数つきの計算式」として持つ | Accepted |
 
 形式は [Michael Nygard の ADR](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions) に準拠する。

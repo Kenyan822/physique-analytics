@@ -80,7 +80,9 @@ func run() error {
 			AccessKeyID:     cfg.R2AccessKeyID,
 			SecretAccessKey: cfg.R2SecretAccessKey,
 		}),
-	).WithManualTargets(repository.NewManualTargets(pool.DB())))
+	).
+		WithManualTargets(repository.NewManualTargets(pool.DB())).
+		WithFoodItems(repository.NewFoodItem(pool.DB())))
 
 	if cfg.AuthDisabled {
 		// ローカル開発専用。本番でこのログが出ていたら設定ミス

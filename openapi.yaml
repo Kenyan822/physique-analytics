@@ -746,6 +746,83 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /v1/food-items:
+    get:
+      operationId: listFoodItems
+      summary: 食品マスタを返す（要件 N-02）
+      description: よく使う順。引数つきの項目は components が入る
+      tags: [nutrition]
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+          description: 名前での絞り込み
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/FoodItem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    post:
+      operationId: createFoodItem
+      summary: 食品マスタに登録する（要件 N-02）
+      tags: [nutrition]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FoodItemInput" }
+      responses:
+        "201":
+          description: 登録した
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FoodItem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/food-items/{foodItemId}:
+    parameters:
+      - name: foodItemId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateFoodItem
+      summary: 食品マスタを直す。**構成はまるごと置き換わる**
+      tags: [nutrition]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FoodItemInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FoodItem" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+    delete:
+      operationId: deleteFoodItem
+      summary: 食品マスタから消す（論理削除）
+      tags: [nutrition]
+      responses:
+        "204": { description: 消した }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/meal-sets:
     get:
       operationId: listMealSets
@@ -1985,6 +2062,77 @@ components:
         proteinG: { type: number }
         fatG: { type: number }
         carbG: { type: number }
+
+    FoodItem:
+      allOf:
+        - $ref: "#/components/schemas/Timestamps"
+        - type: object
+          required: [id, name, components]
+          description: |
+            食品マスタの1項目（[ADR-0017](docs/adr/0017-food-master-with-parameters.md)）。
+
+            **引数は任意。** `components` が空なら `proteinG` 等をそのまま使う。
+            あるときは入力量と基準量の比で計算する
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string, examples: [プロテイン] }
+            qty:
+              type: [string, "null"]
+              description: 量の目安。「1杯」「1個」のような自由記述
+            proteinG:
+              type: [number, "null"]
+              minimum: 0
+              maximum: 1000
+              description: 引数が無いときに使う値。`components` があるときは見ない
+            fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+            carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
+            components:
+              type: array
+              items: { $ref: "#/components/schemas/FoodItemComponent" }
+            usedCount:
+              type: integer
+              readOnly: true
+              description: 選ばれた回数。並び順に使う（N-02 の頻度順と同じ）
+
+    FoodItemComponent:
+      type: object
+      required: [name, basisAmount, defaultAmount]
+      description: |
+        引数1つ。**基準量あたりの PFC** を持ち、入力量との比で計算する。
+
+        「30g あたり P24」を登録し、45g と入れたら P = 24 × (45/30) = 36
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100, examples: [量] }
+        unit:
+          type: string
+          maxLength: 10
+          default: g
+          description: 表示専用。計算に使うのは比だけなので型で縛らない
+        basisAmount:
+          type: number
+          exclusiveMinimum: 0
+          description: パッケージの「n g あたり」の n。**0 では割れない**
+        defaultAmount:
+          type: number
+          minimum: 0
+          description: 入力時の初期値
+        proteinG: { type: number, minimum: 0, maximum: 1000, default: 0 }
+        fatG: { type: number, minimum: 0, maximum: 1000, default: 0 }
+        carbG: { type: number, minimum: 0, maximum: 2000, default: 0 }
+
+    FoodItemInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        qty: { type: [string, "null"], maxLength: 50 }
+        proteinG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+        fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
+        carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        components:
+          type: array
+          description: 省くか空なら引数なし
+          items: { $ref: "#/components/schemas/FoodItemComponent" }
 
     ManualTargets:
       type: object
