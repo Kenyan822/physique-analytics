@@ -179,6 +179,22 @@ struct APIClient: Sendable {
         try await request(DailyTargets.self, "GET", "v1/targets/\(date)")
     }
 
+    /// 手で決めた摂取目標（要件 N-05）。設定していなければ nil
+    func manualTargets() async throws -> ManualTargets? {
+        struct Response: Decodable { let targets: ManualTargets? }
+
+        return try await request(Response.self, "GET", "v1/targets/manual").targets
+    }
+
+    func putManualTargets(_ input: ManualTargets) async throws -> ManualTargets {
+        try await request(ManualTargets.self, "PUT", "v1/targets/manual", body: input)
+    }
+
+    /// 消すと自動計算（A-02）に戻る
+    func deleteManualTargets() async throws {
+        try await requestNoContent("DELETE", "v1/targets/manual")
+    }
+
     // MARK: - 体組成（要件 B-02 / B-03 / B-06）
 
     func listDailyMetrics(from: String, to: String) async throws -> [DailyMetrics] {

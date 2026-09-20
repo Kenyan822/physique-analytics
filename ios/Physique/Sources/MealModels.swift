@@ -78,6 +78,17 @@ struct MealSuggestion: Codable, Identifiable, Hashable, Sendable {
     var carbG: Double?
 }
 
+/// 手で決めた摂取目標（要件 N-05）。
+///
+/// **期間で1つ。** フェーズ単位で変えるもので、日ごとに持つのは過剰
+struct ManualTargets: Codable, Sendable {
+    var proteinG: Double
+    var fatG: Double
+    var carbG: Double
+    /// PFC から計算した値。**送っても無視される**
+    var kcal: Int?
+}
+
 struct Macros: Codable, Hashable, Sendable {
     let kcal: Int
     let proteinG: Double
@@ -90,6 +101,8 @@ struct DailyTargets: Codable, Sendable {
     let date: String
     var phase: String?
     var target: Macros?
+    /// 目標がどこから来たか。`manual` は手で決めた値（#195）
+    var targetSource: String?
     var consumed: Macros?
     var note: String?
 }

@@ -92,6 +92,15 @@ type MealRepository interface {
 	Copy(ctx context.Context, from, to openapi_types.Date, slot *openapi.MealSlot) ([]openapi.Meal, error)
 }
 
+// ManualTargetsRepository は手で決めた摂取目標へのアクセス（要件 N-05）。
+//
+// **nil でもよい。** 未設定なら自動計算（A-02）だけが使われる
+type ManualTargetsRepository interface {
+	Get(ctx context.Context) (*openapi.ManualTargets, error)
+	Put(ctx context.Context, in openapi.ManualTargets) (openapi.ManualTargets, error)
+	Delete(ctx context.Context) error
+}
+
 // PlanRepository は計画の設定へのアクセス（要件 P-01 / P-05）。
 type PlanRepository interface {
 	Get(ctx context.Context) (openapi.Plan, error)
@@ -180,6 +189,16 @@ type Server struct {
 	photos    PhotoRepository
 	// blobs も nil でよい。未設定なら写真だけが使えない
 	blobs BlobStore
+	// manualTargets は任意。**引数に足さずセッターにしてある** ——
+	// New は既に16引数で、呼ぶ側19箇所すべてを触る手間に見合わない
+	manualTargets ManualTargetsRepository
+}
+
+// WithManualTargets は手で決めた摂取目標の置き場所を差す（要件 N-05）。
+func (s *Server) WithManualTargets(r ManualTargetsRepository) *Server {
+	s.manualTargets = r
+
+	return s
 }
 
 // New は Server を作る。

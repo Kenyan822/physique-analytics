@@ -38,7 +38,7 @@ func TestCreateMeal_記録して一覧で引ける(t *testing.T) {
 		t.Errorf("Slot = %v, want 昼食", created.Slot)
 	}
 	// 既定は手入力。AI 推定と区別できないと分析の確度が測れない
-	if created.Source != openapi.Manual {
+	if created.Source != openapi.MealSourceManual {
 		t.Errorf("Source = %q, want manual", created.Source)
 	}
 

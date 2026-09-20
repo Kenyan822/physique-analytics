@@ -489,6 +489,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/targets/manual": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 手で決めた摂取目標を返す（要件 N-05） */
+        get: operations["getManualTargets"];
+        /** 手で決めた摂取目標を保存する（要件 N-05） */
+        put: operations["putManualTargets"];
+        post?: never;
+        /** 手で決めた摂取目標を消す。自動計算（A-02）に戻る */
+        delete: operations["deleteManualTargets"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/targets/{date}": {
         parameters: {
             query?: never;
@@ -1186,14 +1205,34 @@ export interface components {
             fatG: number;
             carbG: number;
         };
+        /**
+         * @description 手で決めた摂取目標（要件 N-05）。**期間で1つ**しか持たない ——
+         *     フェーズ単位で変えるもので、日ごとに持つのは過剰。
+         *     これがあるときは自動計算（A-02）より優先する
+         */
+        ManualTargets: {
+            proteinG: number;
+            fatG: number;
+            carbG: number;
+            /** @description PFC から計算した値（Atwater 4/9/4）。**送っても無視する** */
+            readonly kcal?: number | null;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+        };
         DailyTargets: {
             /** Format: date */
             date: string;
             phase?: string | null;
             goalKgPerWeek?: number | null;
             tdeeKcal?: number | null;
-            /** @description 摂取目標。TDEE を推定できないときは null */
+            /** @description 摂取目標。TDEE を推定できず手動目標も無ければ null */
             target?: components["schemas"]["Macros"] | null;
+            /**
+             * @description `target` がどこから来たか。**手動値が自動計算を黙って上書きしていると、
+             *     体重が動いても目標が変わらない理由が分からなくなる**ので明示する
+             * @enum {string|null}
+             */
+            targetSource?: "manual" | "computed" | null;
             consumed: components["schemas"]["Macros"];
             /** @description 目標 − 実績。target が無ければ null */
             remaining?: components["schemas"]["Macros"] | null;
@@ -2544,6 +2583,74 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getManualTargets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK。設定していなければ null */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        targets?: components["schemas"]["ManualTargets"] | null;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    putManualTargets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualTargets"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualTargets"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteManualTargets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 消した。設定が無くても 204 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     getDailyTargets: {

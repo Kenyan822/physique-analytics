@@ -298,3 +298,72 @@ struct MealEditTests {
         #expect(m.errorMessage != nil)
     }
 }
+
+@Suite("目標を手で決める")
+@MainActor
+struct ManualTargetTests {
+    private let noManual = (#"{"targets":null}"#, 200)
+    private let manual = (#"{"targets":{"proteinG":180,"fatG":70,"carbG":250,"kcal":2350}}"#, 200)
+
+    @Test("手動目標が入っていれば読める")
+    func loadsManual() async {
+        let (client, _) = api([emptyMeals, targets, manual])
+        let m = MealModel(api: client, date: "2026-09-16")
+        await m.load()
+        await m.loadManualTarget()
+
+        #expect(m.manualDraft.proteinG == "180")
+        #expect(m.manualDraft.carbG == "250")
+    }
+
+    @Test("未設定なら空のまま")
+    func emptyWhenUnset() async {
+        let (client, _) = api([emptyMeals, targets, noManual])
+        let m = MealModel(api: client, date: "2026-09-16")
+        await m.load()
+        await m.loadManualTarget()
+
+        #expect(m.manualDraft.proteinG == "")
+    }
+
+    @Test("保存すると目標が更新される")
+    func saves() async {
+        let (client, _) = api([
+            emptyMeals, targets, noManual,
+            (#"{"proteinG":200,"fatG":60,"carbG":200,"kcal":2180}"#, 200),
+            (#"""
+            {"date":"2026-09-16","targetSource":"manual",
+             "target":{"kcal":2180,"proteinG":200,"fatG":60,"carbG":200},
+             "consumed":{"kcal":0,"proteinG":0,"fatG":0,"carbG":0},
+             "remaining":{"kcal":2180,"proteinG":200,"fatG":60,"carbG":200}}
+            """#, 200),
+        ])
+        let m = MealModel(api: client, date: "2026-09-16")
+        await m.load()
+        await m.loadManualTarget()
+
+        m.manualDraft.proteinG = "200"
+        m.manualDraft.fatG = "60"
+        m.manualDraft.carbG = "200"
+        await m.saveManualTarget()
+
+        #expect(m.target?.proteinG == 200)
+        #expect(m.targetIsManual)
+    }
+
+    @Test("**空欄があれば保存しない**")
+    func requiresAllThree() async {
+        let (client, t) = api([emptyMeals, targets, noManual])
+        let m = MealModel(api: client, date: "2026-09-16")
+        await m.load()
+        await m.loadManualTarget()
+
+        m.manualDraft.proteinG = "200"
+        let before = t.requests.count
+        await m.saveManualTarget()
+
+        // PFC は3つで1組。1つ欠けた目標は意味を成さない
+        #expect(t.requests.count == before)
+        #expect(m.errorMessage != nil)
+    }
+}

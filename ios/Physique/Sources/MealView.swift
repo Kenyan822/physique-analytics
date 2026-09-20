@@ -7,6 +7,7 @@ import SwiftUI
 struct MealView: View {
     @State private var model: MealModel
     @State private var pickingDate = false
+    @State private var editingTarget = false
     @FocusState private var focus: Field?
 
     /// 入力欄の並び。**キーボードの「次へ」がこの順に送る**
@@ -30,8 +31,13 @@ struct MealView: View {
             .toolbar { ToolbarItem(placement: .principal) { dateNav } }
             .dismissesKeyboardOnTap()
             .keyboardFocusBar(focus: $focus, order: Field.allCases)
-            .task { await model.load() }
+            .sheet(isPresented: $editingTarget) {
+                targetSheet
+            }
+            // **.task(id:) は表示時にも走る。** 素の .task と併用すると
+            // 開くたびに2回読みに行く
             .task(id: model.date) { await model.load() }
+            .task { await model.loadManualTarget() }
             .refreshable { await model.load() }
         }
     }
@@ -94,13 +100,116 @@ struct MealView: View {
         )
     }
 
+    // MARK: - 目標（#195）
+
+    /// **自動計算に任せるか、自分で決めるか。** 体重トレンドから逆算する
+    /// 仕組み（A-02）はあるが、フェーズを登録するまで何も出ない
+    private var targetSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack(spacing: 12) {
+                        Num(label: "P", text: $model.manualDraft.proteinG)
+                        Num(label: "F", text: $model.manualDraft.fatG)
+                        Num(label: "C", text: $model.manualDraft.carbG)
+                    }
+                    LabeledContent("カロリー") {
+                        Text(model.manualDraft.kcal.map { "\($0) kcal" } ?? "— kcal")
+                            .monospacedDigit()
+                            .foregroundStyle(model.manualDraft.kcal == nil ? .tertiary : .primary)
+                    }
+                } header: {
+                    Text("1日の目標")
+                } footer: {
+                    Text(model.targetIsManual
+                         ? "この値を使っている。消すと体重トレンドからの自動計算に戻る"
+                         : "入れるとこの値が使われる。空のままなら体重トレンドから自動で決まる")
+                }
+
+                if let e = model.errorMessage {
+                    ErrorNote(e)
+                }
+
+                if model.targetIsManual {
+                    Section {
+                        Button("自動計算に戻す", role: .destructive) {
+                            Task {
+                                await model.clearManualTarget()
+                                editingTarget = false
+                            }
+                        }
+                        .disabled(model.isWorking)
+                    }
+                }
+            }
+            .navigationTitle("目標")
+            .navigationBarTitleDisplayMode(.inline)
+            .dismissesKeyboardOnTap()
+            .keyboardDoneButton()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { editingTarget = false }
+                }
+                // **保存はツールバーに置く。** Form の下の方に置くと、
+                // キーボードが出た時点で画面外に落ちて押せなくなる
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(model.isWorking ? "保存中…" : "保存") {
+                        Task {
+                            await model.saveManualTarget()
+                            if model.errorMessage == nil { editingTarget = false }
+                        }
+                    }
+                    .disabled(model.isWorking)
+                }
+            }
+        }
+        // 伸ばせるようにする。キーボードが出ると medium では足りない
+        .presentationDetents([.medium, .large])
+    }
+
     // MARK: - 合計と残量
 
+    /// **目標そのものをタップして直す。** 「目標を決める」ボタンを別に置くと、
+    /// 数字を見て直したくなった場所と押す場所が離れる。
     @ViewBuilder
     private var summary: some View {
         Section {
+            Button {
+                editingTarget = true
+            } label: {
+                VStack(spacing: 8) {
+                    // 1行目 —— 目標。ここが編集の入口
+                    HStack(spacing: 6) {
+                        Text(targetHeading)
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+
+                    HStack {
+                        Goal(label: "カロリー", value: model.target.map { Int($0.kcal) }, unit: "")
+                        Divider()
+                        Goal(label: "P", value: model.target.map { Int($0.proteinG) }, unit: "g")
+                        Divider()
+                        Goal(label: "F", value: model.target.map { Int($0.fatG) }, unit: "g")
+                        Divider()
+                        Goal(label: "C", value: model.target.map { Int($0.carbG) }, unit: "g")
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            // **目標が出せなくても記録はできる。** 理由だけ見せる
+            if let message = model.targetsMessage {
+                Text(message).font(.caption).foregroundStyle(.orange)
+            }
+        }
+
+        Section {
             HStack {
-                Total(label: "kcal", value: model.totals.kcal, remaining: model.remaining?.kcal)
+                Total(label: "カロリー", value: model.totals.kcal, remaining: model.remaining?.kcal)
                 Divider()
                 Total(label: "P", value: Int(model.totals.proteinG),
                       remaining: model.remaining.map { Int($0.proteinG) })
@@ -112,10 +221,6 @@ struct MealView: View {
                       remaining: model.remaining.map { Int($0.carbG) })
             }
 
-            if let message = model.targetsMessage {
-                // **目標が出せなくても記録はできる。** 理由だけ見せる
-                Text(message).font(.caption).foregroundStyle(.orange)
-            }
             if model.totals.withoutMacros > 0 {
                 Text("PFC 未入力が \(model.totals.withoutMacros) 件。合計はその分少ない")
                     .font(.caption).foregroundStyle(.secondary)
@@ -123,6 +228,14 @@ struct MealView: View {
         } header: {
             Text(model.remaining == nil ? "今日の合計" : "今日の合計 / 残り")
         }
+    }
+
+    /// **未設定のときも「目標」だけ。** `›` が押せることを示していて、
+    /// 値が「—」なら未設定だと見れば分かる
+    private var targetHeading: String {
+        guard model.target != nil else { return "目標" }
+
+        return model.targetIsManual ? "目標（手動）" : "目標（自動計算）"
     }
 
     // MARK: - 入力
@@ -138,8 +251,8 @@ struct MealView: View {
             }
 
             // 打ちながら見える。**送らない** —— サーバが同じ式で計算する
-            LabeledContent("kcal") {
-                Text(model.draft.kcal.map { "\($0) kcal" } ?? "—")
+            LabeledContent("カロリー") {
+                Text(model.draft.kcal.map { "\($0) kcal" } ?? "— kcal")
                     .monospacedDigit()
                     .foregroundStyle(model.draft.kcal == nil ? .tertiary : .primary)
             }
@@ -270,8 +383,8 @@ struct MealView: View {
             Num(label: "C", text: $model.editDraft.carbG).focused($focus, equals: .editC)
         }
 
-        LabeledContent("kcal") {
-            Text(model.editDraft.kcal.map { "\($0) kcal" } ?? "—")
+        LabeledContent("カロリー") {
+            Text(model.editDraft.kcal.map { "\($0) kcal" } ?? "— kcal")
                 .monospacedDigit()
                 .foregroundStyle(model.editDraft.kcal == nil ? .tertiary : .primary)
         }
@@ -335,6 +448,23 @@ private struct Macro: View {
                 .font(.caption).monospacedDigit()
                 .foregroundStyle(value == nil ? .tertiary : .secondary)
         }
+    }
+}
+
+/// 目標の1項目。**未設定は「—」**で、0 と区別する
+private struct Goal: View {
+    let label: String
+    let value: Int?
+    let unit: String
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(label).font(.caption2).foregroundStyle(.tertiary)
+            Text(value.map { "\($0)\(unit)" } ?? "—")
+                .font(.subheadline).monospacedDigit()
+                .foregroundStyle(value == nil ? .tertiary : .secondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
