@@ -421,6 +421,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/food-items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 食品マスタを返す（要件 N-02）
+         * @description よく使う順。引数つきの項目は components が入る
+         */
+        get: operations["listFoodItems"];
+        put?: never;
+        /** 食品マスタに登録する（要件 N-02） */
+        post: operations["createFoodItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/food-items/{foodItemId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                foodItemId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** 食品マスタから消す（論理削除） */
+        delete: operations["deleteFoodItem"];
+        options?: never;
+        head?: never;
+        /** 食品マスタを直す。**構成はまるごと置き換わる** */
+        patch: operations["updateFoodItem"];
+        trace?: never;
+    };
     "/v1/meal-sets": {
         parameters: {
             query?: never;
@@ -1204,6 +1245,54 @@ export interface components {
             proteinG: number;
             fatG: number;
             carbG: number;
+        };
+        FoodItem: components["schemas"]["Timestamps"] & {
+            /** Format: uuid */
+            id: string;
+            /** @example プロテイン */
+            name: string;
+            /** @description 量の目安。「1杯」「1個」のような自由記述 */
+            qty?: string | null;
+            /** @description 引数が無いときに使う値。`components` があるときは見ない */
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
+            components: components["schemas"]["FoodItemComponent"][];
+            /** @description 選ばれた回数。並び順に使う（N-02 の頻度順と同じ） */
+            readonly usedCount?: number;
+        };
+        /**
+         * @description 引数1つ。**基準量あたりの PFC** を持ち、入力量との比で計算する。
+         *
+         *     「30g あたり P24」を登録し、45g と入れたら P = 24 × (45/30) = 36
+         */
+        FoodItemComponent: {
+            /** @example 量 */
+            name: string;
+            /**
+             * @description 表示専用。計算に使うのは比だけなので型で縛らない
+             * @default g
+             */
+            unit?: string;
+            /** @description パッケージの「n g あたり」の n。**0 では割れない** */
+            basisAmount: number;
+            /** @description 入力時の初期値 */
+            defaultAmount: number;
+            /** @default 0 */
+            proteinG?: number;
+            /** @default 0 */
+            fatG?: number;
+            /** @default 0 */
+            carbG?: number;
+        };
+        FoodItemInput: {
+            name: string;
+            qty?: string | null;
+            proteinG?: number | null;
+            fatG?: number | null;
+            carbG?: number | null;
+            /** @description 省くか空なら引数なし */
+            components?: components["schemas"]["FoodItemComponent"][];
         };
         /**
          * @description 手で決めた摂取目標（要件 N-05）。**期間で1つ**しか持たない ——
@@ -2446,6 +2535,109 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    listFoodItems: {
+        parameters: {
+            query?: {
+                /** @description 名前での絞り込み */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["FoodItem"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createFoodItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FoodItemInput"];
+            };
+        };
+        responses: {
+            /** @description 登録した */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FoodItem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteFoodItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                foodItemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 消した */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateFoodItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                foodItemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FoodItemInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FoodItem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
         };
     };
     listMealSets: {

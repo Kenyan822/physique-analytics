@@ -92,6 +92,18 @@ type MealRepository interface {
 	Copy(ctx context.Context, from, to openapi_types.Date, slot *openapi.MealSlot) ([]openapi.Meal, error)
 }
 
+// FoodItemRepository は食品マスタへのアクセス（要件 N-02 / ADR-0017）。
+//
+// **nil でもよい。** 未設定なら食品マスタだけが使えない
+type FoodItemRepository interface {
+	List(ctx context.Context, q string) ([]openapi.FoodItem, error)
+	Get(ctx context.Context, id uuid.UUID) (openapi.FoodItem, error)
+	Create(ctx context.Context, in openapi.FoodItemInput) (openapi.FoodItem, error)
+	Update(ctx context.Context, id uuid.UUID, in openapi.FoodItemInput) (openapi.FoodItem, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	MarkUsed(ctx context.Context, id uuid.UUID) error
+}
+
 // ManualTargetsRepository は手で決めた摂取目標へのアクセス（要件 N-05）。
 //
 // **nil でもよい。** 未設定なら自動計算（A-02）だけが使われる
@@ -192,6 +204,15 @@ type Server struct {
 	// manualTargets は任意。**引数に足さずセッターにしてある** ——
 	// New は既に16引数で、呼ぶ側19箇所すべてを触る手間に見合わない
 	manualTargets ManualTargetsRepository
+	// foodItems も任意。未設定なら食品マスタだけが使えない
+	foodItems FoodItemRepository
+}
+
+// WithFoodItems は食品マスタの置き場所を差す（要件 N-02）。
+func (s *Server) WithFoodItems(r FoodItemRepository) *Server {
+	s.foodItems = r
+
+	return s
 }
 
 // WithManualTargets は手で決めた摂取目標の置き場所を差す（要件 N-05）。

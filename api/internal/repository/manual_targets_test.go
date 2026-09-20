@@ -13,6 +13,12 @@ func TestManualTargets_設定していなければnil(t *testing.T) {
 	ctx := t.Context()
 	repo := repository.NewManualTargets(testdb.Begin(t))
 
+	// **単一行なので、他が commit した行が見える。**
+	// トランザクション内で消してから確かめる（Rollback で戻る）
+	if err := repo.Delete(ctx); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
 	got, err := repo.Get(ctx)
 	if err != nil {
 		t.Fatalf("Get: %v", err)

@@ -104,6 +104,11 @@ func connect(t *testing.T) *pgxpool.Pool {
 			return
 		}
 		cfg.MaxConns = maxConns()
+		// **本番と同じ実行モードにする。** 既定（プリペアド）のままだと
+		// pgx がサーバに型を問い合わせるので、本番（QueryExecModeExec）なら
+		// 解決できない書き方がテストでは通ってしまう。
+		// `any($1)` に []uuid.UUID を渡して本番だけ 500 になる事故を踏んだ
+		cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
 
 		p, err := pgxpool.NewWithConfig(ctx, cfg)
 		if err != nil {
