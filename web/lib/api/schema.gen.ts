@@ -462,6 +462,29 @@ export interface paths {
         patch: operations["updateFoodItem"];
         trace?: never;
     };
+    "/v1/food-items/{foodItemId}/used": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                foodItemId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 使った回数を1つ増やす（要件 N-02）
+         * @description 一覧の並び順に効く。**記録できたあとに呼ぶ。**
+         *     失敗しても記録そのものは済んでいるので、呼ぶ側は握ってよい
+         */
+        post: operations["markFoodItemUsed"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/meal-sets": {
         parameters: {
             query?: never;
@@ -2638,6 +2661,28 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationFailed"];
+        };
+    };
+    markFoodItemUsed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                foodItemId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 増やした */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     listMealSets: {

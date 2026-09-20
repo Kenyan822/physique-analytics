@@ -77,6 +77,50 @@ final class MealInputTests: XCTestCase {
         XCTAssertTrue(record.isHittable, "キーボードを閉じれば Form のボタンも押せること")
     }
 
+    // MARK: - 食品マスタ（#209）
+
+    func test_マスタから選ぶ場所が押せる() {
+        // **操作の入口が増えたので1本足す**（#202 の運用）
+        let pick = app.buttons["pickFromMaster"]
+        XCTAssertTrue(pick.waitForExistence(timeout: 20), "マスタから選ぶが出ること")
+        XCTAssertTrue(pick.isHittable, "押せる位置にあること")
+        pick.tap()
+
+        XCTAssertTrue(
+            app.navigationBars["マスタから選ぶ"].waitForExistence(timeout: 5),
+            "一覧が開くこと"
+        )
+    }
+
+    func test_マスタに登録する画面が開く() {
+        // **親のシートを閉じると子が出ない**、を捕まえる。
+        // 実機で「登録を押すと勝手に閉じる」として出た（#209）
+        app.buttons["pickFromMaster"].tap()
+        XCTAssertTrue(app.navigationBars["マスタから選ぶ"].waitForExistence(timeout: 10))
+
+        app.buttons["openFoodRegister"].tap()
+
+        XCTAssertTrue(
+            app.navigationBars["マスタに登録"].waitForExistence(timeout: 5),
+            "登録画面が開くこと（一覧が閉じてしまわないこと）"
+        )
+    }
+
+    func test_引数を足す場所が押せる() {
+        app.buttons["pickFromMaster"].tap()
+        XCTAssertTrue(app.navigationBars["マスタから選ぶ"].waitForExistence(timeout: 10))
+        app.buttons["openFoodRegister"].tap()
+        XCTAssertTrue(app.navigationBars["マスタに登録"].waitForExistence(timeout: 5))
+
+        // **詳細は下にある。** Form は見えていない行を作らないので、
+        // 隠れていると `exists` すら false になる
+        let add = app.buttons["addFoodComponent"]
+        if !add.waitForExistence(timeout: 3) { app.swipeUp() }
+
+        XCTAssertTrue(add.waitForExistence(timeout: 5), "引数を足すが出ること")
+        XCTAssertTrue(add.isHittable, "押せる位置にあること")
+    }
+
     // MARK: - 日付
 
     func test_前の日に移動できる() {

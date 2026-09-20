@@ -8,6 +8,9 @@ struct MealView: View {
     @State private var model: MealModel
     @State private var pickingDate = false
     @State private var editingTarget = false
+    @State private var showingFoodList = false
+    @State private var registeringFood = false
+    @State private var newFoodName = ""
     @FocusState private var focus: Field?
 
     /// 入力欄の並び。**キーボードの「次へ」がこの順に送る**
@@ -40,12 +43,272 @@ struct MealView: View {
             .sheet(isPresented: $editingTarget) {
                 targetSheet
             }
+            .sheet(isPresented: $showingFoodList) {
+                foodListSheet
+            }
+            // 量を聞くのは引数つきの項目だけ（ADR-0017）
+            .sheet(isPresented: Binding(
+                get: { model.pickingFood != nil },
+                set: { if !$0 { model.cancelFoodPick() } }
+            )) {
+                foodAmountSheet
+            }
             // **.task(id:) は表示時にも走る。** 素の .task と併用すると
             // 開くたびに2回読みに行く
             .task(id: model.date) { await model.load() }
             .task { await model.loadManualTarget() }
+            .task { await model.loadFoodItems() }
             .refreshable { await model.load() }
         }
+    }
+
+    // MARK: - 食品マスタ（#209）
+
+    /// マスタの一覧。**よく使う順**に出る。
+    private var foodListSheet: some View {
+        NavigationStack {
+            List {
+                if model.foodItems.isEmpty {
+                    Text("まだ何も登録していない。よく食べるものを登録すると、次から選ぶだけで入る")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
+                ForEach(model.foodItems) { item in
+                    Button {
+                        showingFoodList = false
+                        model.pickFood(item)
+                    } label: {
+                        foodRow(item)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .navigationTitle("マスタから選ぶ")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { showingFoodList = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    // **いまの入力に縛らない。** 「これから食べるもの」と
+                    // 「登録しておきたいもの」は必ずしも同じではない。
+                    // 入力があれば初期値に写すだけ
+                    Button("登録") {
+                        newFoodName = model.draft.name
+                        model.beginRegisteringFood()
+                        // **一覧を閉じない。** 登録画面はこのシートの上に
+                        // 乗っているので、親を閉じると子も出ない。
+                        // 登録後はこの一覧に戻り、足したものがそこに並ぶ
+                        registeringFood = true
+                    }
+                    .accessibilityIdentifier("openFoodRegister")
+                }
+            }
+        }
+        .sheet(isPresented: $registeringFood) { foodRegisterSheet }
+    }
+
+    private func foodRow(_ item: FoodItem) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text(item.name)
+                if item.hasComponents {
+                    // 選んだあと量を聞く、と分かるようにする
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+                Spacer()
+                Text("\(item.expand([:]).kcal) kcal")
+                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            }
+
+            let m = item.expand([:])
+            HStack(spacing: 8) {
+                Macro(label: "P", value: m.proteinG)
+                Macro(label: "F", value: m.fatG)
+                Macro(label: "C", value: m.carbG)
+                if let qty = item.qty {
+                    Text(qty).font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    /// 引数つきの項目の量を聞く。**既定値のまま確定してよい。**
+    @ViewBuilder
+    private var foodAmountSheet: some View {
+        if let item = model.pickingFood {
+            NavigationStack {
+                Form {
+                    Section {
+                        ForEach(item.components) { c in
+                            LabeledContent(c.name) {
+                                HStack(spacing: 4) {
+                                    TextField(
+                                        "",
+                                        value: Binding(
+                                            get: { model.foodAmounts[c.name] ?? c.defaultAmount },
+                                            set: { model.foodAmounts[c.name] = $0 }
+                                        ),
+                                        format: .number
+                                    )
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .monospacedDigit()
+                                    Text(c.unit).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    } footer: {
+                        Text("\(c(item)) あたりの値から計算する")
+                    }
+
+                    Section("この量での PFC") {
+                        let m = item.expand(model.foodAmounts)
+                        LabeledContent("カロリー") {
+                            Text("\(m.kcal) kcal").monospacedDigit()
+                        }
+                        HStack(spacing: 12) {
+                            Macro(label: "P", value: m.proteinG)
+                            Macro(label: "F", value: m.fatG)
+                            Macro(label: "C", value: m.carbG)
+                        }
+                    }
+                }
+                .navigationTitle(item.name)
+                .navigationBarTitleDisplayMode(.inline)
+                .dismissesKeyboardOnTap()
+                .keyboardDoneButton()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("やめる") { model.cancelFoodPick() }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("入れる") { model.confirmFoodPick() }
+                            .accessibilityIdentifier("confirmFoodPick")
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
+    }
+
+    /// 基準量の説明文。「30g あたり」のように出す
+    private func c(_ item: FoodItem) -> String {
+        item.components
+            .map { "\(trimmed($0.basisAmount))\($0.unit)" }
+            .joined(separator: " / ")
+    }
+
+    private func trimmed(_ v: Double) -> String {
+        v == v.rounded() ? String(Int(v)) : String(v)
+    }
+
+    /// マスタに登録する。
+    ///
+    /// **いまの記録の入力とは別。** 開いたときに写すだけで、
+    /// 書き換えても記録側には影響しない。
+    private var foodRegisterSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("名前", text: $newFoodName)
+                    TextField("量（1杯 / 1個）", text: $model.foodDraft.qty)
+                }
+
+                Section {
+                    HStack(spacing: 12) {
+                        Num(label: "P", text: $model.foodDraft.proteinG)
+                        Num(label: "F", text: $model.foodDraft.fatG)
+                        Num(label: "C", text: $model.foodDraft.carbG)
+                    }
+                    LabeledContent("カロリー") {
+                        Text(model.foodDraft.kcal.map { "\($0) kcal" } ?? "— kcal")
+                            .monospacedDigit()
+                            .foregroundStyle(model.foodDraft.kcal == nil ? .tertiary : .primary)
+                    }
+                } header: {
+                    Text(model.foodComponents.isEmpty ? "PFC" : "PFC（引数があるので使われない）")
+                } footer: {
+                    if model.foodComponents.isEmpty {
+                        Text("毎回同じならこのまま。量が変わるなら下で引数を足す")
+                    }
+                }
+
+                // **引数は詳細。** 既定は無しで、量が変わるものだけ足す（ADR-0017）
+                Section {
+                    ForEach($model.foodComponents) { $c in
+                        componentEditor($c)
+                    }
+                    .onDelete { model.foodComponents.remove(atOffsets: $0) }
+
+                    Button {
+                        model.addFoodComponent()
+                    } label: {
+                        Label("引数を足す", systemImage: "plus")
+                    }
+                    .accessibilityIdentifier("addFoodComponent")
+                } header: {
+                    Text("引数（任意）")
+                } footer: {
+                    Text("「30g あたり P24」の形。入力時に量を変えると比例して計算する")
+                }
+
+                if let e = model.errorMessage {
+                    ErrorNote(e)
+                }
+            }
+            .navigationTitle("マスタに登録")
+            .navigationBarTitleDisplayMode(.inline)
+            .dismissesKeyboardOnTap()
+            .keyboardDoneButton()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("やめる") { registeringFood = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("登録") {
+                        Task {
+                            await model.registerFood(name: newFoodName)
+                            if model.errorMessage == nil {
+                                registeringFood = false
+                                newFoodName = ""
+                            }
+                        }
+                    }
+                    .disabled(model.isWorking)
+                }
+            }
+        }
+        // **既定を大きくする。** 引数のセクションが入ったので medium では
+        // 下が隠れる。Form は見えていない行を作らないので、
+        // 隠れた要素はそもそも存在しない（UI テストでも取れない）
+        .presentationDetents([.large, .medium])
+    }
+
+    /// 引数1つの編集。
+    private func componentEditor(_ c: Binding<FoodComponentDraft>) -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                TextField("名前（量 / 鶏ひき肉）", text: c.name)
+                TextField("単位", text: c.unit)
+                    .frame(width: 44)
+                    .multilineTextAlignment(.center)
+            }
+
+            HStack(spacing: 12) {
+                Num(label: "基準量", text: c.basisAmount)
+                Num(label: "既定", text: c.defaultAmount)
+            }
+
+            HStack(spacing: 12) {
+                Num(label: "P", text: c.proteinG)
+                Num(label: "F", text: c.fatG)
+                Num(label: "C", text: c.carbG)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     // MARK: - 日付（#193）
@@ -268,6 +531,22 @@ struct MealView: View {
                     .monospacedDigit()
                     .foregroundStyle(model.draft.kcal == nil ? .tertiary : .primary)
             }
+
+            // **PFC の下、記録の上。** 選ぶ → 確認 → 記録 の順で下に進む
+            Button {
+                focus = nil
+                showingFoodList = true
+            } label: {
+                HStack {
+                    Text("マスタから選ぶ")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("pickFromMaster")
 
             Button {
                 focus = nil

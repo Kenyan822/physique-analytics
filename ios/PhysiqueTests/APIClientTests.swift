@@ -250,3 +250,78 @@ struct MealUpdateTests {
         #expect(req.url?.path == "/v1/meals/11111111-1111-1111-1111-111111111111")
     }
 }
+
+@Suite("食品マスタの API")
+struct FoodItemAPITests {
+    @Test("一覧は items を取り出す")
+    func list() async throws {
+        let t = FakeTransport(json: #"""
+        {"items":[{"id":"11111111-1111-1111-1111-111111111111","name":"ゆで卵",
+          "proteinG":6.5,"fatG":5.2,"carbG":0.2,"components":[],"usedCount":3,
+          "createdAt":"2026-09-21T00:00:00Z","updatedAt":"2026-09-21T00:00:00Z"}]}
+        """#)
+        let api = APIClient(baseURL: base, transport: t)
+
+        let items = try await api.foodItems()
+
+        #expect(items.count == 1)
+        #expect(items[0].name == "ゆで卵")
+        // **引数なしは空配列**（ADR-0017 の既定の経路）
+        #expect(items[0].components.isEmpty)
+    }
+
+    @Test("構成を読める")
+    func components() async throws {
+        let t = FakeTransport(json: #"""
+        {"items":[{"id":"11111111-1111-1111-1111-111111111111","name":"プロテイン",
+          "components":[{"name":"量","unit":"g","basisAmount":30,"defaultAmount":30,
+            "proteinG":24,"fatG":1.5,"carbG":2}],"usedCount":0,
+          "createdAt":"2026-09-21T00:00:00Z","updatedAt":"2026-09-21T00:00:00Z"}]}
+        """#)
+        let api = APIClient(baseURL: base, transport: t)
+
+        let items = try await api.foodItems()
+        let c = try #require(items.first?.components.first)
+
+        #expect(c.name == "量")
+        #expect(c.basisAmount == 30)
+        #expect(c.proteinG == 24)
+    }
+
+    @Test("名前で絞るとクエリに載る")
+    func filters() async throws {
+        let t = FakeTransport(json: #"{"items":[]}"#)
+        let api = APIClient(baseURL: base, transport: t)
+
+        _ = try await api.foodItems(query: "プロテイン")
+
+        let url = try #require(t.requests.first?.url)
+        #expect(url.query?.contains("q=") == true)
+    }
+
+    @Test("空の絞り込みはクエリを付けない")
+    func noQuery() async throws {
+        let t = FakeTransport(json: #"{"items":[]}"#)
+        let api = APIClient(baseURL: base, transport: t)
+
+        _ = try await api.foodItems()
+
+        #expect(try #require(t.requests.first?.url).query == nil)
+    }
+
+    @Test("登録は POST で送る")
+    func create() async throws {
+        let t = FakeTransport(json: #"""
+        {"id":"11111111-1111-1111-1111-111111111111","name":"ゆで卵","components":[],
+         "usedCount":0,"createdAt":"2026-09-21T00:00:00Z","updatedAt":"2026-09-21T00:00:00Z"}
+        """#, status: 201)
+        let api = APIClient(baseURL: base, transport: t)
+
+        _ = try await api.createFoodItem(
+            FoodItemInput(name: "ゆで卵", proteinG: 6.5, fatG: 5.2, carbG: 0.2))
+
+        let req = try #require(t.requests.first)
+        #expect(req.httpMethod == "POST")
+        #expect(req.url?.path == "/v1/food-items")
+    }
+}

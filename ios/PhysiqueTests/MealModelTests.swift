@@ -367,3 +367,245 @@ struct ManualTargetTests {
         #expect(m.errorMessage != nil)
     }
 }
+
+@Suite("食品マスタから選ぶ")
+@MainActor
+struct FoodMasterPickTests {
+    private let egg = #"""
+    {"items":[{"id":"11111111-1111-1111-1111-111111111111","name":"ゆで卵","qty":"1個",
+      "proteinG":6.5,"fatG":5.2,"carbG":0.2,"components":[],"usedCount":3,
+      "createdAt":"2026-09-21T00:00:00Z","updatedAt":"2026-09-21T00:00:00Z"}]}
+    """#
+
+    private let protein = #"""
+    {"items":[{"id":"22222222-2222-2222-2222-222222222222","name":"プロテイン",
+      "components":[{"name":"量","unit":"g","basisAmount":30,"defaultAmount":30,
+        "proteinG":24,"fatG":1.5,"carbG":2}],"usedCount":0,
+      "createdAt":"2026-09-21T00:00:00Z","updatedAt":"2026-09-21T00:00:00Z"}]}
+    """#
+
+    private func loaded(_ foods: String) async -> (MealModel, FakeTransport) {
+        let (client, t) = api([emptyMeals, targets, (foods, 200)])
+        let m = MealModel(api: client, date: "2026-09-21")
+        await m.load()
+        await m.loadFoodItems()
+
+        return (m, t)
+    }
+
+    @Test("一覧を読める")
+    func loads() async {
+        let (m, _) = await loaded(egg)
+
+        #expect(m.foodItems.count == 1)
+        #expect(m.foodItems[0].name == "ゆで卵")
+    }
+
+    @Test("**引数が無ければ選んだ時点で入力が埋まる**")
+    func picksSimple() async {
+        let (m, _) = await loaded(egg)
+
+        m.pickFood(m.foodItems[0])
+
+        #expect(m.draft.proteinG == "6.5")
+        #expect(m.draft.carbG == "0.2")
+        // 引数が無いので量の入力は出さない
+        #expect(m.pickingFood == nil)
+    }
+
+    @Test("**引数があれば量の入力に入る**")
+    func picksWithComponents() async {
+        let (m, _) = await loaded(protein)
+
+        m.pickFood(m.foodItems[0])
+
+        #expect(m.pickingFood?.name == "プロテイン")
+        // 既定値が入っている
+        #expect(m.foodAmounts["量"] == 30)
+    }
+
+    @Test("量を変えると PFC が比例する")
+    func scales() async {
+        let (m, _) = await loaded(protein)
+        m.pickFood(m.foodItems[0])
+
+        m.foodAmounts["量"] = 45
+        m.confirmFoodPick()
+
+        #expect(m.draft.proteinG == "36")
+        #expect(m.pickingFood == nil)
+    }
+
+    @Test("触らなければ既定値で入る")
+    func usesDefault() async {
+        let (m, _) = await loaded(protein)
+        m.pickFood(m.foodItems[0])
+
+        m.confirmFoodPick()
+
+        #expect(m.draft.proteinG == "24")
+    }
+
+    @Test("やめると入力が変わらない")
+    func cancels() async {
+        let (m, _) = await loaded(protein)
+        m.draft.proteinG = "1"
+        m.pickFood(m.foodItems[0])
+
+        m.cancelFoodPick()
+
+        #expect(m.pickingFood == nil)
+        #expect(m.draft.proteinG == "1")
+    }
+
+    @Test("マスタに登録できる")
+    func registers() async {
+        let (client, t) = api([
+            emptyMeals, targets, (#"{"items":[]}"#, 200),
+            (#"""
+            {"id":"33333333-3333-3333-3333-333333333333","name":"新しい","components":[],
+             "usedCount":0,"createdAt":"2026-09-21T00:00:00Z","updatedAt":"2026-09-21T00:00:00Z"}
+            """#, 201),
+            (#"{"items":[]}"#, 200),
+        ])
+        let m = MealModel(api: client, date: "2026-09-21")
+        await m.load()
+        await m.loadFoodItems()
+
+        // **いまの入力とは切り離す。** 登録用の入力欄を別に持つ
+        m.foodDraft.proteinG = "24"
+        m.foodDraft.fatG = "1.5"
+        await m.registerFood(name: "新しい")
+
+        // POST が飛んでいる
+        #expect(t.requests.contains { $0.httpMethod == "POST" && $0.url?.path == "/v1/food-items" })
+    }
+
+    @Test("**入力が空でも登録画面は開ける**")
+    func opensWithEmptyDraft() async {
+        let (m, _) = await loaded(egg)
+
+        // いまの入力を写すが、空でも構わない
+        m.beginRegisteringFood()
+
+        #expect(m.foodDraft.isEmpty)
+    }
+
+    @Test("いまの入力があれば初期値に写す")
+    func copiesDraft() async {
+        let (m, _) = await loaded(egg)
+        m.draft.proteinG = "24"
+
+        m.beginRegisteringFood()
+
+        #expect(m.foodDraft.proteinG == "24")
+    }
+
+    @Test("**名前が空なら登録しない**")
+    func requiresName() async {
+        let (m, t) = await loaded(egg)
+        let before = t.requests.count
+
+        await m.registerFood(name: "   ")
+
+        #expect(t.requests.count == before)
+        #expect(m.errorMessage != nil)
+    }
+}
+
+@Suite("引数つきで登録する")
+@MainActor
+struct FoodComponentEditTests {
+    private func model() async -> (MealModel, FakeTransport) {
+        let (client, t) = api([
+            emptyMeals, targets, (#"{"items":[]}"#, 200),
+            (#"""
+            {"id":"33333333-3333-3333-3333-333333333333","name":"プロテイン",
+             "components":[{"name":"量","unit":"g","basisAmount":30,"defaultAmount":30,
+               "proteinG":24,"fatG":1.5,"carbG":2}],"usedCount":0,
+             "createdAt":"2026-09-21T00:00:00Z","updatedAt":"2026-09-21T00:00:00Z"}
+            """#, 201),
+            (#"{"items":[]}"#, 200),
+        ])
+        let m = MealModel(api: client, date: "2026-09-21")
+        await m.load()
+        await m.loadFoodItems()
+        m.beginRegisteringFood()
+
+        return (m, t)
+    }
+
+    @Test("**既定は引数なし**")
+    func startsWithout() async {
+        let (m, _) = await model()
+
+        #expect(m.foodComponents.isEmpty)
+    }
+
+    @Test("引数を足せる")
+    func adds() async {
+        let (m, _) = await model()
+
+        m.addFoodComponent()
+
+        #expect(m.foodComponents.count == 1)
+        // **基準量の既定は 100。** パッケージの表示が「100g あたり」が多い
+        #expect(m.foodComponents[0].basisAmount == "100")
+    }
+
+    @Test("引数を消せる")
+    func removes() async {
+        let (m, _) = await model()
+        m.addFoodComponent()
+        m.addFoodComponent()
+
+        m.removeFoodComponent(at: 0)
+
+        #expect(m.foodComponents.count == 1)
+    }
+
+    @Test("引数つきで送る")
+    func sends() async {
+        let (m, t) = await model()
+        m.addFoodComponent()
+        m.foodComponents[0].name = "量"
+        m.foodComponents[0].basisAmount = "30"
+        m.foodComponents[0].defaultAmount = "30"
+        m.foodComponents[0].proteinG = "24"
+
+        await m.registerFood(name: "プロテイン")
+
+        let req = try! #require(t.requests.first { $0.httpMethod == "POST" })
+        let body = try! JSONSerialization.jsonObject(with: req.httpBody!) as! [String: Any]
+        let cs = body["components"] as! [[String: Any]]
+
+        #expect(cs.count == 1)
+        #expect(cs[0]["basisAmount"] as? Double == 30)
+    }
+
+    @Test("**基準量が空なら登録しない**")
+    func requiresBasis() async {
+        let (m, t) = await model()
+        m.addFoodComponent()
+        m.foodComponents[0].name = "量"
+        m.foodComponents[0].basisAmount = ""
+        let before = t.requests.count
+
+        await m.registerFood(name: "x")
+
+        #expect(t.requests.count == before)
+        #expect(m.errorMessage != nil)
+    }
+
+    @Test("引数の名前が空なら登録しない")
+    func requiresComponentName() async {
+        let (m, t) = await model()
+        m.addFoodComponent()
+        m.foodComponents[0].name = "  "
+        let before = t.requests.count
+
+        await m.registerFood(name: "x")
+
+        #expect(t.requests.count == before)
+    }
+}

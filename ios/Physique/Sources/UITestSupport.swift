@@ -66,6 +66,7 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var meals: [[String: Any]] = []
     private var manualTargets: [String: Any]?
+    private var foodItems: [[String: Any]] = []
 
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let path = request.url?.path ?? ""
@@ -130,6 +131,20 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
                 "consumed": totals(),
                 "remaining": remaining(from: t),
             ], 200)
+
+        case ("GET", let p) where p.hasSuffix("/v1/food-items"):
+            return (["items": foodItems], 200)
+
+        case ("POST", let p) where p.hasSuffix("/v1/food-items"):
+            var item = body
+            item["id"] = UUID().uuidString.lowercased()
+            item["components"] = body["components"] ?? []
+            item["usedCount"] = 0
+            item["createdAt"] = "2026-09-21T00:00:00Z"
+            item["updatedAt"] = "2026-09-21T00:00:00Z"
+            foodItems.append(item)
+
+            return (item, 201)
 
         case ("GET", let p) where p.hasSuffix("/v1/meal-sets"):
             return (["items": []], 200)

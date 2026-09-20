@@ -201,3 +201,18 @@ func updateFoodItemFailed(field, message string) openapi.UpdateFoodItem422Applic
 			validationProblem(field, message)),
 	}
 }
+
+// MarkFoodItemUsed は使った回数を1つ増やす（要件 N-02）。
+//
+// **失敗しても呼ぶ側は握ってよい。** 並び順が変わらないだけで、
+// 記録そのものは済んでいる。
+func (s *Server) MarkFoodItemUsed(ctx context.Context, req openapi.MarkFoodItemUsedRequestObject) (openapi.MarkFoodItemUsedResponseObject, error) {
+	if s.foodItems == nil {
+		return openapi.MarkFoodItemUsed204Response{}, nil
+	}
+	if err := s.foodItems.MarkUsed(ctx, req.FoodItemId); err != nil {
+		return nil, err
+	}
+
+	return openapi.MarkFoodItemUsed204Response{}, nil
+}

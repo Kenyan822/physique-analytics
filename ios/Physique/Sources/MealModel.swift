@@ -100,6 +100,127 @@ final class MealModel {
         self.today = today
     }
 
+    // MARK: - 食品マスタ（要件 N-02 / ADR-0017）
+
+    private(set) var foodItems: [FoodItem] = []
+    /// 量の入力中の項目。nil なら誰も選んでいない
+    private(set) var pickingFood: FoodItem?
+    /// 引数の入力量。**キーは引数の名前**
+    var foodAmounts: [String: Double] = [:]
+    /// 登録するときの入力。**いまの記録の入力とは別に持つ** ——
+    /// 「これから食べるもの」と「登録しておきたいもの」は必ずしも同じではない
+    var foodDraft = MealDraft()
+
+    func loadFoodItems(query: String = "") async {
+        foodItems = (try? await api.foodItems(query: query)) ?? []
+    }
+
+    /// マスタから選ぶ。
+    ///
+    /// **引数が無ければその場で入力が埋まる**（1タップ）。
+    /// あるときは量を聞く —— 既定値のまま確定してもよい（ADR-0017）。
+    func pickFood(_ item: FoodItem) {
+        guard item.hasComponents else {
+            apply(item.expand([:]), from: item)
+
+            return
+        }
+
+        pickingFood = item
+        foodAmounts = item.defaultAmounts
+    }
+
+    func confirmFoodPick() {
+        guard let item = pickingFood else { return }
+        apply(item.expand(foodAmounts), from: item)
+    }
+
+    func cancelFoodPick() {
+        pickingFood = nil
+        foodAmounts = [:]
+    }
+
+    /// 登録する引数。**数値は文字列のまま持つ**（「30.」で丸められないように）
+    var foodComponents: [FoodComponentDraft] = []
+
+    /// 登録画面を開く。**いまの入力があれば初期値に写す**（便宜）。
+    /// 空でも構わないし、写したあと書き換えてもよい
+    func beginRegisteringFood() {
+        foodDraft = draft
+        // **既定は引数なし**（ADR-0017）。量が変わるものだけ足す
+        foodComponents = []
+        errorMessage = nil
+    }
+
+    func addFoodComponent() {
+        foodComponents.append(FoodComponentDraft())
+    }
+
+    func removeFoodComponent(at index: Int) {
+        guard foodComponents.indices.contains(index) else { return }
+        foodComponents.remove(at: index)
+    }
+
+    /// マスタに登録する。
+    ///
+    /// 引数は詳細として後から足す（ADR-0017）。ここは名前と PFC だけ。
+    func registerFood(name: String) async {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else {
+            errorMessage = "名前を入れる"
+
+            return
+        }
+
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+
+        var components: [FoodItemComponent]?
+        if !foodComponents.isEmpty {
+            var out: [FoodItemComponent] = []
+            for d in foodComponents {
+                guard let c = d.toComponent() else {
+                    errorMessage = d.problem()
+
+                    return
+                }
+                out.append(c)
+            }
+            components = out
+        }
+
+        let input = FoodItemInput(
+            name: trimmed,
+            qty: foodDraft.qty.isEmpty ? nil : foodDraft.qty,
+            // **引数があるときは項目の PFC を送らない。** サーバは構成から
+            // 計算するので、残っていても使われないが、紛らわしい
+            proteinG: components == nil ? Double(foodDraft.proteinG) : nil,
+            fatG: components == nil ? Double(foodDraft.fatG) : nil,
+            carbG: components == nil ? Double(foodDraft.carbG) : nil,
+            components: components
+        )
+
+        do {
+            _ = try await api.createFoodItem(input)
+            await loadFoodItems()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "登録できない"
+        }
+    }
+
+    /// 展開した結果を入力欄に入れ、使った回数を増やす。
+    private func apply(_ macros: Macros, from item: FoodItem) {
+        draft.proteinG = trim(macros.proteinG)
+        draft.fatG = trim(macros.fatG)
+        draft.carbG = trim(macros.carbG)
+        if draft.name.isEmpty { draft.name = item.name }
+        cancelFoodPick()
+
+        // **次回から上位に出す。** 失敗しても入力は済んでいるので握る
+        Task { try? await api.markFoodItemUsed(id: item.id) }
+    }
+
     // MARK: - 目標を手で決める（#195）
 
     /// 手動目標の入力。**PFC だけ**（kcal は計算される）

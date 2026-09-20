@@ -1490,6 +1490,9 @@ type ServerInterface interface {
 	// UpdateFoodItem 食品マスタを直す。**構成はまるごと置き換わる**
 	// (PATCH /v1/food-items/{foodItemId})
 	UpdateFoodItem(w http.ResponseWriter, r *http.Request, foodItemId openapi_types.UUID)
+	// MarkFoodItemUsed 使った回数を1つ増やす（要件 N-02）
+	// (POST /v1/food-items/{foodItemId}/used)
+	MarkFoodItemUsed(w http.ResponseWriter, r *http.Request, foodItemId openapi_types.UUID)
 	// ImportCsv CSV インポート
 	// (POST /v1/import/csv)
 	ImportCsv(w http.ResponseWriter, r *http.Request)
@@ -2232,6 +2235,32 @@ func (siw *ServerInterfaceWrapper) UpdateFoodItem(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateFoodItem(w, r, foodItemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// MarkFoodItemUsed operation middleware
+func (siw *ServerInterfaceWrapper) MarkFoodItemUsed(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "foodItemId" -------------
+	var foodItemId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "foodItemId", r.PathValue("foodItemId"), &foodItemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "foodItemId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MarkFoodItemUsed(w, r, foodItemId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3450,6 +3479,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/food-items", wrapper.CreateFoodItem)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/food-items/{foodItemId}", wrapper.DeleteFoodItem)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/food-items/{foodItemId}", wrapper.UpdateFoodItem)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/food-items/{foodItemId}/used", wrapper.MarkFoodItemUsed)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/meal-sets", wrapper.ListMealSets)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/meal-sets", wrapper.CreateMealSet)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/meal-sets/{mealSetId}", wrapper.DeleteMealSet)
@@ -4770,6 +4800,54 @@ func (response UpdateFoodItem422ApplicationProblemPlusJSONResponse) VisitUpdateF
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkFoodItemUsedRequestObject struct {
+	FoodItemId openapi_types.UUID `json:"foodItemId"`
+}
+
+type MarkFoodItemUsedResponseObject interface {
+	VisitMarkFoodItemUsedResponse(w http.ResponseWriter) error
+}
+
+type MarkFoodItemUsed204Response struct {
+}
+
+func (response MarkFoodItemUsed204Response) VisitMarkFoodItemUsedResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type MarkFoodItemUsed401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response MarkFoodItemUsed401ApplicationProblemPlusJSONResponse) VisitMarkFoodItemUsedResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type MarkFoodItemUsed404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response MarkFoodItemUsed404ApplicationProblemPlusJSONResponse) VisitMarkFoodItemUsedResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -7166,6 +7244,9 @@ type StrictServerInterface interface {
 	// UpdateFoodItem 食品マスタを直す。**構成はまるごと置き換わる**
 	// (PATCH /v1/food-items/{foodItemId})
 	UpdateFoodItem(ctx context.Context, request UpdateFoodItemRequestObject) (UpdateFoodItemResponseObject, error)
+	// MarkFoodItemUsed 使った回数を1つ増やす（要件 N-02）
+	// (POST /v1/food-items/{foodItemId}/used)
+	MarkFoodItemUsed(ctx context.Context, request MarkFoodItemUsedRequestObject) (MarkFoodItemUsedResponseObject, error)
 	// ImportCsv CSV インポート
 	// (POST /v1/import/csv)
 	ImportCsv(ctx context.Context, request ImportCsvRequestObject) (ImportCsvResponseObject, error)
@@ -8003,6 +8084,32 @@ func (sh *strictHandler) UpdateFoodItem(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateFoodItemResponseObject); ok {
 		if err := validResponse.VisitUpdateFoodItemResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// MarkFoodItemUsed operation middleware
+func (sh *strictHandler) MarkFoodItemUsed(w http.ResponseWriter, r *http.Request, foodItemId openapi_types.UUID) {
+	var request MarkFoodItemUsedRequestObject
+
+	request.FoodItemId = foodItemId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.MarkFoodItemUsed(ctx, request.(MarkFoodItemUsedRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "MarkFoodItemUsed")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(MarkFoodItemUsedResponseObject); ok {
+		if err := validResponse.VisitMarkFoodItemUsedResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

@@ -256,6 +256,10 @@ XCTAssertTrue(record.isHittable, "記録がキーボードに隠れていない�
 
 `exists` だけだと、**画面外にあっても通る**。
 
+逆に **`List` / `Form` の中では `exists` も当てにならない** ——
+行を遅延生成するので、スクロールして初めて生える
+（[food-master.md](food-master.md#form-は見えていない行を作らない)）。
+
 ### 名前で引かない。識別子を振る
 
 「記録」は3つあった。
