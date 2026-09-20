@@ -12,7 +12,7 @@ struct MealView: View {
 
     /// 入力欄の並び。**キーボードの「次へ」がこの順に送る**
     private enum Field: Int, CaseIterable {
-        case protein, fat, carb, name, qty
+        case protein, fat, carb
         case editP, editF, editC, editName, editQty
     }
 
@@ -276,33 +276,11 @@ struct MealView: View {
             Text("記録する")
         }
 
-        // **任意。** 思い出せないなら空のままでよい（#188）
-        Section {
-            TextField("食べたもの（任意）", text: $model.draft.name)
-                .focused($focus, equals: .name)
-                .onChange(of: model.draft.name) { _, new in
-                    Task { await model.loadSuggestions(query: new) }
-                }
-
-            // 過去の記録から選ぶ（要件 N-02）。**選んだ時点で入力が終わる**
-            if focus == .name, !model.suggestions.isEmpty {
-                ForEach(model.suggestions) { s in
-                    Button { model.pick(s) } label: {
-                        HStack {
-                            Text(s.name)
-                            Spacer()
-                            if let kcal = s.kcal {
-                                Text("\(kcal) kcal").font(.caption).foregroundStyle(.secondary)
-                            }
-                            Text("\(s.count)回").font(.caption2).foregroundStyle(.tertiary)
-                        }
-                    }
-                }
-            }
-
-            TextField("量（1個 / 200g）", text: $model.draft.qty)
-                .focused($focus, equals: .qty)
-        }
+        // 「食べたもの」「量」は入力から外した（#188）。**PFC を打つのが主目的**で、
+        // 名前は思い出せないことも多い。後から足したければ行をタップして直せる。
+        //
+        // 過去の記録から選ぶ（N-02）もここに付いていたので、いまは使えない。
+        // 引数つきの食品マスタ（#201）で作り直す
     }
 
     // MARK: - 今日の記録
