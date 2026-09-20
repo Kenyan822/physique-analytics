@@ -23,7 +23,7 @@ Go 側は [docs/go/](../go/)。
 | [concurrency.md](concurrency.md) | `async`/`await`、`@MainActor`、`Sendable`。コンパイラがデータ競合を落とす仕組み |
 | [networking.md](networking.md) | `APIClient` の内部。ジェネリクス、204、`problem+json` の受け方 |
 | [auth.md](auth.md) | **起動からトークンが `Authorization` に載るまで**。Keychain と自動更新 |
-| [food-master.md](food-master.md) | **食品マスタ**。Go と Swift が同じ計算を持つ理由と、一致の固定 |
+| [food-master.md](food-master.md) | **食品マスタ**。Go と Swift が同じ計算を持つ理由、一致の固定、`init` を本体に書くと合成が消える話 |
 | [offline.md](offline.md) | `PendingQueue`。電波が切れても記録が消えない仕組み（要件 T-07） |
 | [build-config.md](build-config.md) | xcconfig → `Info.plist` → `AppConfig`。署名と bundle ID |
 | [testing.md](testing.md) | Swift Testing、偽物の注入、タイムゾーン依存の落とし方 |

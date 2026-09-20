@@ -89,6 +89,13 @@ struct FoodItemInput: Codable, Sendable {
     var components: [FoodItemComponent]?
 }
 
+/// 小数点以下が無ければ整数で出す。
+///
+/// **入力欄に「30.0」と出ると打ち直しづらい。** 表示にも使う。
+func numberText(_ v: Double) -> String {
+    v == v.rounded() ? String(Int(v)) : String(v)
+}
+
 /// 引数を登録するときの入力。
 ///
 /// **数値は文字列のまま持つ。** 数値に直しながら持つと「30.」で丸められて
@@ -140,5 +147,21 @@ struct FoodComponentDraft: Identifiable, Hashable, Sendable {
         guard let v = number(s), v > 0 else { return nil }
 
         return v
+    }
+}
+
+// **拡張に置く。** 型の本体に init を書くと既定の init が消え、
+// `FoodComponentDraft()`（引数を1つ足すとき）が使えなくなる
+extension FoodComponentDraft {
+    /// 登録済みの引数を直すときの初期値。
+    init(_ c: FoodItemComponent) {
+        self.init()
+        name = c.name
+        unit = c.unit
+        basisAmount = numberText(c.basisAmount)
+        defaultAmount = numberText(c.defaultAmount)
+        proteinG = numberText(c.proteinG)
+        fatG = numberText(c.fatG)
+        carbG = numberText(c.carbG)
     }
 }

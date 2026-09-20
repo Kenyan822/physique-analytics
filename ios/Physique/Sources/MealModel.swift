@@ -143,12 +143,36 @@ final class MealModel {
     /// 登録する引数。**数値は文字列のまま持つ**（「30.」で丸められないように）
     var foodComponents: [FoodComponentDraft] = []
 
+    /// 直している項目。**nil なら新規登録**。保存先が PATCH か POST かを決める
+    private(set) var editingFoodID: UUID?
+
     /// 登録画面を開く。**いまの入力があれば初期値に写す**（便宜）。
     /// 空でも構わないし、写したあと書き換えてもよい
     func beginRegisteringFood() {
+        editingFoodID = nil
         foodDraft = draft
         // **既定は引数なし**（ADR-0017）。量が変わるものだけ足す
         foodComponents = []
+        errorMessage = nil
+    }
+
+    /// 登録済みの項目を直す。
+    ///
+    /// **ADR-0017 で引数を任意にした前提がここ。** 登録時点では量が固定だと
+    /// 思っていても、2回目に「毎回違う」と気づくことがある。そのときに
+    /// 引数を足せないと、消して作り直すしかなく `usedCount` が戻る。
+    func beginEditingFood(_ item: FoodItem) {
+        editingFoodID = item.id
+
+        var d = MealDraft()
+        d.name = item.name
+        d.qty = item.qty ?? ""
+        d.proteinG = item.proteinG.map(trim) ?? ""
+        d.fatG = item.fatG.map(trim) ?? ""
+        d.carbG = item.carbG.map(trim) ?? ""
+        foodDraft = d
+
+        foodComponents = item.components.map { FoodComponentDraft($0) }
         errorMessage = nil
     }
 
@@ -161,10 +185,11 @@ final class MealModel {
         foodComponents.remove(at: index)
     }
 
-    /// マスタに登録する。
+    /// マスタに保存する。**`editingFoodID` があれば上書き、無ければ新規。**
     ///
-    /// 引数は詳細として後から足す（ADR-0017）。ここは名前と PFC だけ。
-    func registerFood(name: String) async {
+    /// 上書きで済ませるのは `usedCount` を残すため。消して作り直すと
+    /// 並び順が先頭から落ちる。
+    func saveFood(name: String) async {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
             errorMessage = "名前を入れる"
@@ -202,10 +227,29 @@ final class MealModel {
         )
 
         do {
-            _ = try await api.createFoodItem(input)
+            if let id = editingFoodID {
+                _ = try await api.updateFoodItem(id: id, input)
+            } else {
+                _ = try await api.createFoodItem(input)
+            }
             await loadFoodItems()
         } catch {
-            errorMessage = (error as? LocalizedError)?.errorDescription ?? "登録できない"
+            errorMessage = (error as? LocalizedError)?.errorDescription
+                ?? (editingFoodID == nil ? "登録できない" : "保存できない")
+        }
+    }
+
+    /// マスタから消す。**サーバ側は論理削除**（ADR-0014）。
+    func deleteFood(_ item: FoodItem) async {
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            try await api.deleteFoodItem(id: item.id)
+            await loadFoodItems()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "削除できない"
         }
     }
 
@@ -440,7 +484,5 @@ final class MealModel {
     }
 
     /// 62.0 を "62" にする。末尾の .0 は入力欄で邪魔
-    private func trim(_ v: Double) -> String {
-        v == v.rounded() ? String(Int(v)) : String(v)
-    }
+    private func trim(_ v: Double) -> String { numberText(v) }
 }

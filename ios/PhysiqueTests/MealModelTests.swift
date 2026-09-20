@@ -475,7 +475,7 @@ struct FoodMasterPickTests {
         // **いまの入力とは切り離す。** 登録用の入力欄を別に持つ
         m.foodDraft.proteinG = "24"
         m.foodDraft.fatG = "1.5"
-        await m.registerFood(name: "新しい")
+        await m.saveFood(name: "新しい")
 
         // POST が飛んでいる
         #expect(t.requests.contains { $0.httpMethod == "POST" && $0.url?.path == "/v1/food-items" })
@@ -506,7 +506,7 @@ struct FoodMasterPickTests {
         let (m, t) = await loaded(egg)
         let before = t.requests.count
 
-        await m.registerFood(name: "   ")
+        await m.saveFood(name: "   ")
 
         #expect(t.requests.count == before)
         #expect(m.errorMessage != nil)
@@ -573,7 +573,7 @@ struct FoodComponentEditTests {
         m.foodComponents[0].defaultAmount = "30"
         m.foodComponents[0].proteinG = "24"
 
-        await m.registerFood(name: "プロテイン")
+        await m.saveFood(name: "プロテイン")
 
         let req = try! #require(t.requests.first { $0.httpMethod == "POST" })
         let body = try! JSONSerialization.jsonObject(with: req.httpBody!) as! [String: Any]
@@ -591,7 +591,7 @@ struct FoodComponentEditTests {
         m.foodComponents[0].basisAmount = ""
         let before = t.requests.count
 
-        await m.registerFood(name: "x")
+        await m.saveFood(name: "x")
 
         #expect(t.requests.count == before)
         #expect(m.errorMessage != nil)
@@ -604,8 +604,135 @@ struct FoodComponentEditTests {
         m.foodComponents[0].name = "  "
         let before = t.requests.count
 
-        await m.registerFood(name: "x")
+        await m.saveFood(name: "x")
 
         #expect(t.requests.count == before)
+    }
+}
+
+@Suite("登録した食品を直す")
+@MainActor
+struct FoodItemEditTests {
+    /// 引数つき。**あとから量を変えたくなった**ケース
+    private let protein = #"""
+    {"items":[{"id":"44444444-4444-4444-4444-444444444444","name":"プロテイン","qty":"1杯",
+      "components":[{"name":"量","unit":"g","basisAmount":30,"defaultAmount":30,
+        "proteinG":24,"fatG":1.5,"carbG":2}],"usedCount":5,
+      "createdAt":"2026-09-21T00:00:00Z","updatedAt":"2026-09-21T00:00:00Z"}]}
+    """#
+
+    /// 引数なし。**ここに引数を足せることが ADR-0017 の前提**
+    private let egg = #"""
+    {"items":[{"id":"55555555-5555-5555-5555-555555555555","name":"ゆで卵","qty":"1個",
+      "proteinG":6.5,"fatG":5.2,"carbG":0.2,"components":[],"usedCount":3,
+      "createdAt":"2026-09-21T00:00:00Z","updatedAt":"2026-09-21T00:00:00Z"}]}
+    """#
+
+    private func loaded(_ foods: String) async -> (MealModel, FakeTransport) {
+        let (client, t) = api([
+            emptyMeals, targets, (foods, 200),
+            // 保存・削除の応答。最後の1つは使い回されるので一覧を置く
+            (#"""
+            {"id":"44444444-4444-4444-4444-444444444444","name":"x","components":[],
+             "usedCount":5,"createdAt":"2026-09-21T00:00:00Z",
+             "updatedAt":"2026-09-21T00:00:00Z"}
+            """#, 200),
+            (foods, 200),
+        ])
+        let m = MealModel(api: client, date: "2026-09-21")
+        await m.load()
+        await m.loadFoodItems()
+
+        return (m, t)
+    }
+
+    @Test("開くと今の値が入る")
+    func fillsDraft() async {
+        let (m, _) = await loaded(egg)
+
+        m.beginEditingFood(m.foodItems[0])
+
+        #expect(m.foodDraft.name == "ゆで卵")
+        #expect(m.foodDraft.qty == "1個")
+        #expect(m.foodDraft.proteinG == "6.5")
+    }
+
+    @Test("引数つきを開くと引数も入る")
+    func fillsComponents() async {
+        let (m, _) = await loaded(protein)
+
+        m.beginEditingFood(m.foodItems[0])
+
+        #expect(m.foodComponents.count == 1)
+        #expect(m.foodComponents[0].name == "量")
+        // **文字列に戻す。** 「30.0」だと打ち直しづらい
+        #expect(m.foodComponents[0].basisAmount == "30")
+        #expect(m.foodComponents[0].proteinG == "24")
+    }
+
+    @Test("**引数なしの項目にあとから引数を足せる**（ADR-0017 の前提）")
+    func addsComponentLater() async throws {
+        let (m, t) = await loaded(egg)
+        m.beginEditingFood(m.foodItems[0])
+
+        m.addFoodComponent()
+        m.foodComponents[0].name = "個数"
+        m.foodComponents[0].basisAmount = "1"
+        m.foodComponents[0].proteinG = "6.5"
+        await m.saveFood(name: "ゆで卵")
+
+        let req = try #require(t.requests.last { $0.httpMethod == "PATCH" })
+        let body = try JSONSerialization.jsonObject(with: req.httpBody!) as! [String: Any]
+        let cs = try #require(body["components"] as? [[String: Any]])
+        #expect(cs.count == 1)
+        #expect(cs[0]["name"] as? String == "個数")
+    }
+
+    @Test("**PATCH で送る。** POST だと別の項目が増える")
+    func usesPatch() async throws {
+        let (m, t) = await loaded(egg)
+        m.beginEditingFood(m.foodItems[0])
+
+        await m.saveFood(name: "ゆでたまご")
+
+        let req = try #require(t.requests.last { $0.httpMethod == "PATCH" })
+        #expect(req.url?.path.hasSuffix("/v1/food-items/55555555-5555-5555-5555-555555555555") == true)
+        #expect(!t.requests.contains { $0.httpMethod == "POST" })
+    }
+
+    @Test("登録に戻ると POST になる")
+    func registerAfterEdit() async throws {
+        let (m, t) = await loaded(egg)
+        m.beginEditingFood(m.foodItems[0])
+
+        m.beginRegisteringFood()
+        await m.saveFood(name: "新しいもの")
+
+        #expect(t.requests.contains { $0.httpMethod == "POST" })
+        #expect(!t.requests.contains { $0.httpMethod == "PATCH" })
+        // 引数も持ち越さない
+        #expect(m.foodComponents.isEmpty)
+    }
+
+    @Test("消せる")
+    func deletes() async throws {
+        let (m, t) = await loaded(egg)
+
+        await m.deleteFood(m.foodItems[0])
+
+        let req = try #require(t.requests.last { $0.httpMethod == "DELETE" })
+        #expect(req.url?.path.hasSuffix("/v1/food-items/55555555-5555-5555-5555-555555555555") == true)
+    }
+
+    @Test("名前が空なら保存しない")
+    func requiresName() async {
+        let (m, t) = await loaded(egg)
+        m.beginEditingFood(m.foodItems[0])
+        let before = t.requests.count
+
+        await m.saveFood(name: "  ")
+
+        #expect(t.requests.count == before)
+        #expect(m.errorMessage != nil)
     }
 }
