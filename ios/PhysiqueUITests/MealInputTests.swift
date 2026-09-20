@@ -150,6 +150,23 @@ final class MealInputTests: XCTestCase {
         XCTAssertTrue(save.isHittable, "保存が押せる位置にあること")
     }
 
+    func test_近い順に並べる場所が押せる() {
+        // **開いた瞬間にダイアログを出さない**ことも同時に見る。
+        // 出ていたら一覧のボタンが押せない（要件 N-08）
+        app.buttons["pickFromMaster"].tap()
+        XCTAssertTrue(app.navigationBars["マスタから選ぶ"].waitForExistence(timeout: 10))
+
+        let nearby = app.buttons["enableNearby"]
+        XCTAssertTrue(nearby.waitForExistence(timeout: 5), "近い順に並べるが出ること")
+        XCTAssertTrue(nearby.isHittable, "押せる位置にあること")
+        nearby.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["この場所でよく食べるものが上に出ている"].waitForExistence(timeout: 5),
+            "有効になったことが分かること"
+        )
+    }
+
     // MARK: - 日付
 
     func test_前の日に移動できる() {

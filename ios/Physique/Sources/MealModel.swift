@@ -94,10 +94,21 @@ final class MealModel {
     var totals: MealTotals { MealTotals(of: meals) }
     var remaining: Macros? { target.map { totals.remaining(from: $0) } }
 
-    init(api: APIClient, date: String = JST.dateString(), today: String = JST.dateString()) {
+    init(
+        api: APIClient,
+        date: String = JST.dateString(),
+        today: String = JST.dateString(),
+        // **既定は「位置を使わない」。** 本物は PhysiqueApp が挿す
+        // （`HealthSource` と同じ形）。テストが実ファイルを触らずに済む
+        location: LocationSource = NoLocation(),
+        places: FoodPlaceStore = FoodPlaceStore(url: nil)
+    ) {
         self.api = api
         self.date = date
         self.today = today
+        self.location = location
+        placeStore = places
+        self.places = places.load()
     }
 
     // MARK: - 食品マスタ（要件 N-02 / ADR-0017）
@@ -112,7 +123,43 @@ final class MealModel {
     var foodDraft = MealDraft()
 
     func loadFoodItems(query: String = "") async {
-        foodItems = (try? await api.foodItems(query: query)) ?? []
+        let items = (try? await api.foodItems(query: query)) ?? []
+        // **サーバの順（よく使う順）を、端末内の場所で並べ替える。**
+        // 場所が分からなければそのまま（要件 N-08）
+        foodItems = places.order(items, id: \.id, near: here)
+    }
+
+    // MARK: - よく行く場所（要件 N-08）
+
+    /// **緯度経度はここから出ない。** サーバにも送らないし、画面にも出さない
+    /// （[docs/01-要件定義.md §4-C](../../../docs/01-要件定義.md)）
+    private let location: LocationSource
+    private let placeStore: FoodPlaceStore
+    private var places: FoodPlaces
+    private var here: Coordinate?
+
+    /// 近い順に並べているか。画面の出し分けに使う
+    var nearbyOn: Bool { here != nil }
+
+    /// まだ聞いていないか。**聞いていないときだけ誘う**
+    var canOfferNearby: Bool { location.permission != .denied && here == nil }
+
+    /// 近い順を有効にする。**ここで初めて権限を聞く。**
+    ///
+    /// 開いた瞬間に聞かないのは、この画面が片手で速く触るためのものだから
+    /// （#188）。いきなりダイアログで止めるのは筋が悪い。
+    func enableNearby() async {
+        if location.permission == .notDetermined {
+            _ = await location.request()
+        }
+        here = await location.current()
+    }
+
+    /// この場所で使ったことを覚える。**失敗しても入力は済んでいる**
+    private func rememberPlace(_ item: FoodItem) {
+        guard let here else { return }
+        places.record(item.id, at: here)
+        placeStore.save(places)
     }
 
     /// マスタから選ぶ。
@@ -259,6 +306,9 @@ final class MealModel {
         draft.fatG = trim(macros.fatG)
         draft.carbG = trim(macros.carbG)
         if draft.name.isEmpty { draft.name = item.name }
+        // **登録時ではなく選んだときに覚える。** 登録は家でまとめてやることが
+        // あるが、選ぶのは食べる場所（要件 N-08）
+        rememberPlace(item)
         cancelFoodPick()
 
         // **次回から上位に出す。** 失敗しても入力は済んでいるので握る

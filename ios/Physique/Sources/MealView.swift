@@ -19,8 +19,10 @@ struct MealView: View {
         case editP, editF, editC, editName, editQty
     }
 
-    init(api: APIClient) {
-        _model = State(initialValue: MealModel(api: api))
+    init(api: APIClient, location: LocationSource = NoLocation()) {
+        _model = State(initialValue: MealModel(
+            api: api, location: location, places: FoodPlaceStore()
+        ))
     }
 
     var body: some View {
@@ -72,6 +74,8 @@ struct MealView: View {
                     Text("まだ何も登録していない。よく食べるものを登録すると、次から選ぶだけで入る")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+
+                nearbyRow
 
                 ForEach(model.foodItems) { item in
                     Button {
@@ -128,6 +132,29 @@ struct MealView: View {
             }
         }
         .sheet(isPresented: $registeringFood) { foodRegisterSheet }
+    }
+
+    /// 近い順に並べる（要件 N-08）。
+    ///
+    /// **開いた瞬間には権限を聞かない。** この画面は片手で速く触るためのもの
+    /// なので、いきなりダイアログで止めない。押したときに初めて聞く。
+    @ViewBuilder
+    private var nearbyRow: some View {
+        if model.nearbyOn {
+            Label("この場所でよく食べるものが上に出ている", systemImage: "location.fill")
+                .font(.caption).foregroundStyle(.secondary)
+        } else if model.canOfferNearby {
+            Button {
+                Task {
+                    await model.enableNearby()
+                    await model.loadFoodItems()
+                }
+            } label: {
+                Label("近い順に並べる", systemImage: "location")
+                    .font(.callout)
+            }
+            .accessibilityIdentifier("enableNearby")
+        }
     }
 
     private func foodRow(_ item: FoodItem) -> some View {
