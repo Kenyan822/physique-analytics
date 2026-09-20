@@ -150,3 +150,85 @@ let add = app.buttons["addFoodComponent"]
 if !add.waitForExistence(timeout: 3) { app.swipeUp() }
 XCTAssertTrue(add.waitForExistence(timeout: 5), "引数を足すが出ること")
 ```
+
+## 型の本体に `init` を書くと、既定の `init` が消える
+
+登録済みの引数を編集欄に戻すために `FoodComponentDraft(component)` を足したら、
+`FoodComponentDraft()`（引数を1つ増やすとき）がコンパイルできなくなった。
+
+```swift
+struct FoodComponentDraft {
+    var name = ""
+    var basisAmount = "100"
+
+    init(_ c: FoodItemComponent) { ... }   // ← これを本体に書くと
+}
+
+FoodComponentDraft()   // error: Missing argument for parameter #1
+```
+
+**Swift は「独自の `init` を1つでも本体に書いたら、合成をやめる」。**
+memberwise init も、全部に既定値がある型の `init()` も消える。
+
+拡張に置けば両方残る。
+
+```swift
+extension FoodComponentDraft {
+    init(_ c: FoodItemComponent) {
+        self.init()          // 合成された init を呼べる
+        name = c.name
+    }
+}
+```
+
+Python の `__init__` を足しても既定の構築が消えるだけ、TypeScript には
+そもそも合成が無い、という感覚で書くとここで詰まる。
+**「便利な init を足す」は常に拡張側**、と決めておくと踏まない。
+
+## 登録と編集で同じ画面を使う
+
+違いは送り先（`POST` か `PATCH`）だけなので、画面は1つにした。
+
+```swift
+private(set) var editingFoodID: UUID?     // nil なら新規
+
+if let id = editingFoodID {
+    _ = try await api.updateFoodItem(id: id, input)
+} else {
+    _ = try await api.createFoodItem(input)
+}
+```
+
+画面側は題名とボタンの文言を出し分けるだけ。
+
+```swift
+.navigationTitle(model.editingFoodID == nil ? "マスタに登録" : "登録した内容を直す")
+```
+
+**分けると「引数を足す」を2か所に書くことになる。** 引数の編集は
+この機能の要（ADR-0017）なので、そこが二重になるのは避けたい。
+
+## 一覧の行で「選ぶ」と「直す」を両立させる
+
+行のタップは**選ぶ**（入力が埋まる）のままにして、直す・消すは
+`swipeActions` に寄せた。
+
+```swift
+Button { model.pickFood(item) } label: { foodRow(item) }
+    .buttonStyle(.plain)
+    .swipeActions(edge: .trailing) {
+        Button(role: .destructive) { ... } label: { Label("消す", systemImage: "trash") }
+        Button { ... } label: { Label("直す", systemImage: "pencil") }.tint(.blue)
+    }
+```
+
+行に `i` ボタンを置く案もあったが、**選ぶときのタップ領域が狭くなる**。
+この画面は片手で速く触るのが狙い（#188）なので、めったに使わない方を
+スワイプに逃がした。記録の一覧が既にスワイプ削除なので操作も揃う。
+
+XCUITest からは `cell.swipeLeft()` で開ける。
+
+## 上書きで済ませるのは `usedCount` を残すため
+
+消して作り直すと `used_count` が 0 に戻り、一覧の並び（よく使う順）から落ちる。
+`PATCH` なら回数はそのまま。

@@ -81,6 +81,28 @@ struct MealView: View {
                         foodRow(item)
                     }
                     .buttonStyle(.plain)
+                    // **名前では引けない。** ラベルが行の中身（名前・kcal・PFC）を
+                    // 繋いだ1つの文字列になるので、UI テストは識別子で取る
+                    .accessibilityIdentifier("foodRow")
+                    // **タップは「選ぶ」のまま。** 直すのはスワイプに寄せる。
+                    // 記録の一覧が既にスワイプ削除なので操作が揃う（#211）
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            Task { await model.deleteFood(item) }
+                        } label: {
+                            Label("消す", systemImage: "trash")
+                        }
+
+                        Button {
+                            model.beginEditingFood(item)
+                            newFoodName = item.name
+                            registeringFood = true
+                        } label: {
+                            Label("直す", systemImage: "pencil")
+                        }
+                        .tint(.blue)
+                        .accessibilityIdentifier("editFood")
+                    }
                 }
             }
             .navigationTitle("マスタから選ぶ")
@@ -201,19 +223,21 @@ struct MealView: View {
             .joined(separator: " / ")
     }
 
-    private func trimmed(_ v: Double) -> String {
-        v == v.rounded() ? String(Int(v)) : String(v)
-    }
+    private func trimmed(_ v: Double) -> String { numberText(v) }
 
-    /// マスタに登録する。
+    /// マスタに登録する／登録済みを直す。
     ///
     /// **いまの記録の入力とは別。** 開いたときに写すだけで、
     /// 書き換えても記録側には影響しない。
+    ///
+    /// **登録と編集で同じ画面を使う。** 違いは送り先だけ（#211）で、
+    /// 別の画面にすると「引数を足す」を2か所に書くことになる。
     private var foodRegisterSheet: some View {
         NavigationStack {
             Form {
                 Section {
                     TextField("名前", text: $newFoodName)
+                        .accessibilityIdentifier("foodName")
                     TextField("量（1杯 / 1個）", text: $model.foodDraft.qty)
                 }
 
@@ -259,7 +283,7 @@ struct MealView: View {
                     ErrorNote(e)
                 }
             }
-            .navigationTitle("マスタに登録")
+            .navigationTitle(model.editingFoodID == nil ? "マスタに登録" : "登録した内容を直す")
             .navigationBarTitleDisplayMode(.inline)
             .dismissesKeyboardOnTap()
             .keyboardDoneButton()
@@ -268,9 +292,9 @@ struct MealView: View {
                     Button("やめる") { registeringFood = false }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("登録") {
+                    Button(model.editingFoodID == nil ? "登録" : "保存") {
                         Task {
-                            await model.registerFood(name: newFoodName)
+                            await model.saveFood(name: newFoodName)
                             if model.errorMessage == nil {
                                 registeringFood = false
                                 newFoodName = ""
@@ -278,6 +302,7 @@ struct MealView: View {
                         }
                     }
                     .disabled(model.isWorking)
+                    .accessibilityIdentifier("saveFood")
                 }
             }
         }

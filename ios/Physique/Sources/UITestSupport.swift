@@ -146,12 +146,33 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
 
             return (item, 201)
 
+        case ("PATCH", let p) where p.contains("/v1/food-items/"):
+            guard let i = foodItems.firstIndex(where: { $0["id"] as? String == lastPath(p) }) else {
+                return ([:], 404)
+            }
+            var item = foodItems[i]
+            for (k, v) in body { item[k] = v }
+            // **引数は丸ごと置き換わる。** サーバ側も同じ（replaceComponents）
+            item["components"] = body["components"] ?? []
+            foodItems[i] = item
+
+            return (item, 200)
+
+        case ("DELETE", let p) where p.contains("/v1/food-items/"):
+            foodItems.removeAll { $0["id"] as? String == lastPath(p) }
+
+            return ([:], 204)
+
         case ("GET", let p) where p.hasSuffix("/v1/meal-sets"):
             return (["items": []], 200)
 
         default:
             return (["items": []], 200)
         }
+    }
+
+    private func lastPath(_ p: String) -> String {
+        String(p.split(separator: "/").last ?? "")
     }
 
     private func kcal(from m: [String: Any]) -> Int {

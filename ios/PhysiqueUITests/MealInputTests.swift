@@ -121,6 +121,35 @@ final class MealInputTests: XCTestCase {
         XCTAssertTrue(add.isHittable, "押せる位置にあること")
     }
 
+    func test_登録したものをあとから直せる() {
+        // **ADR-0017 の前提そのもの。** 「登録時は量が固定だと思っていたが、
+        // 2回目に毎回違うと気づく」経路を通しで踏む（#211）
+        registerFood(named: "ゆで卵")
+
+        let row = app.buttons["foodRow"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "登録したものが一覧に出ること")
+        row.swipeLeft()
+
+        let edit = app.buttons["editFood"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 5), "スワイプで直すが出ること")
+        XCTAssertTrue(edit.isHittable, "押せる位置にあること")
+        edit.tap()
+
+        XCTAssertTrue(
+            app.navigationBars["登録した内容を直す"].waitForExistence(timeout: 5),
+            "編集画面が開くこと"
+        )
+
+        let add = app.buttons["addFoodComponent"]
+        if !add.waitForExistence(timeout: 3) { app.swipeUp() }
+        XCTAssertTrue(add.waitForExistence(timeout: 5), "引数を足すが出ること")
+        add.tap()
+
+        let save = app.buttons["saveFood"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5), "保存が出ること")
+        XCTAssertTrue(save.isHittable, "保存が押せる位置にあること")
+    }
+
     // MARK: - 日付
 
     func test_前の日に移動できる() {
@@ -130,6 +159,21 @@ final class MealInputTests: XCTestCase {
     }
 
     // MARK: - 補助
+
+    /// マスタに1件登録して、一覧に戻ったところまで進める。
+    private func registerFood(named name: String) {
+        app.buttons["pickFromMaster"].tap()
+        XCTAssertTrue(app.navigationBars["マスタから選ぶ"].waitForExistence(timeout: 10))
+        app.buttons["openFoodRegister"].tap()
+        XCTAssertTrue(app.navigationBars["マスタに登録"].waitForExistence(timeout: 5))
+
+        let field = app.textFields["foodName"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "名前の欄が出ること")
+        field.tap()
+        field.typeText(name)
+
+        app.buttons["saveFood"].tap()
+    }
 
     private func openTargetSheet() {
         let target = app.staticTexts["目標"]
