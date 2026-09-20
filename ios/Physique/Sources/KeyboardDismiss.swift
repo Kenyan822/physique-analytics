@@ -26,9 +26,15 @@ private struct DismissKeyboardOnTap: ViewModifier {
             // .interactively にすると、指を下ろした量に追従して閉じる。
             // .immediately は少し触れただけで消えて、行を選びたいだけのときに邪魔
             .scrollDismissesKeyboard(.interactively)
-            // **Form の中の TextField や Button は自分でタップを消費する。**
-            // ここに来るのは「どのコントロールでもない場所」を押したときだけ
-            .onTapGesture(perform: dismissKeyboard)
+            // **`onTapGesture` にしない。** Form の中の Button からタップを
+            // 奪う。`pickFromMaster` のように .buttonStyle(.plain) と
+            // .contentShape を持つものは生き残るが、既定のスタイルの
+            // Button は action が呼ばれなくなる（#217 の「引数を足すが
+            // 効かない」がこれ）。
+            //
+            // `simultaneousGesture` なら競合しない。ボタンを押したときも
+            // ついでに閉じるが、それは望ましい挙動
+            .simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })
     }
 }
 
