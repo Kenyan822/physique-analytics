@@ -286,13 +286,26 @@ jobs:
       - name: Test（SPM）
         run: swift test
 
-      # 画面まで含めてコンパイルが通ることを確かめる
-      - name: Build（シミュレータ）
+      # **押せるかどうか**を見る（#202）。画面のコンパイルもここで通る。
+      #
+      # ロジックは swift test が見ているので、ここは「キーボードに隠れる」
+      # 「タップ領域が無い」のような、実機でしか出ない種類だけを対象にしている。
+      #
+      # シミュレータを起動するので数分かかる。対象を広げない。
+      - name: UI テスト（シミュレータ）
         run: |
-          xcodebuild -project Physique.xcodeproj -scheme Physique \
+          set -o pipefail
+          xcodebuild test -project Physique.xcodeproj -scheme Physique \
             -destination 'platform=iOS Simulator,name=iPhone 17' \
             -derivedDataPath "$RUNNER_TEMP/dd" \
-            build | xcbeautify || \
-          xcodebuild -project Physique.xcodeproj -scheme Physique \
-            -destination 'platform=iOS Simulator,name=iPhone 17' \
-            -derivedDataPath "$RUNNER_TEMP/dd" build
+            -resultBundlePath "$RUNNER_TEMP/result.xcresult" \
+            | xcbeautify
+
+      # 落ちたときに、どの要素が押せなかったかを後から見る
+      - name: 失敗したら結果を残す
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult
+          path: ${{ runner.temp }}/result.xcresult
+          retention-days: 7

@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXFileReference section */
+		A1000001000000000000040 /* Physique.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Physique.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000001000000000000140 /* PhysiqueUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PhysiqueUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1000001000000000000003 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Base.xcconfig; path = Physique/Base.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -21,6 +23,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		A1000001000000000000100 /* PhysiqueUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PhysiqueUITests;
+			sourceTree = "<group>";
+		};
 		A1000001000000000000001 /* Physique/Sources */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -32,6 +39,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A1000001000000000000120 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A1000001000000000000020 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -54,6 +68,8 @@
 		A1000001000000000000031 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				A1000001000000000000040 /* Physique.app */,
+				A1000001000000000000140 /* PhysiqueUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -78,9 +94,48 @@
 			);
 			name = Physique;
 			productName = Physique;
+			productReference = A1000001000000000000040 /* Physique.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A1000001000000000000110 /* PhysiqueUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1000001000000000000150 /* Build configuration list for PBXNativeTarget "PhysiqueUITests" */;
+			buildPhases = (
+				A1000001000000000000121 /* Sources */,
+				A1000001000000000000120 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1000001000000000000130 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A1000001000000000000100 /* PhysiqueUITests */,
+			);
+			name = PhysiqueUITests;
+			productName = PhysiqueUITests;
+			productReference = A1000001000000000000140 /* PhysiqueUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
+
+/* Begin PBXContainerItemProxy section */
+		A1000001000000000000131 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1000001000000000000060 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1000001000000000000010;
+			remoteInfo = Physique;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		A1000001000000000000130 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1000001000000000000010 /* Physique */;
+			targetProxy = A1000001000000000000131 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		A1000001000000000000060 /* Project object */ = {
@@ -92,6 +147,10 @@
 				TargetAttributes = {
 					A1000001000000000000010 = {
 						CreatedOnToolsVersion = 26.0;
+					};
+					A1000001000000000000110 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = A1000001000000000000010;
 					};
 				};
 			};
@@ -110,6 +169,7 @@
 			projectRoot = "";
 			targets = (
 				A1000001000000000000010 /* Physique */,
+				A1000001000000000000110 /* PhysiqueUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -125,6 +185,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A1000001000000000000121 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A1000001000000000000021 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -229,6 +296,36 @@
 			};
 			name = Release;
 		};
+		A1000001000000000000180 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "io.github.kenyan822.physique.uitests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Physique;
+			};
+			name = Debug;
+		};
+		A1000001000000000000181 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "io.github.kenyan822.physique.uitests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Physique;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -246,6 +343,15 @@
 			buildConfigurations = (
 				A1000001000000000000070 /* Debug */,
 				A1000001000000000000071 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1000001000000000000150 /* Build configuration list for PBXNativeTarget "PhysiqueUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1000001000000000000180 /* Debug */,
+				A1000001000000000000181 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

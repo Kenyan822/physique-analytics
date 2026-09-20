@@ -225,9 +225,137 @@ private func int(_ s: String) -> Int? {
 代わりに**判断を View から追い出して**、モデル側で全部テストしている
 （[app-structure.md](app-structure.md#この分け方の代償)）。
 
+## 「押せるか」は XCUITest で見る（#202）
+
+`swift test` は**押せるかを見ていない**。`MealModel.record()` が正しくても、
+ボタンがキーボードの下にあれば使えない。
+
+### 実際に何を捕まえたか
+
+キーボードバーに「記録」を置く前、このテストが落ちた。
+
+```
+XCTAssertTrue failed - 記録ボタンがキーボードに隠れていないこと
+```
+
+**報告される前に機械が見つけた。** `Form` の中のボタンは、キーボードが
+上がると隠れる。目標シートの保存ボタンで踏んだのと同じ原因。
+
+### `isHittable` が肝
+
+```swift
+let record = app.buttons["keyboardPrimaryAction"]
+XCTAssertTrue(record.waitForExistence(timeout: 5))
+XCTAssertTrue(record.isHittable, "記録がキーボードに隠れていないこと")
+```
+
+| | 何を見るか |
+|---|---|
+| `exists` | 要素が**ある**か |
+| **`isHittable`** | **その座標を押したら本当にその要素に届くか** |
+
+`exists` だけだと、**画面外にあっても通る**。
+
+### 名前で引かない。識別子を振る
+
+「記録」は3つあった。
+
+| | |
+|---|---|
+| タブバーの「記録」 | トレーニング記録タブ |
+| `Form` の中の「記録」 | キーボードに隠れる |
+| キーボードバーの「記録」 | |
+
+`app.buttons["記録"]` はこのどれかを掴む。どれかは**実行するまで分からない**。
+
+```swift
+.accessibilityIdentifier("recordButton")
+.accessibilityIdentifier("keyboardPrimaryAction")
+```
+
+`Num` のような自作の部品も同じ。ラベル（`Text`）と `TextField` が別要素なので、
+ラベルでは引けない。**並び順（`element(boundBy:)`）も脆い** —— 欄が1つ増えるとずれる。
+
+### 認証と通信を迂回する
+
+**`#if DEBUG` ＋ 起動引数。** Release ビルドには入らない。
+
+```swift
+#if DEBUG
+if UITestSupport.isActive {
+    _auth = State(initialValue: UITestSupport.makeAuth())
+    return
+}
+#endif
+```
+
+本番の経路は変えない。既存の `HTTPTransport` / `SessionStore` の protocol に
+偽物を挿すだけで、**画面側のコードは触らない**。
+
+偽の transport は**記録した内容を覚える**。「記録したら一覧に出る」を見たいので、
+毎回同じものを返すだけでは足りない。
+
+### `NSLock` は async の中でロックできない
+
+```swift
+// ❌ Swift 6 でコンパイルエラー
+func send(_ r: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    lock.lock(); defer { lock.unlock() }
+```
+
+```
+error: instance method 'lock' is unavailable from asynchronous contexts
+```
+
+`withLock` なら同期のスコープに閉じるので通る。
+
+```swift
+let (json, status) = lock.withLock {
+    respond(path: path, method: method, body: body)
+}
+```
+
+### テストが機能するかを確かめる
+
+**バグを意図的に戻して、落ちることを見る。**
+
+```console
+$ # キーボードバーから「記録」を外す
+$ xcodebuild test -only-testing:PhysiqueUITests/MealInputTests/test_PFCを入れて記録できる
+** TEST FAILED **
+```
+
+落ちなければ、そのテストは何も守っていない。`swift test` の Red を確認するのと
+同じ理由（[CLAUDE.md](../../CLAUDE.md#失敗を確認する理由)）。
+
+### 対象を広げない
+
+| | 1本あたり |
+|---|---|
+| `swift test` 124件 | **合計 0.02 秒** |
+| XCUITest 6本 | **合計 95 秒**（1本 6〜32秒） |
+
+桁が違う。**ロジックは `swift test` が見ている**ので、ここで見るのは
+「届くか」だけにする。
+
+### CI
+
+```yaml
+- name: UI テスト（シミュレータ）
+  run: |
+    set -o pipefail
+    xcodebuild test ... | xcbeautify
+```
+
+**`set -o pipefail` が要る。** 無いと `xcbeautify` の終了コードだけが見られ、
+テストが落ちても CI が緑になる。
+
+落ちたときは `xcresult` を artifact に残す。CI のログだけだと
+`isHittable failed` としか分からないが、`xcresult` にはスクリーンショットが入る。
+
 ## まだ無いもの
 
-- **UI テスト**。タブの遷移やフォーカス移動は手で確認している
-- **スナップショット**。上記の理由で入れていない
+- **スナップショット**。レイアウトの微差で落ちて維持コストが高い
+- **Web の UI テスト**。Playwright で本番を見る運用にしている
 - **実機での HealthKit**。Personal Team では entitlement を付けられない
   （[build-config.md](build-config.md#personal-team-の制約)）

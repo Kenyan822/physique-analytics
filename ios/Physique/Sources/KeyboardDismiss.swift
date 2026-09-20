@@ -53,8 +53,12 @@ extension View {
     ///
     /// **数値キーボードは「次へ」を出せない。** 桁数が決まっていないので
     /// 自動で送ることもできない。バーから1タップで送れるようにする。
+    /// - Parameter action: バーの右端に置く主操作。**キーボードに隠れる位置に
+    ///   置いた操作は押せない**（#202 の UI テストが検出した）ので、ここに逃がす
     func keyboardFocusBar<F: Hashable>(
-        focus: FocusState<F?>.Binding, order: [F]
+        focus: FocusState<F?>.Binding,
+        order: [F],
+        action: (title: String, run: () -> Void)? = nil
     ) -> some View {
         toolbar {
             ToolbarItemGroup(placement: .keyboard) {
@@ -73,7 +77,18 @@ extension View {
                 .disabled(index(focus.wrappedValue, in: order) == order.count - 1)
 
                 Spacer()
-                Button("完了") { focus.wrappedValue = nil }
+                if let action {
+                    Button(action.title) {
+                        focus.wrappedValue = nil
+                        action.run()
+                    }
+                    .bold()
+                    // **タブバーにも「記録」がある。** 名前だけでは引けないので
+                    // UI テスト用に識別子を付ける（#202）
+                    .accessibilityIdentifier("keyboardPrimaryAction")
+                } else {
+                    Button("完了") { focus.wrappedValue = nil }
+                }
             }
         }
     }

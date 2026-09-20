@@ -30,7 +30,13 @@ struct MealView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .principal) { dateNav } }
             .dismissesKeyboardOnTap()
-            .keyboardFocusBar(focus: $focus, order: Field.allCases)
+            .keyboardFocusBar(
+                focus: $focus, order: Field.allCases,
+                // **キーボードの上から記録できる。** 打ってそのまま押せる形が
+                // この画面の狙いに合う（#202）
+                action: model.draft.isEmpty ? nil
+                    : ("記録", { Task { await model.record() } })
+            )
             .sheet(isPresented: $editingTarget) {
                 targetSheet
             }
@@ -110,8 +116,11 @@ struct MealView: View {
                 Section {
                     HStack(spacing: 12) {
                         Num(label: "P", text: $model.manualDraft.proteinG)
+                            .accessibilityIdentifier("targetP")
                         Num(label: "F", text: $model.manualDraft.fatG)
+                            .accessibilityIdentifier("targetF")
                         Num(label: "C", text: $model.manualDraft.carbG)
+                            .accessibilityIdentifier("targetC")
                     }
                     LabeledContent("カロリー") {
                         Text(model.manualDraft.kcal.map { "\($0) kcal" } ?? "— kcal")
@@ -246,8 +255,11 @@ struct MealView: View {
         Section {
             HStack(spacing: 12) {
                 Num(label: "P", text: $model.draft.proteinG).focused($focus, equals: .protein)
+                    .accessibilityIdentifier("draftP")
                 Num(label: "F", text: $model.draft.fatG).focused($focus, equals: .fat)
+                    .accessibilityIdentifier("draftF")
                 Num(label: "C", text: $model.draft.carbG).focused($focus, equals: .carb)
+                    .accessibilityIdentifier("draftC")
             }
 
             // 打ちながら見える。**送らない** —— サーバが同じ式で計算する
@@ -266,6 +278,7 @@ struct MealView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(model.draft.isEmpty || model.isWorking)
+            .accessibilityIdentifier("recordButton")
 
             // **編集中のエラーはここに出さない。** 直しているのは下の行なのに、
             // 上の「記録する」に赤字が出ると、どこで何が起きたか分からない
