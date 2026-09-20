@@ -15,7 +15,12 @@ DERIVED="${DERIVED_DATA:-/tmp/physique-dd-device}"
 LAUNCH=1
 [ "${1:-}" = "--no-launch" ] && LAUNCH=0
 
-cd "$(dirname "$0")/.."
+# **cd の前に絶対パスで捕まえる。** $0 は相対パスなので、cd したあとに
+# dirname "$0" を評価すると別の場所を指す（リポジトリルートから叩くと
+# ios/ios/scripts/ を探して落ちた。#213）
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+cd "$HERE/.."
 
 # ---- デバイスを見つける -------------------------------------------------
 
@@ -33,7 +38,7 @@ xcrun devicectl list devices --json-output "$tmp" >/dev/null 2>&1 || true
 found=()
 while IFS= read -r line; do
   [ -n "$line" ] && found+=("$line")
-done < <(python3 "$(dirname "$0")/list-devices.py" "$tmp")
+done < <(python3 "$HERE/list-devices.py" "$tmp")
 
 if [ ${#found[@]} -eq 0 ]; then
   cat >&2 <<'MSG'
