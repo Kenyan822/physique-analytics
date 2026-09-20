@@ -34,6 +34,31 @@ enum UITestSupport {
         APIClient(baseURL: URL(string: "https://test.invalid")!,
                   token: "test", transport: StubTransport())
     }
+
+    /// **本物の CoreLocation を挿さない。** システムのダイアログが出ると
+    /// テストから押せない。決め打ちの場所を返す（要件 N-08）
+    static func makeLocation() -> LocationSource { StubLocation() }
+}
+
+/// いつでも許可して、決まった場所を返す偽物。
+private final class StubLocation: LocationSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private var granted = false
+
+    var permission: LocationPermission {
+        lock.withLock { granted ? .granted : .notDetermined }
+    }
+
+    func request() async -> LocationPermission {
+        lock.withLock { granted = true }
+
+        return .granted
+    }
+
+    /// 適当な座標。**実在の場所を書かない**（公開リポジトリ）
+    func current() async -> Coordinate? {
+        permission == .granted ? Coordinate(lat: 35.0, lng: 139.0) : nil
+    }
 }
 
 /// メモリ上のセッション置き場。テストが Keychain を触らないようにする。

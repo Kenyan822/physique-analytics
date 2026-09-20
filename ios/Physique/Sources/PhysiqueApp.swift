@@ -56,12 +56,24 @@ private struct MainTabs: View {
         )
     }
 
+    /// 位置情報（要件 N-08）。**UI テストでは本物を挿さない** ——
+    /// システムのダイアログが出て、テストから押せなくなる
+    private var location: LocationSource {
+        #if DEBUG
+        if UITestSupport.isActive { return UITestSupport.makeLocation() }
+        #endif
+
+        return CoreLocationSource()
+    }
+
     var body: some View {
         // **食事を先頭にする。** 開く頻度が違う —— 食事は1日4〜6回、
         // トレーニングは週3〜5回。起動直後に出る画面が食事である方が、
         // 合計の操作回数が減る。体組成は朝に触るものなのでタブを分ける
         TabView {
-            MealView(api: api)
+            // 位置は「近い順に並べる」を押したときだけ使う（要件 N-08）。
+            // **開いただけでは聞かない**
+            MealView(api: api, location: location)
                 .tabItem { Label("食事", systemImage: "fork.knife") }
             LogView(api: api)
                 .tabItem { Label("記録", systemImage: "dumbbell") }

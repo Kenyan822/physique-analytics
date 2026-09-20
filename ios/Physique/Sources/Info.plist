@@ -10,6 +10,11 @@
 	     **読み取りのみ。** 書き込みの権限は要求しない -->
 	<key>NSHealthShareUsageDescription</key>
 	<string>体重・体脂肪率・歩数・睡眠を読み取り、TDEE の推定と回復の判定に使います。Apple Health への書き込みは行いません。</string>
+	<!-- 位置情報の利用目的（要件 N-08）。
+	     **端末内だけで使う。** 緯度経度はサーバに送らない（docs/01-要件定義.md §4-C）。
+	     「近い順に並べる」を押したときだけ聞く -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>よく行く店で食べたものを一覧の上に出すために、いまいる場所を使います。場所はこの iPhone の中だけに保存し、サーバには送りません。</string>
 	<!-- 接続先と鍵。**ビルド設定（xcconfig / Build Settings）から差し込む。**
 	     ここに実値を書くと public リポジトリに入る。
 	     未設定のまま実機に入れると localhost を叩いて通信できない -->
