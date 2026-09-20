@@ -23,11 +23,20 @@ func (s *Server) GetDailyTargets(ctx context.Context, req openapi.GetDailyTarget
 		deps.Measurements = s.body
 	}
 
+	manual, err := s.loadManualTargets(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	sum, err := weekly.Build(ctx, deps, req.Date.Time)
 	if errors.Is(err, weekly.ErrNoPhases) {
-		return targetsValidationFailed("phases", err.Error()), nil
-	}
-	if err != nil {
+		// **手動目標があればフェーズが無くても出せる。** いままでここで
+		// 止まっていて、記録を始めた直後に残量が見えなかった（#195）
+		if manual == nil {
+			return targetsValidationFailed("phases", err.Error()), nil
+		}
+		sum = weekly.Summary{Note: err.Error()}
+	} else if err != nil {
 		return nil, err
 	}
 
@@ -70,14 +79,35 @@ func (s *Server) GetDailyTargets(ctx context.Context, req openapi.GetDailyTarget
 		out.Contest = &cd
 	}
 
-	if t := sum.Targets; t != nil {
-		target := openapi.Macros{
+	// **手動が自動より優先。** どちらの値かは targetSource で返す ——
+	// 黙って上書きしていると、体重が動いても目標が変わらない理由が分からない
+	var target *openapi.Macros
+	var source openapi.DailyTargetsTargetSource
+
+	switch {
+	case manual != nil:
+		source = openapi.DailyTargetsTargetSourceManual
+		target = &openapi.Macros{
+			Kcal: float32(analytics.KcalFromMacros(
+				float64(manual.ProteinG), float64(manual.FatG), float64(manual.CarbG))),
+			ProteinG: manual.ProteinG,
+			FatG:     manual.FatG,
+			CarbG:    manual.CarbG,
+		}
+	case sum.Targets != nil:
+		source = openapi.DailyTargetsTargetSourceComputed
+		t := sum.Targets
+		target = &openapi.Macros{
 			Kcal:     float32(t.KcalTarget),
 			ProteinG: float32(t.ProteinG),
 			FatG:     float32(t.FatG),
 			CarbG:    float32(t.CarbG),
 		}
-		out.Target = &target
+	}
+
+	if target != nil {
+		out.Target = target
+		out.TargetSource = &source
 		remaining := openapi.Macros{
 			Kcal:     target.Kcal - out.Consumed.Kcal,
 			ProteinG: target.ProteinG - out.Consumed.ProteinG,
@@ -85,8 +115,13 @@ func (s *Server) GetDailyTargets(ctx context.Context, req openapi.GetDailyTarget
 			CarbG:    target.CarbG - out.Consumed.CarbG,
 		}
 		out.Remaining = &remaining
-		out.IntakeFloorHit = &t.IntakeFloorHit
-		out.CarbBelowFloor = &t.CarbBelowFloor
+
+		// **下限の判定は自動計算のときだけ。** 手動目標に
+		// 「体重×24kcal を下回った」を当てても、本人が決めた値なので意味が無い
+		if t := sum.Targets; t != nil && manual == nil {
+			out.IntakeFloorHit = &t.IntakeFloorHit
+			out.CarbBelowFloor = &t.CarbBelowFloor
+		}
 
 		suggestions, err := s.suggestFoods(ctx, remaining)
 		if err != nil {

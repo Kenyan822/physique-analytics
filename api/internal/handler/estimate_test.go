@@ -101,7 +101,7 @@ func TestEstimateMeal_下書きとして返す(t *testing.T) {
 		t.Errorf("推定が返っていない: %+v", got)
 	}
 	// **推定値であることをデータに残す**（docs/02-データモデル.md）
-	if got.Source != openapi.AiEstimated {
+	if got.Source != openapi.MealSourceAiEstimated {
 		t.Errorf("Source = %q, want ai_estimated", got.Source)
 	}
 	// 量を添えると精度が上がるので、補足は必ず渡す

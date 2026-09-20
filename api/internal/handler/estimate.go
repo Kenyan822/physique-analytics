@@ -60,7 +60,7 @@ func (s *Server) EstimateMeal(ctx context.Context, req openapi.EstimateMealReque
 		Qty:  est.Qty,
 		Kcal: est.Kcal,
 		// 記録するときも ai_estimated を保つ（docs/02-データモデル.md）
-		Source: openapi.AiEstimated,
+		Source: openapi.MealSourceAiEstimated,
 	}
 	out.ProteinG = float32Ptr(est.ProteinG)
 	out.FatG = float32Ptr(est.FatG)

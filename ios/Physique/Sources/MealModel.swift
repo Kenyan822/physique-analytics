@@ -100,6 +100,60 @@ final class MealModel {
         self.today = today
     }
 
+    // MARK: - 目標を手で決める（#195）
+
+    /// 手動目標の入力。**PFC だけ**（kcal は計算される）
+    var manualDraft = MealDraft()
+    /// いまの目標が手で決めた値か。画面でそう見せるため
+    private(set) var targetIsManual = false
+
+    func loadManualTarget() async {
+        guard let t = try? await api.manualTargets() else { return }
+
+        var d = MealDraft()
+        d.proteinG = trim(t.proteinG)
+        d.fatG = trim(t.fatG)
+        d.carbG = trim(t.carbG)
+        manualDraft = d
+    }
+
+    func saveManualTarget() async {
+        // **PFC は3つで1組。** 1つ欠けた目標は意味を成さない
+        guard let p = Double(manualDraft.proteinG.trimmingCharacters(in: .whitespaces)),
+              let f = Double(manualDraft.fatG.trimmingCharacters(in: .whitespaces)),
+              let c = Double(manualDraft.carbG.trimmingCharacters(in: .whitespaces)) else {
+            errorMessage = "P・F・C を3つとも入れる"
+
+            return
+        }
+
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            _ = try await api.putManualTargets(
+                ManualTargets(proteinG: p, fatG: f, carbG: c, kcal: nil))
+            await reloadTargets()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "目標を保存できない"
+        }
+    }
+
+    /// 手動目標を消す。自動計算（A-02）に戻る
+    func clearManualTarget() async {
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            try await api.deleteManualTargets()
+            manualDraft = MealDraft()
+            await reloadTargets()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "目標を消せない"
+        }
+    }
+
     // MARK: - 記録を直す（#193）
 
     /// 開いている行。nil なら誰も開いていない
@@ -200,15 +254,24 @@ final class MealModel {
 
         // **目標は取れなくてもよい。** フェーズ未登録だと 422 になるが、
         // ここで止めると記録そのものができなくなる
+        await reloadTargets()
+    }
+
+    /// 目標を取り直す。**目標は取れなくてもよい** —— フェーズも手動目標も
+    /// 無いと 422 になるが、ここで止めると記録そのものができなくなる
+    private func reloadTargets() async {
         do {
             let t = try await api.dailyTargets(date: date)
             target = t.target
+            targetIsManual = t.targetSource == "manual"
             targetsMessage = t.target == nil ? t.note : nil
         } catch let e as APIError {
             target = nil
+            targetIsManual = false
             targetsMessage = e.errorDescription
         } catch {
             target = nil
+            targetIsManual = false
         }
     }
 

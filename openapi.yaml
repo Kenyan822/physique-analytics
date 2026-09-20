@@ -860,6 +860,51 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
 
+  /v1/targets/manual:
+    get:
+      operationId: getManualTargets
+      summary: 手で決めた摂取目標を返す（要件 N-05）
+      tags: [nutrition]
+      responses:
+        "200":
+          description: OK。設定していなければ null
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  targets:
+                    oneOf:
+                      - $ref: "#/components/schemas/ManualTargets"
+                      - type: "null"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    put:
+      operationId: putManualTargets
+      summary: 手で決めた摂取目標を保存する（要件 N-05）
+      tags: [nutrition]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ManualTargets" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ManualTargets" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+    delete:
+      operationId: deleteManualTargets
+      summary: 手で決めた摂取目標を消す。自動計算（A-02）に戻る
+      tags: [nutrition]
+      responses:
+        "204": { description: 消した。設定が無くても 204 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /v1/targets/{date}:
     parameters:
       - name: date
@@ -1941,6 +1986,23 @@ components:
         fatG: { type: number }
         carbG: { type: number }
 
+    ManualTargets:
+      type: object
+      required: [proteinG, fatG, carbG]
+      description: |
+        手で決めた摂取目標（要件 N-05）。**期間で1つ**しか持たない ——
+        フェーズ単位で変えるもので、日ごとに持つのは過剰。
+        これがあるときは自動計算（A-02）より優先する
+      properties:
+        proteinG: { type: number, minimum: 0, maximum: 1000 }
+        fatG: { type: number, minimum: 0, maximum: 1000 }
+        carbG: { type: number, minimum: 0, maximum: 2000 }
+        kcal:
+          type: [integer, "null"]
+          readOnly: true
+          description: PFC から計算した値（Atwater 4/9/4）。**送っても無視する**
+        updatedAt: { type: string, format: date-time, readOnly: true }
+
     DailyTargets:
       type: object
       required: [date, consumed]
@@ -1950,10 +2012,16 @@ components:
         goalKgPerWeek: { type: [number, "null"] }
         tdeeKcal: { type: [number, "null"] }
         target:
-          description: 摂取目標。TDEE を推定できないときは null
+          description: 摂取目標。TDEE を推定できず手動目標も無ければ null
           oneOf:
             - $ref: "#/components/schemas/Macros"
             - type: "null"
+        targetSource:
+          type: [string, "null"]
+          enum: [manual, computed, null]
+          description: |
+            `target` がどこから来たか。**手動値が自動計算を黙って上書きしていると、
+            体重が動いても目標が変わらない理由が分からなくなる**ので明示する
         consumed: { $ref: "#/components/schemas/Macros" }
         remaining:
           description: 目標 − 実績。target が無ければ null
