@@ -329,3 +329,150 @@ struct JSTTimeRoundTripTests {
         #expect(JST.time(from: "1940") == nil)
     }
 }
+
+@Suite("食品マスタの展開")
+struct FoodItemExpandTests {
+    private func protein() -> FoodItem {
+        FoodItem(
+            id: UUID(), name: "プロテイン", qty: nil,
+            proteinG: nil, fatG: nil, carbG: nil,
+            components: [
+                FoodItemComponent(name: "量", unit: "g", basisAmount: 30, defaultAmount: 30,
+                                  proteinG: 24, fatG: 1.5, carbG: 2),
+            ],
+            usedCount: 0
+        )
+    }
+
+    @Test("**引数が無ければそのまま返す**")
+    func noComponents() {
+        let egg = FoodItem(
+            id: UUID(), name: "ゆで卵", qty: "1個",
+            proteinG: 6.5, fatG: 5.2, carbG: 0.2, components: [], usedCount: 0
+        )
+
+        let got = egg.expand([:])
+
+        #expect(got.proteinG == 6.5)
+        #expect(got.carbG == 0.2)
+    }
+
+    @Test("引数も値も無ければ 0")
+    func empty() {
+        let x = FoodItem(id: UUID(), name: "x", qty: nil,
+                         proteinG: nil, fatG: nil, carbG: nil, components: [], usedCount: 0)
+
+        #expect(x.expand([:]).proteinG == 0)
+    }
+
+    @Test("基準量との比で計算する")
+    func ratio() {
+        let got = protein().expand(["量": 45])
+
+        #expect(abs(got.proteinG - 36) < 0.001)
+        #expect(abs(got.fatG - 2.25) < 0.001)
+        #expect(abs(got.carbG - 3) < 0.001)
+    }
+
+    @Test("渡さなければ既定値を使う")
+    func usesDefault() {
+        let got = protein().expand([:])
+
+        #expect(abs(got.proteinG - 24) < 0.001)
+    }
+
+    @Test("引数を複数持てる")
+    func multiple() {
+        let soboro = FoodItem(
+            id: UUID(), name: "鶏そぼろ", qty: nil,
+            proteinG: nil, fatG: nil, carbG: nil,
+            components: [
+                FoodItemComponent(name: "鶏ひき肉", unit: "g", basisAmount: 100,
+                                  defaultAmount: 200, proteinG: 17.5, fatG: 12, carbG: 0),
+                FoodItemComponent(name: "砂糖", unit: "g", basisAmount: 100,
+                                  defaultAmount: 10, proteinG: 0, fatG: 0, carbG: 99.2),
+            ],
+            usedCount: 0
+        )
+
+        // 肉だけ 230g に変える。砂糖は既定の 10g
+        let got = soboro.expand(["鶏ひき肉": 230])
+
+        #expect(abs(got.proteinG - 17.5 * 2.3) < 0.001)
+        #expect(abs(got.carbG - 9.92) < 0.001)
+    }
+
+    @Test("**0 を渡せる。** 既定値に戻さない")
+    func zero() {
+        #expect(protein().expand(["量": 0]).proteinG == 0)
+    }
+
+    @Test("基準量が 0 なら 0 扱い")
+    func zeroBasis() {
+        let broken = FoodItem(
+            id: UUID(), name: "x", qty: nil, proteinG: nil, fatG: nil, carbG: nil,
+            components: [FoodItemComponent(name: "量", unit: "g", basisAmount: 0,
+                                           defaultAmount: 10, proteinG: 5, fatG: 0, carbG: 0)],
+            usedCount: 0
+        )
+
+        #expect(broken.expand([:]).proteinG == 0)
+    }
+
+    @Test("既定値を取り出せる")
+    func defaults() {
+        #expect(protein().defaultAmounts == ["量": 30])
+        let egg = FoodItem(id: UUID(), name: "卵", qty: nil, proteinG: 6, fatG: 5, carbG: 0,
+                           components: [], usedCount: 0)
+        #expect(egg.defaultAmounts.isEmpty)
+    }
+}
+
+/// **サーバと同じ結果になることを固定する。**
+///
+/// 期待値は `internal/foodmaster.Expand` に同じ入力を与えて出したもの。
+/// 片方だけ式を変えたら、ここが落ちる。
+///
+/// 食い違うと、**画面に出ていた値が記録した瞬間に変わる**。
+@Suite("サーバと同じ計算になる")
+struct FoodItemParityTests {
+    private let protein = FoodItem(
+        id: UUID(), name: "プロテイン", qty: nil,
+        proteinG: nil, fatG: nil, carbG: nil,
+        components: [
+            FoodItemComponent(name: "量", unit: "g", basisAmount: 30, defaultAmount: 30,
+                              proteinG: 24, fatG: 1.5, carbG: 2),
+        ],
+        usedCount: 0
+    )
+
+    private let soboro = FoodItem(
+        id: UUID(), name: "鶏そぼろ", qty: nil,
+        proteinG: nil, fatG: nil, carbG: nil,
+        components: [
+            FoodItemComponent(name: "鶏ひき肉", unit: "g", basisAmount: 100, defaultAmount: 200,
+                              proteinG: 17.5, fatG: 12, carbG: 0),
+            FoodItemComponent(name: "砂糖", unit: "g", basisAmount: 100, defaultAmount: 10,
+                              proteinG: 0, fatG: 0, carbG: 99.2),
+        ],
+        usedCount: 0
+    )
+
+    @Test("プロテイン 45g")
+    func protein45() { assertSame(protein.expand(["量": 45]), 36.0, 2.25, 3.0) }
+
+    @Test("プロテイン 既定（30g）")
+    func proteinDefault() { assertSame(protein.expand([:]), 24.0, 1.5, 2.0) }
+
+    @Test("プロテイン 0g")
+    func proteinZero() { assertSame(protein.expand(["量": 0]), 0, 0, 0) }
+
+    @Test("そぼろ 肉 230g・砂糖は既定")
+    func soboro230() { assertSame(soboro.expand(["鶏ひき肉": 230]), 40.25, 27.6, 9.92) }
+
+    private func assertSame(_ got: Macros, _ p: Double, _ f: Double, _ c: Double) {
+        #expect(abs(got.proteinG - p) < 0.0001)
+        #expect(abs(got.fatG - f) < 0.0001)
+        #expect(abs(got.carbG - c) < 0.0001)
+    }
+}

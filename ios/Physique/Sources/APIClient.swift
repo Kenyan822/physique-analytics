@@ -179,6 +179,40 @@ struct APIClient: Sendable {
         try await request(DailyTargets.self, "GET", "v1/targets/\(date)")
     }
 
+    // MARK: - 食品マスタ（要件 N-02 / ADR-0017）
+
+    /// よく使う順。**引数つきの項目は components が入る**
+    func foodItems(query: String = "") async throws -> [FoodItem] {
+        struct Response: Decodable { let items: [FoodItem] }
+
+        var q: [URLQueryItem] = []
+        if !query.isEmpty { q.append(URLQueryItem(name: "q", value: query)) }
+
+        return try await request(Response.self, "GET", "v1/food-items", query: q).items
+    }
+
+    func createFoodItem(_ input: FoodItemInput) async throws -> FoodItem {
+        try await request(FoodItem.self, "POST", "v1/food-items", body: input)
+    }
+
+    /// 直す。**構成はまるごと置き換わる**
+    func updateFoodItem(id: UUID, _ input: FoodItemInput) async throws -> FoodItem {
+        try await request(FoodItem.self, "PATCH",
+                          "v1/food-items/\(id.uuidString.lowercased())", body: input)
+    }
+
+    /// 使った回数を1つ増やす。一覧の並び順に効く。
+    ///
+    /// **失敗しても呼ぶ側は握ってよい。** 並び順が変わらないだけで、
+    /// 入力そのものは済んでいる
+    func markFoodItemUsed(id: UUID) async throws {
+        try await requestNoContent("POST", "v1/food-items/\(id.uuidString.lowercased())/used")
+    }
+
+    func deleteFoodItem(id: UUID) async throws {
+        try await requestNoContent("DELETE", "v1/food-items/\(id.uuidString.lowercased())")
+    }
+
     /// 手で決めた摂取目標（要件 N-05）。設定していなければ nil
     func manualTargets() async throws -> ManualTargets? {
         struct Response: Decodable { let targets: ManualTargets? }

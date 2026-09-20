@@ -203,3 +203,19 @@ func TestDeleteFoodItem_消せる(t *testing.T) {
 		t.Error("消していない")
 	}
 }
+
+func TestMarkFoodItemUsed_回数を増やす(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubFoodItems{}
+	id := uuid.New()
+	rec := postJSON(t, foodServer(stub), http.MethodPost,
+		"/v1/food-items/"+id.String()+"/used", nil)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204, body = %s", rec.Code, rec.Body)
+	}
+	if !stub.used {
+		t.Error("MarkUsed が呼ばれていない")
+	}
+}

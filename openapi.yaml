@@ -823,6 +823,24 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/food-items/{foodItemId}/used:
+    parameters:
+      - name: foodItemId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: markFoodItemUsed
+      summary: 使った回数を1つ増やす（要件 N-02）
+      description: |
+        一覧の並び順に効く。**記録できたあとに呼ぶ。**
+        失敗しても記録そのものは済んでいるので、呼ぶ側は握ってよい
+      tags: [nutrition]
+      responses:
+        "204": { description: 増やした }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /v1/meal-sets:
     get:
       operationId: listMealSets
