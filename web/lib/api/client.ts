@@ -27,6 +27,7 @@ export type MealSuggestion = components["schemas"]["MealSuggestion"];
 export type MealEstimate = components["schemas"]["MealEstimate"];
 export type MealSource = components["schemas"]["MealSource"];
 export type DailyTargets = components["schemas"]["DailyTargets"];
+export type ManualTargets = components["schemas"]["ManualTargets"];
 export type MealSet = components["schemas"]["MealSet"];
 export type MealSetInput = components["schemas"]["MealSetInput"];
 export type Plan = components["schemas"]["Plan"];
@@ -232,6 +233,13 @@ export function createClient({ baseUrl, token }: ClientOptions) {
       request<{ items: Meal[] }>("POST", "/v1/meals/copy", { body }),
     // その日の摂取目標と残量（要件 N-05）
     dailyTargets: (date: string) => request<DailyTargets>("GET", `/v1/targets/${seg(date)}`),
+
+    // 手で決めた摂取目標（要件 N-05）。あるときは自動計算（A-02）より優先される
+    manualTargets: () =>
+      request<{ targets: ManualTargets | null }>("GET", "/v1/targets/manual"),
+    putManualTargets: (body: ManualTargets) =>
+      request<ManualTargets>("PUT", "/v1/targets/manual", { body }),
+    deleteManualTargets: () => request<void>("DELETE", "/v1/targets/manual"),
 
     // 食事セット（要件 N-03）
     listMealSets: () => request<{ items: MealSet[] }>("GET", "/v1/meal-sets"),
