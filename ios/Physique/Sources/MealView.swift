@@ -9,8 +9,12 @@ struct MealView: View {
     @State private var pickingDate = false
     @State private var editingTarget = false
     @State private var showingFoodList = false
-    @State private var registeringFood = false
+    /// 登録・編集画面を出しているか。**シートではなく push する**（#217）
+    @State private var registeringFood: FoodEditorRoute?
     @State private var newFoodName = ""
+
+    /// 行き先は1つだけ。新規と編集の出し分けは `model.editingFoodID` が持つ
+    private enum FoodEditorRoute: Hashable { case editor }
     @FocusState private var focus: Field?
 
     /// 入力欄の並び。**キーボードの「次へ」がこの順に送る**
@@ -100,7 +104,7 @@ struct MealView: View {
                         Button {
                             model.beginEditingFood(item)
                             newFoodName = item.name
-                            registeringFood = true
+                            registeringFood = .editor
                         } label: {
                             Label("直す", systemImage: "pencil")
                         }
@@ -111,6 +115,15 @@ struct MealView: View {
             }
             .navigationTitle("マスタから選ぶ")
             .navigationBarTitleDisplayMode(.inline)
+            // **シートを重ねない。この一覧の上に push する。**
+            //
+            // 以前はここに `.sheet` を付けていたが、登録画面で
+            // `model` を触ると両方閉じた（#217）。入れ子のシートは
+            // 親の body が作り直されると剥がれる。push なら
+            // NavigationStack が経路を持つので、再描画で消えない
+            .navigationDestination(item: $registeringFood) { _ in
+                foodEditorScreen
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") { showingFoodList = false }
@@ -122,16 +135,12 @@ struct MealView: View {
                     Button("登録") {
                         newFoodName = model.draft.name
                         model.beginRegisteringFood()
-                        // **一覧を閉じない。** 登録画面はこのシートの上に
-                        // 乗っているので、親を閉じると子も出ない。
-                        // 登録後はこの一覧に戻り、足したものがそこに並ぶ
-                        registeringFood = true
+                        registeringFood = .editor
                     }
                     .accessibilityIdentifier("openFoodRegister")
                 }
             }
         }
-        .sheet(isPresented: $registeringFood) { foodRegisterSheet }
     }
 
     /// 近い順に並べる（要件 N-08）。
@@ -252,116 +261,14 @@ struct MealView: View {
 
     private func trimmed(_ v: Double) -> String { numberText(v) }
 
-    /// マスタに登録する／登録済みを直す。
-    ///
-    /// **いまの記録の入力とは別。** 開いたときに写すだけで、
-    /// 書き換えても記録側には影響しない。
-    ///
-    /// **登録と編集で同じ画面を使う。** 違いは送り先だけ（#211）で、
-    /// 別の画面にすると「引数を足す」を2か所に書くことになる。
-    private var foodRegisterSheet: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("名前", text: $newFoodName)
-                        .accessibilityIdentifier("foodName")
-                    TextField("量（1杯 / 1個）", text: $model.foodDraft.qty)
-                }
-
-                Section {
-                    HStack(spacing: 12) {
-                        Num(label: "P", text: $model.foodDraft.proteinG)
-                        Num(label: "F", text: $model.foodDraft.fatG)
-                        Num(label: "C", text: $model.foodDraft.carbG)
-                    }
-                    LabeledContent("カロリー") {
-                        Text(model.foodDraft.kcal.map { "\($0) kcal" } ?? "— kcal")
-                            .monospacedDigit()
-                            .foregroundStyle(model.foodDraft.kcal == nil ? .tertiary : .primary)
-                    }
-                } header: {
-                    Text(model.foodComponents.isEmpty ? "PFC" : "PFC（引数があるので使われない）")
-                } footer: {
-                    if model.foodComponents.isEmpty {
-                        Text("毎回同じならこのまま。量が変わるなら下で引数を足す")
-                    }
-                }
-
-                // **引数は詳細。** 既定は無しで、量が変わるものだけ足す（ADR-0017）
-                Section {
-                    ForEach($model.foodComponents) { $c in
-                        componentEditor($c)
-                    }
-                    .onDelete { model.foodComponents.remove(atOffsets: $0) }
-
-                    Button {
-                        model.addFoodComponent()
-                    } label: {
-                        Label("引数を足す", systemImage: "plus")
-                    }
-                    .accessibilityIdentifier("addFoodComponent")
-                } header: {
-                    Text("引数（任意）")
-                } footer: {
-                    Text("「30g あたり P24」の形。入力時に量を変えると比例して計算する")
-                }
-
-                if let e = model.errorMessage {
-                    ErrorNote(e)
-                }
-            }
-            .navigationTitle(model.editingFoodID == nil ? "マスタに登録" : "登録した内容を直す")
-            .navigationBarTitleDisplayMode(.inline)
-            .dismissesKeyboardOnTap()
-            .keyboardDoneButton()
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("やめる") { registeringFood = false }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(model.editingFoodID == nil ? "登録" : "保存") {
-                        Task {
-                            await model.saveFood(name: newFoodName)
-                            if model.errorMessage == nil {
-                                registeringFood = false
-                                newFoodName = ""
-                            }
-                        }
-                    }
-                    .disabled(model.isWorking)
-                    .accessibilityIdentifier("saveFood")
-                }
-            }
+    /// 登録・編集画面を出す。**`FoodEditorScreen` に渡すだけ。**
+    private var foodEditorScreen: some View {
+        FoodEditorScreen(model: model, name: $newFoodName) {
+            registeringFood = nil
+            newFoodName = ""
         }
-        // **既定を大きくする。** 引数のセクションが入ったので medium では
-        // 下が隠れる。Form は見えていない行を作らないので、
-        // 隠れた要素はそもそも存在しない（UI テストでも取れない）
-        .presentationDetents([.large, .medium])
     }
 
-    /// 引数1つの編集。
-    private func componentEditor(_ c: Binding<FoodComponentDraft>) -> some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                TextField("名前（量 / 鶏ひき肉）", text: c.name)
-                TextField("単位", text: c.unit)
-                    .frame(width: 44)
-                    .multilineTextAlignment(.center)
-            }
-
-            HStack(spacing: 12) {
-                Num(label: "基準量", text: c.basisAmount)
-                Num(label: "既定", text: c.defaultAmount)
-            }
-
-            HStack(spacing: 12) {
-                Num(label: "P", text: c.proteinG)
-                Num(label: "F", text: c.fatG)
-                Num(label: "C", text: c.carbG)
-            }
-        }
-        .padding(.vertical, 4)
-    }
 
     // MARK: - 日付（#193）
 
@@ -456,12 +363,21 @@ struct MealView: View {
 
                 if model.targetIsManual {
                     Section {
-                        Button("自動計算に戻す", role: .destructive) {
+                        // **`buttonStyle` を明示する**（#217）。既定のままだと
+                        // `dismissesKeyboardOnTap` にタップを奪われる
+                        Button {
                             Task {
                                 await model.clearManualTarget()
                                 editingTarget = false
                             }
+                        } label: {
+                            Text("自動計算に戻す")
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("clearManualTarget")
                         .disabled(model.isWorking)
                     }
                 }
@@ -524,6 +440,9 @@ struct MealView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // **見出しは状態で変わる**（目標 / 目標（手動） / 目標（自動計算））。
+            // 文言で引くとテストが状態に依存する
+            .accessibilityIdentifier("openTarget")
 
             // **目標が出せなくても記録はできる。** 理由だけ見せる
             if let message = model.targetsMessage {
@@ -810,6 +729,128 @@ private struct Total: View {
         .frame(maxWidth: .infinity)
     }
 }
+
+/// マスタに登録する／登録済みを直す（要件 N-02 / ADR-0017）。
+///
+/// **いまの記録の入力とは別。** 開いたときに写すだけで、書き換えても
+/// 記録側には影響しない。登録と編集で同じ画面を使い、違いは送り先だけ（#211）。
+///
+/// **`MealView` の computed property にしない。**
+/// `navigationDestination` のクロージャで評価されると `MealView.body` の
+/// 観測スコープの外になり、`model.foodComponents` を足しても再描画されない
+/// （#217 で「引数を足すが効かない」として出た）。
+/// **独立した `View` にすれば自分の `body` が観測スコープになる。**
+private struct FoodEditorScreen: View {
+    /// `@Bindable` にすると `$model.foodDraft.qty` のような束縛が取れる
+    @Bindable var model: MealModel
+    @Binding var name: String
+    /// 保存が終わって画面を畳むとき
+    let done: () -> Void
+
+    var body: some View {
+        Form {
+            Section {
+                TextField("名前", text: $name)
+                    .accessibilityIdentifier("foodName")
+                TextField("量（1杯 / 1個）", text: $model.foodDraft.qty)
+            }
+
+            Section {
+                HStack(spacing: 12) {
+                    Num(label: "P", text: $model.foodDraft.proteinG)
+                    Num(label: "F", text: $model.foodDraft.fatG)
+                    Num(label: "C", text: $model.foodDraft.carbG)
+                }
+                LabeledContent("カロリー") {
+                    Text(model.foodDraft.kcal.map { "\($0) kcal" } ?? "— kcal")
+                        .monospacedDigit()
+                        .foregroundStyle(model.foodDraft.kcal == nil ? .tertiary : .primary)
+                }
+            } header: {
+                Text(model.foodComponents.isEmpty ? "PFC" : "PFC（引数があるので使われない）")
+            } footer: {
+                if model.foodComponents.isEmpty {
+                    Text("毎回同じならこのまま。量が変わるなら下で引数を足す")
+                }
+            }
+
+            // **引数は詳細。** 既定は無しで、量が変わるものだけ足す（ADR-0017）
+            Section {
+                ForEach($model.foodComponents) { $c in
+                    componentEditor($c)
+                }
+                .onDelete { model.foodComponents.remove(atOffsets: $0) }
+
+                // **`buttonStyle` を明示する。** 既定のスタイルのままだと
+                // `dismissesKeyboardOnTap` の TapGesture にタップを奪われて
+                // action が呼ばれない（#217）。効いている `pickFromMaster` /
+                // `recordButton` はどちらも明示している
+                Button {
+                    model.addFoodComponent()
+                } label: {
+                    Label("引数を足す", systemImage: "plus")
+                        .foregroundStyle(.tint)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("addFoodComponent")
+            } header: {
+                Text("引数（任意）")
+            } footer: {
+                Text("「30g あたり P24」の形。入力時に量を変えると比例して計算する")
+            }
+
+            if let e = model.errorMessage {
+                ErrorNote(e)
+            }
+        }
+        .navigationTitle(model.editingFoodID == nil ? "マスタに登録" : "登録した内容を直す")
+        .navigationBarTitleDisplayMode(.inline)
+        .dismissesKeyboardOnTap()
+        .keyboardDoneButton()
+        // **「やめる」は置かない。** push したので戻るボタンがその役目になる。
+        // .cancellationAction を足すと戻るボタンが消える
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button(model.editingFoodID == nil ? "登録" : "保存") {
+                    Task {
+                        await model.saveFood(name: name)
+                        if model.errorMessage == nil { done() }
+                    }
+                }
+                .disabled(model.isWorking)
+                .accessibilityIdentifier("saveFood")
+            }
+        }
+    }
+
+    /// 引数1つの編集。
+    private func componentEditor(_ c: Binding<FoodComponentDraft>) -> some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                TextField("名前（量 / 鶏ひき肉）", text: c.name)
+                    .accessibilityIdentifier("componentName")
+                TextField("単位", text: c.unit)
+                    .frame(width: 44)
+                    .multilineTextAlignment(.center)
+            }
+
+            HStack(spacing: 12) {
+                Num(label: "基準量", text: c.basisAmount)
+                Num(label: "既定", text: c.defaultAmount)
+            }
+
+            HStack(spacing: 12) {
+                Num(label: "P", text: c.proteinG)
+                Num(label: "F", text: c.fatG)
+                Num(label: "C", text: c.carbG)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
 
 private struct Num: View {
     let label: String

@@ -260,6 +260,71 @@ XCTAssertTrue(record.isHittable, "記録がキーボードに隠れていない�
 行を遅延生成するので、スクロールして初めて生える
 （[food-master.md](food-master.md#form-は見えていない行を作らない)）。
 
+### テストにスクロールの回避策を書かない
+
+```swift
+if !add.waitForExistence(timeout: 3) { app.swipeUp() }   // ← 書かない
+```
+
+これを書いたせいで、実機の「引数を足すが押せない」を緑のまま見逃した（#217）。
+**出ないこと自体が症状**なので、回避策を書いた時点でテストの意味が無くなる。
+
+「開いた直後に押せるか」が見たいことなら、そう書く。
+
+### `isHittable` でも足りない。**押した結果まで見る**
+
+`isHittable` は「その座標を押したら届くか」までしか見ない。
+**「届くのに action が呼ばれない」は拾えない。**
+
+実際に踏んだ（#217）。`dismissesKeyboardOnTap` の `TapGesture` が
+`Form` の中の既定スタイルの Button からタップを奪っていて、
+`isHittable` は true のまま何も起きなかった。
+
+```swift
+add.tap()
+
+XCTAssertTrue(
+    app.textFields["componentName"].waitForExistence(timeout: 5),
+    "押すと引数の入力欄が増えること"
+)
+```
+
+**操作の入口を足したら、押した結果まで書く。** 出るはずのものが出る、
+消えるはずのものが消える、のどちらかを1行足すだけでよい。
+
+### 「押せない」を3つに割る
+
+原因は3通りある。**推測せずに一度で切り分ける。**
+
+`@State` のカウンタをボタンに足して、画面に出す。
+
+```swift
+@State private var taps = 0
+
+Button { taps += 1; model.addFoodComponent() } label: { ... }
+...
+Text("引数 taps=\(taps) count=\(model.foodComponents.count)")
+```
+
+| 出力 | 原因 |
+|---|---|
+| `taps=0` | **action が呼ばれていない**（タップが奪われている） |
+| `taps=1 count=0` | action は呼ばれた。モデルへの反映が失敗 |
+| `taps=1 count=1` | 反映済み。描画側の問題 |
+
+`taps` は `@State` なので、**再描画されているかどうかも同時に分かる。**
+
+### 画面が閉じていないか確かめる
+
+`app.debugDescription` を撮ると、ツリーの頂点でどの画面にいるかが分かる。
+
+```swift
+print(app.debugDescription)
+```
+
+`NavigationBar ... identifier: 'マスタに登録'` が無ければ、その画面はもう無い。
+#217 では「押すとシートごと閉じる」をこれで確定させた。
+
 ### 名前で引かない。識別子を振る
 
 「記録」は3つあった。

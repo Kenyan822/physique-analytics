@@ -232,3 +232,177 @@ XCUITest からは `cell.swipeLeft()` で開ける。
 
 消して作り直すと `used_count` が 0 に戻り、一覧の並び（よく使う順）から落ちる。
 `PATCH` なら回数はそのまま。
+
+## `presentationDetents` の引数は `Set` —— 書いた順は効かない
+
+```swift
+.presentationDetents([.large, .medium])   // ← large が既定にはならない
+```
+
+**`Set<PresentationDetent>` なので順序を持たない。** 省略時、SwiftUI は
+**最小の detent** を選ぶ。`.large` を先頭に書いても `.medium` で開く。
+
+#217 を追う途中で見つけた。`.medium` では引数のセクションが画面の下に落ち、
+**`Form` は見えていない行を作らない**ので、そこにボタンは存在しない。
+
+既定を決めたいときは `selection:` を使う。
+
+```swift
+@State private var detent: PresentationDetent = .large
+
+.presentationDetents([.medium, .large], selection: $detent)
+```
+
+配列リテラルの見た目に引きずられる罠。`Set` を取る API はこれ以外にもあるので、
+**「順番に意味がありそうなのに `Set`」を見たら `selection:` 相当を探す。**
+
+> この画面自体は最終的に**シートをやめて push した**ので `presentationDetents`
+> は使っていない（次節）。罠としては残るので書いておく。
+
+### UI テストがこれを緑のまま通していた
+
+```swift
+let add = app.buttons["addFoodComponent"]
+if !add.waitForExistence(timeout: 3) { app.swipeUp() }   // ← フォールバック
+XCTAssertTrue(add.isHittable)
+```
+
+`swipeUp()` でシートが `.large` に広がってから探していたので通っていた。
+**「最初から押せるか」を見ていなかった。**
+
+**UI テストに「出なかったらスクロールする」を書かない。** 出ないこと自体が
+症状なので、回避策を書いた時点でテストの意味が無くなる。
+
+### `isHittable` だけでは足りない
+
+「押せるのに何も起きない」形の不具合を拾えない。**押した結果まで見る。**
+
+```swift
+add.tap()
+
+XCTAssertTrue(
+    app.textFields["componentName"].waitForExistence(timeout: 5),
+    "押すと引数の入力欄が増えること"
+)
+```
+
+## 入れ子のシートは、中で状態を変えると剥がれる
+
+「引数を足すが押せない」を追っている途中で見つけた、別の不具合（#217）。
+**利用者の症状の直接の原因ではなかった**が、押すと画面ごと閉じるのは確かなので直した。
+
+登録画面を一覧シートの**上にシートで重ねて**いた。
+
+```swift
+private var foodListSheet: some View {
+    NavigationStack { List { ... } }
+}
+.sheet(isPresented: $registeringFood) { foodRegisterSheet }   // ← 入れ子
+```
+
+この状態で `model` を触ると、**両方のシートが閉じて食事の本画面に戻る。**
+
+### 切り分け方
+
+ボタンの中身を空にして比べると1回で分かる。
+
+| ボタンの中身 | 結果 |
+|---|---|
+| 空（何もしない） | **シートは開いたまま** |
+| `model.addFoodComponent()` | **両方閉じる** |
+
+**タップは届いている。** 引き金は `@Observable` の状態変更で、
+`MealView.body` が作り直されると、その中で組み立てている `foodListSheet` も
+作り直され、そこにぶら下がっていた `.sheet` が外れる。
+
+UI テストは `app.debugDescription` を撮ると早い。ツリーの頂点が
+`マスタに登録` ではなく食事の本画面になっていれば、閉じたと確定できる。
+
+### 直し方：重ねずに push する
+
+一覧は既に `NavigationStack` を持っているので、その上に積めばよい。
+
+```swift
+NavigationStack {
+    List { ... }
+        .navigationDestination(item: $registeringFood) { _ in foodEditorScreen }
+}
+```
+
+**経路を持つのは `NavigationStack`** なので、body が作り直されても消えない。
+ついでに3つ片付く。
+
+| | |
+|---|---|
+| 高さ | push した画面は全高。`presentationDetents` が要らなくなる |
+| 戻る | 標準の戻るボタンが「やめる」の役目になる |
+| #209 の件 | 「親を閉じると子が出ない」も構造ごと消える |
+
+`.cancellationAction` の `ToolbarItem` は**足さない**。push した画面に置くと
+戻るボタンが消える。
+
+### シートを重ねたくなったら
+
+**1つの `NavigationStack` に push できないか先に考える。** シートの入れ子は
+「開くとき」「閉じるとき」「中で状態を変えたとき」の3方向で壊れる。
+#209 と #217 はどちらも同じ構造から出た別の症状だった。
+
+## `onTapGesture` は Form の中の Button からタップを奪う
+
+**これが「引数を足すが押せない」の原因**（#217）。
+
+キーボードを閉じるために、画面全体にこう付けていた。
+
+```swift
+content
+    .scrollDismissesKeyboard(.interactively)
+    .onTapGesture(perform: dismissKeyboard)   // ← これ
+```
+
+**既定のスタイルの Button は action が呼ばれなくなる。**
+「押せるのに何も起きない」になる。
+
+### 紛らわしいのは、効くボタンもあること
+
+同じ画面の `pickFromMaster` は動いていた。違いはこれだけ。
+
+```swift
+Button { ... } label: { ... }
+    .buttonStyle(.plain)
+    .contentShape(Rectangle())   // ← 自前の当たり判定を持っている
+```
+
+**「同じ modifier の下で動くボタンがある」ので、modifier を疑いにくい。**
+
+### 切り分け方
+
+`@State` のカウンタをボタンに足して、見出しに出す。
+
+```swift
+@State private var taps = 0
+
+Button { taps += 1; model.addFoodComponent() } label: { ... }
+...
+Text("引数 taps=\(taps) count=\(model.foodComponents.count)")
+```
+
+| 出力 | 意味 |
+|---|---|
+| `taps=0` | **action が呼ばれていない**（タップが届いていない） |
+| `taps=1 count=0` | action は呼ばれた。モデルへの反映が失敗 |
+| `taps=1 count=1` | 反映済み。描画側の問題 |
+
+`taps` は `@State` なので再描画の有無も同時に分かる。
+**「押せない」を3つに割れる**ので、これを最初にやると速い。
+
+### 直し方
+
+```swift
+.simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })
+```
+
+`simultaneousGesture` は競合しない。ボタンを押したときもついでに閉じるが、
+それは望ましい挙動。
+
+**画面全体に `onTapGesture` を付けない。** 付けるなら `simultaneousGesture` に
+するか、背景だけに付ける。

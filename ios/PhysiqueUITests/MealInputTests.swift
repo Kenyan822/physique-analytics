@@ -39,6 +39,29 @@ final class MealInputTests: XCTestCase {
         )
     }
 
+    func test_自動計算に戻せる() {
+        // **Form の中の既定スタイルの Button は action が呼ばれなかった**（#217）。
+        // 「引数を足す」と同じ形のボタンがここにもある
+        openTargetSheet()
+        type("180", into: "targetP")
+        type("70", into: "targetF")
+        type("250", into: "targetC")
+        app.buttons["保存"].tap()
+
+        XCTAssertTrue(app.staticTexts["180g"].waitForExistence(timeout: 5))
+
+        openTargetSheet()
+        let clear = app.buttons["clearManualTarget"]
+        XCTAssertTrue(clear.waitForExistence(timeout: 5), "自動計算に戻すが出ること")
+        XCTAssertTrue(clear.isHittable, "押せる位置にあること")
+        clear.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["180g"].waitForNonExistence(timeout: 5),
+            "押すと手動の目標が消えること"
+        )
+    }
+
     func test_目標を開く場所がタップできる() {
         let target = app.staticTexts["目標"]
         XCTAssertTrue(target.waitForExistence(timeout: 20))
@@ -75,6 +98,15 @@ final class MealInputTests: XCTestCase {
         let record = app.buttons["recordButton"]
         XCTAssertTrue(record.waitForExistence(timeout: 5))
         XCTAssertTrue(record.isHittable, "キーボードを閉じれば Form のボタンも押せること")
+
+        // **押して効くところまで見る。** Form の中のボタンは
+        // キーボードを閉じる .onTapGesture にタップを奪われていた（#217）
+        record.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["30g"].waitForExistence(timeout: 5),
+            "Form の中の記録ボタンが本当に効くこと"
+        )
     }
 
     // MARK: - 食品マスタ（#209）
@@ -112,13 +144,27 @@ final class MealInputTests: XCTestCase {
         app.buttons["openFoodRegister"].tap()
         XCTAssertTrue(app.navigationBars["マスタに登録"].waitForExistence(timeout: 5))
 
-        // **詳細は下にある。** Form は見えていない行を作らないので、
-        // 隠れていると `exists` すら false になる
+        // **スクロールしない。** 以前は押せないときに swipeUp() で広げてから
+        // 探していたので、実機の「押せない」を緑のまま見逃した（#217）。
+        // Form は見えていない行を作らないので、隠れていれば exists も false
         let add = app.buttons["addFoodComponent"]
-        if !add.waitForExistence(timeout: 3) { app.swipeUp() }
 
-        XCTAssertTrue(add.waitForExistence(timeout: 5), "引数を足すが出ること")
-        XCTAssertTrue(add.isHittable, "押せる位置にあること")
+        XCTAssertTrue(add.waitForExistence(timeout: 5), "開いた直後に引数を足すが出ること")
+        XCTAssertTrue(add.isHittable, "スクロールせずに押せること")
+
+        // **押して効くところまで見る。** isHittable だけでは
+        // 「押すと画面ごと閉じる」を拾えなかった（#217）
+        add.tap()
+
+        XCTAssertTrue(
+            app.navigationBars["マスタに登録"].exists,
+            "押しても画面が閉じないこと"
+        )
+
+        XCTAssertTrue(
+            app.textFields["componentName"].waitForExistence(timeout: 5),
+            "押すと引数の入力欄が増えること"
+        )
     }
 
     func test_登録したものをあとから直せる() {
@@ -141,9 +187,14 @@ final class MealInputTests: XCTestCase {
         )
 
         let add = app.buttons["addFoodComponent"]
-        if !add.waitForExistence(timeout: 3) { app.swipeUp() }
         XCTAssertTrue(add.waitForExistence(timeout: 5), "引数を足すが出ること")
         add.tap()
+
+        // **引数を足せることが ADR-0017 の前提。** 押した結果まで見る（#217）
+        XCTAssertTrue(
+            app.textFields["componentName"].waitForExistence(timeout: 5),
+            "引数の入力欄が増えること"
+        )
 
         let save = app.buttons["saveFood"]
         XCTAssertTrue(save.waitForExistence(timeout: 5), "保存が出ること")
@@ -193,7 +244,8 @@ final class MealInputTests: XCTestCase {
     }
 
     private func openTargetSheet() {
-        let target = app.staticTexts["目標"]
+        // **識別子で引く。** 見出しは状態で変わる（目標 / 目標（手動））
+        let target = app.buttons["openTarget"]
         XCTAssertTrue(target.waitForExistence(timeout: 20), "目標の行が出ること")
         target.tap()
         XCTAssertTrue(
