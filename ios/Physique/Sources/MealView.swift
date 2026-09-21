@@ -221,7 +221,7 @@ struct MealView: View {
                                 }
                             }
                         } footer: {
-                            Text("\(trimmed(item.baseAmount ?? 0))\(item.baseUnit ?? "g") あたりの値から計算する")
+                            Text("登録は \(trimmed(item.baseAmount ?? 0))\(item.baseUnit ?? "g") あたり。入れた量に比例して計算する")
                         }
                     }
 
@@ -240,13 +240,14 @@ struct MealView: View {
                                     .keyboardType(.decimalPad)
                                     .multilineTextAlignment(.trailing)
                                     .monospacedDigit()
+                                    .accessibilityIdentifier("componentAmount")
                                     Text(c.unit).font(.caption).foregroundStyle(.secondary)
                                 }
                             }
                         }
                     } footer: {
                         if item.hasComponents {
-                            Text("\(c(item)) あたりの値から計算する")
+                            Text("登録は \(c(item)) あたり。入れた量に比例して計算する")
                         }
                     }
 
@@ -797,19 +798,23 @@ private struct FoodEditorScreen: View {
 
             // **全量が1つの量で決まるもの**（プロテイン）は引数を作らずに済む（#218）
             Section {
-                Toggle("全量が量に比例する", isOn: $model.foodScales)
+                Toggle("使う量に応じて計算する", isOn: $model.foodScales)
                     .accessibilityIdentifier("scalesWithAmount")
 
                 if model.foodScales {
-                    HStack(spacing: 8) {
-                        Num(label: "基準量", text: $model.foodBaseAmount)
+                    // **文章として読める形にする。** 「基準量」だけ置くと
+                    // 何の量なのかが伝わらない
+                    HStack(spacing: 6) {
+                        Text("上の PFC は").font(.callout)
+                        Field(text: $model.foodBaseAmount, width: 56, placeholder: "30")
                             .accessibilityIdentifier("baseAmount")
-                        Num(label: "単位", text: $model.foodBaseUnit)
+                        Field(text: $model.foodBaseUnit, width: 40, placeholder: "g")
+                        Text("あたりの値").font(.callout)
                     }
                 }
             } footer: {
                 Text(model.foodScales
-                    ? "入力するときに量を聞く。上の PFC が量に比例する"
+                    ? "記録するときに量を聞く。入れた量に比例して計算する"
                     : "プロテインのように、量を決めれば全部決まるものに使う")
             }
 
@@ -860,16 +865,17 @@ private struct FoodEditorScreen: View {
     private func componentEditor(_ c: Binding<FoodComponentDraft>) -> some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                TextField("名前（量 / 鶏ひき肉）", text: c.name)
+                TextField("名前（鶏ひき肉 / 砂糖）", text: c.name)
                     .accessibilityIdentifier("componentName")
-                TextField("単位", text: c.unit)
-                    .frame(width: 44)
-                    .multilineTextAlignment(.center)
+                Field(text: c.unit, width: 44, placeholder: "g")
             }
 
-            HStack(spacing: 12) {
-                Num(label: "基準量", text: c.basisAmount)
-                Num(label: "既定", text: c.defaultAmount)
+            // **「基準量」「既定」と並べても区別がつかない。** 文章にする
+            HStack(spacing: 6) {
+                Text("下の PFC は").font(.caption).foregroundStyle(.secondary)
+                Field(text: c.basisAmount, width: 56, placeholder: "100")
+                Text("\(c.unit.wrappedValue) あたり")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             HStack(spacing: 12) {
@@ -877,11 +883,33 @@ private struct FoodEditorScreen: View {
                 Num(label: "F", text: c.fatG)
                 Num(label: "C", text: c.carbG)
             }
+
+            HStack(spacing: 6) {
+                Text("いつもの量").font(.caption).foregroundStyle(.secondary)
+                Field(text: c.defaultAmount, width: 56, placeholder: "200")
+                Text(c.unit.wrappedValue).font(.caption).foregroundStyle(.secondary)
+                Spacer()
+            }
         }
         .padding(.vertical, 4)
     }
 }
 
+
+/// 文章の中に置く小さな入力欄。**ラベルを持たない**（前後の文が説明する）
+private struct Field: View {
+    @Binding var text: String
+    let width: CGFloat
+    let placeholder: String
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .keyboardType(.decimalPad)
+            .multilineTextAlignment(.center)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: width)
+    }
+}
 
 private struct Num: View {
     let label: String

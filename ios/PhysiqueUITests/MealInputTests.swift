@@ -191,6 +191,50 @@ final class MealInputTests: XCTestCase {
         )
     }
 
+    func test_入力するときに量を変えられる() {
+        // **ADR-0017 の狙いそのもの。** 登録した「いつもの量」を、
+        // 記録するときに変えられるか（#218 の確認）
+        app.buttons["pickFromMaster"].tap()
+        XCTAssertTrue(app.navigationBars["マスタから選ぶ"].waitForExistence(timeout: 10))
+        app.buttons["openFoodRegister"].tap()
+        XCTAssertTrue(app.navigationBars["マスタに登録"].waitForExistence(timeout: 5))
+
+        // **上の欄から順に埋める。** 下の欄に入力するとフォームが
+        // スクロールし、上の欄がナビゲーションバーの裏に入って押せなくなる
+        let name = app.textFields["foodName"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap()
+        name.typeText("プロテイン")
+
+        // **キーボードを閉じてからボタンを押す。** 出たままだと、
+        // 1タップ目は閉じるだけになる（`dismissesKeyboardOnTap` の仕様）
+        app.buttons["完了"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5),
+                      "キーボードが閉じること")
+
+        app.buttons["addFoodComponent"].tap()
+        let comp = app.textFields["componentName"]
+        XCTAssertTrue(comp.waitForExistence(timeout: 5), "引数の欄が増えること")
+        comp.tap()
+        comp.typeText("量")
+
+        // ツールバーは Form の外なので、キーボードが出たままでも押せる
+        app.buttons["saveFood"].tap()
+
+        // 一覧に戻って選ぶ → 量を聞く画面が開く
+        let row = app.buttons["foodRow"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "登録したものが一覧に出ること")
+        row.tap()
+
+        let amount = app.textFields["componentAmount"]
+        XCTAssertTrue(amount.waitForExistence(timeout: 5), "量の入力欄が出ること")
+        XCTAssertTrue(amount.isHittable, "**その場で変えられること**")
+
+        let confirm = app.buttons["confirmFoodPick"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "入れるが出ること")
+        XCTAssertTrue(confirm.isHittable, "押せる位置にあること")
+    }
+
     func test_登録したものをあとから直せる() {
         // **ADR-0017 の前提そのもの。** 「登録時は量が固定だと思っていたが、
         // 2回目に毎回違うと気づく」経路を通しで踏む（#211）
