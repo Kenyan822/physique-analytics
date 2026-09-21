@@ -1,7 +1,13 @@
 // Package foodmaster は食品マスタを PFC に展開する（要件 N-02 / ADR-0017）。
 //
-// **引数は任意。** 大半の食品は量が固定なので、基本は登録した PFC を
-// そのまま返す。量が変わるもの（プロテイン・料理の材料）だけ引数を持つ。
+// **本体の PFC と引数は足し算**（#218）。
+//
+//	total = 本体PFC × (ScalesWithAmount ? 入力量 / BaseAmount : 1)
+//	      + Σ 引数PFC × (引数量 / 引数基準量)
+//
+// 大半の食品は量が固定なので、基本は登録した PFC をそのまま返す。
+// 全量が1つの量で決まるもの（プロテイン）は ScalesWithAmount を立て、
+// 固定部分と変わる部分があるもの（料理）は引数を持つ。
 package foodmaster
 
 // Macros は展開した結果。
@@ -16,10 +22,17 @@ type Macros struct {
 
 // Item は食品マスタの1項目。
 type Item struct {
-	// ProteinG 等は**引数が無いときだけ**使う。nil は「登録していない」
+	// ProteinG 等は本体の PFC。**引数があっても使う**（#218）。
+	// nil は「登録していない」＝0
 	ProteinG *float64
 	FatG     *float64
 	CarbG    *float64
+
+	// BaseAmount は「n g あたり」の n。ScalesWithAmount のときだけ使う
+	BaseAmount *float64
+	// ScalesWithAmount は全量が1つの量で決まるか。
+	// **立てると引数の行を作らずに比例させられる**（プロテイン）
+	ScalesWithAmount bool
 
 	// Components が空なら引数なし
 	Components []Component
@@ -40,19 +53,20 @@ type Component struct {
 
 // Expand は入力量から PFC を出す。
 //
+// base は本体の入力量。ScalesWithAmount が立っているときだけ見る。
+// nil なら基準量ぶん（＝登録したまま）。
+//
 // amounts は引数の名前 → 入力量。**渡さなかった引数は既定値**を使う。
 // 0 を渡したら 0 として扱う（「今日は入れなかった」を表せるようにする）。
-func Expand(item Item, amounts map[string]float64) Macros {
-	// **引数が無ければ登録した値をそのまま返す。** これが基本の経路（ADR-0017）
-	if len(item.Components) == 0 {
-		return Macros{
-			ProteinG: value(item.ProteinG),
-			FatG:     value(item.FatG),
-			CarbG:    value(item.CarbG),
-		}
+func Expand(item Item, base *float64, amounts map[string]float64) Macros {
+	// **本体は常に足す**（#218）。引数があっても捨てない
+	r := baseRatio(item, base)
+	out := Macros{
+		ProteinG: value(item.ProteinG) * r,
+		FatG:     value(item.FatG) * r,
+		CarbG:    value(item.CarbG) * r,
 	}
 
-	var out Macros
 	for _, c := range item.Components {
 		// DB の check で防いでいるが、**割り算の前に落ちない**ことを保証する
 		if c.BasisAmount <= 0 {
@@ -71,6 +85,21 @@ func Expand(item Item, amounts map[string]float64) Macros {
 	}
 
 	return out
+}
+
+// baseRatio は本体にかける倍率を返す。
+//
+// **比例しないなら 1。** 基準量が無い・0 のときも 1 に倒す
+// （DB の check で防いでいるが、割り算の前に落ちないことを保証する）。
+func baseRatio(item Item, base *float64) float64 {
+	if !item.ScalesWithAmount || item.BaseAmount == nil || *item.BaseAmount <= 0 {
+		return 1
+	}
+	if base == nil {
+		return 1
+	}
+
+	return *base / *item.BaseAmount
 }
 
 // Defaults は引数の既定値を返す。入力画面の初期表示に使う。

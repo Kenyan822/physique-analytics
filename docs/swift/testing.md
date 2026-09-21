@@ -277,8 +277,12 @@ if !add.waitForExistence(timeout: 3) { app.swipeUp() }   // ← 書かない
 **「届くのに action が呼ばれない」は拾えない。**
 
 実際に踏んだ（#217）。`dismissesKeyboardOnTap` の `TapGesture` が
-`Form` の中の既定スタイルの Button からタップを奪っていて、
+`Form` の中のコントロールからタップを奪っていて、
 `isHittable` は true のまま何も起きなかった。
+
+**`Toggle` は `value` を見る**（`"0"` / `"1"`）。ただし Form の Toggle は
+行の中央を押しても切り替わらない（iOS の標準の挙動）ので、
+`coordinate(withNormalizedOffset:)` でスイッチ本体を押す。
 
 ```swift
 add.tap()

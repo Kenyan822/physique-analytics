@@ -258,3 +258,88 @@ func TestFoodItem_引数が無ければ空配列を返す(t *testing.T) {
 		t.Error("List の Components が nil")
 	}
 }
+
+// ---- #218: 本体の比例 ----
+
+func TestFoodItem_比例の設定を往復できる(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	repo := repository.NewFoodItem(testdb.Begin(t))
+
+	in := simpleFood("比例テスト")
+	in.BaseAmount = f32(30)
+	in.BaseUnit = strptr("g")
+	in.ScalesWithAmount = boolptr(true)
+
+	created, err := repo.Create(ctx, in)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.BaseAmount == nil || *created.BaseAmount != 30 {
+		t.Errorf("BaseAmount = %v, want 30", created.BaseAmount)
+	}
+	if created.ScalesWithAmount == nil || !*created.ScalesWithAmount {
+		t.Errorf("ScalesWithAmount = %v, want true", created.ScalesWithAmount)
+	}
+
+	// **引き直しても残る。** insert の returning だけ通って
+	// select が列を落としている、を捕まえる
+	got, err := repo.Get(ctx, created.Id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.BaseAmount == nil || *got.BaseAmount != 30 {
+		t.Errorf("Get.BaseAmount = %v, want 30", got.BaseAmount)
+	}
+	if got.BaseUnit == nil || *got.BaseUnit != "g" {
+		t.Errorf("Get.BaseUnit = %v, want g", got.BaseUnit)
+	}
+}
+
+// **既定値のままなら既存と同じに見える**（#218 の移行の前提）
+func TestFoodItem_比例を指定しなければ既定のまま(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	repo := repository.NewFoodItem(testdb.Begin(t))
+
+	created, err := repo.Create(ctx, simpleFood("既定テスト"))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.ScalesWithAmount == nil || *created.ScalesWithAmount {
+		t.Errorf("ScalesWithAmount = %v, want false", created.ScalesWithAmount)
+	}
+	if created.BaseAmount != nil {
+		t.Errorf("BaseAmount = %v, want nil", created.BaseAmount)
+	}
+}
+
+func TestFoodItem_比例を後から外せる(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	repo := repository.NewFoodItem(testdb.Begin(t))
+
+	in := simpleFood("比例やめるテスト")
+	in.BaseAmount = f32(30)
+	in.ScalesWithAmount = boolptr(true)
+	created, err := repo.Create(ctx, in)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	off := simpleFood("比例やめるテスト")
+	updated, err := repo.Update(ctx, created.Id, off)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.ScalesWithAmount == nil || *updated.ScalesWithAmount {
+		t.Errorf("ScalesWithAmount = %v, want false", updated.ScalesWithAmount)
+	}
+	if updated.BaseAmount != nil {
+		t.Errorf("BaseAmount = %v, want nil", updated.BaseAmount)
+	}
+}
+
+func f32(v float32) *float32  { return &v }
+func strptr(s string) *string { return &s }
+func boolptr(b bool) *bool    { return &b }

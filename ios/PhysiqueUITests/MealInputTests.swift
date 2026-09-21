@@ -167,6 +167,30 @@ final class MealInputTests: XCTestCase {
         )
     }
 
+    func test_全量が量に比例するを付けられる() {
+        // **チェックを入れると基準量の欄が出る**（#218）。
+        // 出ないと比例させる設定に辿り着けない
+        app.buttons["pickFromMaster"].tap()
+        XCTAssertTrue(app.navigationBars["マスタから選ぶ"].waitForExistence(timeout: 10))
+        app.buttons["openFoodRegister"].tap()
+        XCTAssertTrue(app.navigationBars["マスタに登録"].waitForExistence(timeout: 5))
+
+        let toggle = app.switches["scalesWithAmount"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "チェックが出ること")
+        XCTAssertTrue(toggle.isHittable, "押せる位置にあること")
+        // **行の中央を押しても切り替わらない。** Form の Toggle は
+        // スイッチ本体だけが反応する（iOS の標準の挙動）。
+        // `tap()` は要素の中央＝ラベルの上を押してしまう
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+
+        XCTAssertEqual(toggle.value as? String, "1", "チェックが入ること")
+
+        XCTAssertTrue(
+            app.textFields["baseAmount"].waitForExistence(timeout: 5),
+            "入れると基準量の欄が出ること"
+        )
+    }
+
     func test_登録したものをあとから直せる() {
         // **ADR-0017 の前提そのもの。** 「登録時は量が固定だと思っていたが、
         // 2回目に毎回違うと気づく」経路を通しで踏む（#211）

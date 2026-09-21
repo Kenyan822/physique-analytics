@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 extension View {
@@ -21,20 +22,33 @@ extension View {
 }
 
 private struct DismissKeyboardOnTap: ViewModifier {
+    /// キーボードが出ているか。**タップを受けるかどうかの判断にだけ使う**
+    @State private var keyboardUp = false
+
     func body(content: Content) -> some View {
         content
             // .interactively にすると、指を下ろした量に追従して閉じる。
             // .immediately は少し触れただけで消えて、行を選びたいだけのときに邪魔
             .scrollDismissesKeyboard(.interactively)
-            // **`onTapGesture` にしない。** Form の中の Button からタップを
-            // 奪う。`pickFromMaster` のように .buttonStyle(.plain) と
-            // .contentShape を持つものは生き残るが、既定のスタイルの
-            // Button は action が呼ばれなくなる（#217 の「引数を足すが
-            // 効かない」がこれ）。
+            // **キーボードが出ているときだけ受ける。**
             //
-            // `simultaneousGesture` なら競合しない。ボタンを押したときも
-            // ついでに閉じるが、それは望ましい挙動
-            .simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })
+            // 常に付けると Form の中の Button や Toggle からタップを奪う。
+            // `simultaneousGesture` でも奪う。明示的な `buttonStyle` を持つ
+            // ものだけが生き残るので、効くものと効かないものが混在して
+            // 原因が見えにくくなる（#217 の Button、#218 の Toggle）。
+            //
+            // `including:` を切り替えるのは、`if` で付け外しすると
+            // view の識別が変わってしまうため。
+            // **キーボードが下りているときは `.subviews`** ＝ この gesture は
+            // 働かず、下のコントロールがそのまま受ける
+            .gesture(
+                TapGesture().onEnded { dismissKeyboard() },
+                including: keyboardUp ? .all : .subviews
+            )
+            .onReceive(NotificationCenter.default.publisher(
+                for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
+            .onReceive(NotificationCenter.default.publisher(
+                for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
     }
 }
 

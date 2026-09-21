@@ -470,6 +470,59 @@ struct FoodItemParityTests {
     @Test("そぼろ 肉 230g・砂糖は既定")
     func soboro230() { assertSame(soboro.expand(["鶏ひき肉": 230]), 40.25, 27.6, 9.92) }
 
+    // ---- #218: 本体と引数の足し算 ----
+
+    /// 本体が量に比例する形（引数の行を作らない）
+    private let scaled = FoodItem(
+        id: UUID(), name: "プロテイン", qty: nil,
+        proteinG: 24, fatG: 1.5, carbG: 2,
+        baseAmount: 30, baseUnit: "g", scalesWithAmount: true,
+        components: [], usedCount: 0
+    )
+
+    /// 固定部分＋量が変わる部分
+    private let teishoku = FoodItem(
+        id: UUID(), name: "定食", qty: nil,
+        proteinG: 20, fatG: 10, carbG: 80,
+        components: [
+            FoodItemComponent(name: "鶏むね", unit: "g", basisAmount: 100, defaultAmount: 200,
+                              proteinG: 23, fatG: 1.9, carbG: 0),
+        ],
+        usedCount: 0
+    )
+
+    @Test("比例する本体 45g")
+    func scaled45() { assertSame(scaled.expand(base: 45), 36.0, 2.25, 3.0) }
+
+    @Test("比例する本体 量を渡さなければ基準量ぶん")
+    func scaledDefault() { assertSame(scaled.expand(), 24.0, 1.5, 2.0) }
+
+    @Test("**本体と引数を足す**")
+    func basePlusComponents() {
+        // 20 + 46 / 10 + 3.8 / 80 + 0
+        assertSame(teishoku.expand(), 66.0, 13.8, 80.0)
+    }
+
+    @Test("比例しないなら入力量を無視する")
+    func ignoresAmountWhenNotScaling() {
+        assertSame(teishoku.expand(base: 999), 66.0, 13.8, 80.0)
+    }
+
+    // **既存の登録の結果が変わらないことを固定する**（#218 の一番の関心事）
+    @Test("既存: 引数なしは従来どおり")
+    func legacyNoComponents() {
+        let egg = FoodItem(id: UUID(), name: "ゆで卵", qty: nil,
+                           proteinG: 6.5, fatG: 5.2, carbG: 0.2,
+                           components: [], usedCount: 0)
+
+        assertSame(egg.expand(), 6.5, 5.2, 0.2)
+    }
+
+    @Test("既存: 引数ありは従来どおり")
+    func legacyWithComponents() {
+        assertSame(protein.expand(["量": 45]), 36.0, 2.25, 3.0)
+    }
+
     private func assertSame(_ got: Macros, _ p: Double, _ f: Double, _ c: Double) {
         #expect(abs(got.proteinG - p) < 0.0001)
         #expect(abs(got.fatG - f) < 0.0001)

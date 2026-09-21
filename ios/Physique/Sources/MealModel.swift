@@ -167,28 +167,43 @@ final class MealModel {
     /// **引数が無ければその場で入力が埋まる**（1タップ）。
     /// あるときは量を聞く —— 既定値のまま確定してもよい（ADR-0017）。
     func pickFood(_ item: FoodItem) {
-        guard item.hasComponents else {
-            apply(item.expand([:]), from: item)
+        // **比例する項目も量を聞く**（#218）。引数が無くても量で結果が変わる
+        guard item.needsAmount else {
+            apply(item.expand(), from: item)
 
             return
         }
 
         pickingFood = item
         foodAmounts = item.defaultAmounts
+        // 触らなければ基準量ぶん
+        foodBase = item.scales ? item.baseAmount : nil
     }
 
     func confirmFoodPick() {
         guard let item = pickingFood else { return }
-        apply(item.expand(foodAmounts), from: item)
+        apply(item.expand(base: foodBase, foodAmounts), from: item)
     }
 
     func cancelFoodPick() {
         pickingFood = nil
         foodAmounts = [:]
+        foodBase = nil
     }
 
     /// 登録する引数。**数値は文字列のまま持つ**（「30.」で丸められないように）
     var foodComponents: [FoodComponentDraft] = []
+
+    // MARK: - 全量が量に比例する（#218）
+
+    /// 「全量が量に比例する」チェック。プロテインのように引数の行を作らずに済ませる
+    var foodScales = false
+    /// 基準量。**文字列のまま持つ**（他の数値欄と同じ理由）
+    var foodBaseAmount = ""
+    var foodBaseUnit = "g"
+
+    /// 入力中の本体の量。比例する項目を選んだときだけ使う
+    var foodBase: Double?
 
     /// 直している項目。**nil なら新規登録**。保存先が PATCH か POST かを決める
     private(set) var editingFoodID: UUID?
@@ -200,6 +215,9 @@ final class MealModel {
         foodDraft = draft
         // **既定は引数なし**（ADR-0017）。量が変わるものだけ足す
         foodComponents = []
+        foodScales = false
+        foodBaseAmount = ""
+        foodBaseUnit = "g"
         errorMessage = nil
     }
 
@@ -220,6 +238,9 @@ final class MealModel {
         foodDraft = d
 
         foodComponents = item.components.map { FoodComponentDraft($0) }
+        foodScales = item.scalesWithAmount ?? false
+        foodBaseAmount = item.baseAmount.map(trim) ?? ""
+        foodBaseUnit = item.baseUnit ?? "g"
         errorMessage = nil
     }
 
@@ -262,14 +283,27 @@ final class MealModel {
             components = out
         }
 
+        // **比例するなら基準量が要る**（#218）。0 では割れない
+        var basis: Double?
+        if foodScales {
+            guard let v = Double(foodBaseAmount.trimmingCharacters(in: .whitespaces)), v > 0 else {
+                errorMessage = "基準量は 0 より大きい数にする"
+
+                return
+            }
+            basis = v
+        }
+
         let input = FoodItemInput(
             name: trimmed,
             qty: foodDraft.qty.isEmpty ? nil : foodDraft.qty,
-            // **引数があるときは項目の PFC を送らない。** サーバは構成から
-            // 計算するので、残っていても使われないが、紛らわしい
-            proteinG: components == nil ? Double(foodDraft.proteinG) : nil,
-            fatG: components == nil ? Double(foodDraft.fatG) : nil,
-            carbG: components == nil ? Double(foodDraft.carbG) : nil,
+            // **本体の PFC は引数があっても送る**（#218 で足し算になった）
+            proteinG: Double(foodDraft.proteinG),
+            fatG: Double(foodDraft.fatG),
+            carbG: Double(foodDraft.carbG),
+            baseAmount: basis,
+            baseUnit: foodScales ? foodBaseUnit : nil,
+            scalesWithAmount: foodScales,
             components: components
         )
 
