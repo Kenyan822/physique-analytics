@@ -395,14 +395,89 @@ Text("引数 taps=\(taps) count=\(model.foodComponents.count)")
 `taps` は `@State` なので再描画の有無も同時に分かる。
 **「押せない」を3つに割れる**ので、これを最初にやると速い。
 
-### 直し方
+### 効かなかった直し方
+
+**`simultaneousGesture` にしても奪う。**
 
 ```swift
-.simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })
+.simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })   // ← 直らない
 ```
 
-`simultaneousGesture` は競合しない。ボタンを押したときもついでに閉じるが、
-それは望ましい挙動。
+一度これで直ったと思ったが、実際に効いていたのは同時に入れた
+`buttonStyle` の明示の方だった。**`Toggle` が同じ症状のまま残っていて**
+（#218）気づいた。
 
-**画面全体に `onTapGesture` を付けない。** 付けるなら `simultaneousGesture` に
-するか、背景だけに付ける。
+### 直し方 —— キーボードが出ているときだけ受ける
+
+```swift
+@State private var keyboardUp = false
+
+content
+    .scrollDismissesKeyboard(.interactively)
+    .gesture(
+        TapGesture().onEnded { dismissKeyboard() },
+        including: keyboardUp ? .all : .subviews
+    )
+    .onReceive(NotificationCenter.default.publisher(
+        for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
+    .onReceive(NotificationCenter.default.publisher(
+        for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
+```
+
+**キーボードが下りているときは `.subviews`** —— この gesture は働かず、
+下のコントロールがそのまま受ける。閉じたいのはキーボードが出ているときだけ
+なので、機能は失われない。
+
+`if` で付け外しすると view の識別が変わるので、`including:` を切り替える。
+
+**これが本当の直し方。** `buttonStyle` を1つずつ明示して回るのは、
+新しいコントロールを足すたびに踏む地雷を残すだけだった
+（外しても効くことをテストで確認済み）。
+
+### Form の Toggle は行の中央を押しても切り替わらない
+
+これは**不具合ではなく iOS の標準の挙動**。スイッチ本体だけが反応する。
+
+XCUITest の `tap()` は要素の中央＝ラベルの上を押すので、切り替わらない。
+
+```swift
+toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+```
+
+**`value` を見れば「押せていない」と分かる**（`"0"` / `"1"`）。
+これを確かめずにコード側を疑うと、動いているものを直そうとして時間を溶かす。
+
+## キーボードが出ているとき、ボタンの1タップ目は閉じるだけ
+
+`dismissesKeyboardOnTap` を「キーボードが出ているときだけ受ける」形にした
+結果の**仕様**（#218 で本人と確認して A を選んだ）。
+
+| | キーボードが下りている | 出ている |
+|---|---|---|
+| ボタン・トグル | **1タップで効く** | 1タップ目は閉じるだけ → 2タップ目で効く |
+| 画面の空白 | 何も起きない | 閉じる（これが要望） |
+
+**PFC を打ってそのまま記録する経路は影響を受けない。** キーボードの上に
+「記録」を置いてあるので（`keyboardFocusBar`）、そこは1タップのまま。
+
+2タップになるのは「打ってから引数を足す」のような頻度の低い場面だけ。
+
+### 貫通させる方法は見つかっていない
+
+`simultaneousGesture` でも Form の中のコントロールからタップを奪う
+（確認済み）。**「キーボードが出ているときだけ受ける」が今の妥協点。**
+
+## UI テストは上の欄から順に埋める
+
+下の欄に入力すると Form がスクロールし、**上の欄がナビゲーションバーの裏に入る。**
+
+```
+TextField, {{32.0, 64.0}, {338.0, 22.0}}, identifier: 'foodName'
+NavigationBar, {{0.0, 78.0}, {402.0, 54.0}}       ← y 78〜132
+```
+
+`exists` は true、`tap()` も例外を出さない。**次の `typeText` が
+「Neither element nor any descendant has keyboard focus」で落ちて初めて気づく。**
+
+座標を読めば一発で分かるので、**フォーカスが当たらないときは frame を見る。**
+「閉じた直後のタップが吸われている」と読み違えて時間を溶かした。

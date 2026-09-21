@@ -736,3 +736,122 @@ struct FoodItemEditTests {
         #expect(m.errorMessage != nil)
     }
 }
+
+@Suite("全量が量に比例する（#218）")
+@MainActor
+struct FoodScalingTests {
+    private let protein = #"""
+    {"items":[{"id":"66666666-6666-6666-6666-666666666666","name":"プロテイン",
+      "proteinG":24,"fatG":1.5,"carbG":2,"baseAmount":30,"baseUnit":"g",
+      "scalesWithAmount":true,"components":[],"usedCount":2,
+      "createdAt":"2026-09-21T00:00:00Z","updatedAt":"2026-09-21T00:00:00Z"}]}
+    """#
+
+    private func loaded(_ foods: String) async -> (MealModel, FakeTransport) {
+        let (client, t) = api([
+            emptyMeals, targets, (foods, 200),
+            (#"""
+            {"id":"66666666-6666-6666-6666-666666666666","name":"x","components":[],
+             "usedCount":0,"createdAt":"2026-09-21T00:00:00Z",
+             "updatedAt":"2026-09-21T00:00:00Z"}
+            """#, 201),
+            (foods, 200),
+        ])
+        let m = MealModel(api: client, date: "2026-09-21")
+        await m.load()
+        await m.loadFoodItems()
+
+        return (m, t)
+    }
+
+    @Test("**比例する項目は選ぶと量を聞く**")
+    func asksAmount() async {
+        let (m, _) = await loaded(protein)
+
+        m.pickFood(m.foodItems[0])
+
+        // 引数が無くても量を聞く（#218）
+        #expect(m.pickingFood != nil)
+    }
+
+    @Test("量を入れると本体が比例する")
+    func scales() async {
+        let (m, _) = await loaded(protein)
+        m.pickFood(m.foodItems[0])
+
+        m.foodBase = 45
+        m.confirmFoodPick()
+
+        #expect(m.draft.proteinG == "36")
+        #expect(m.draft.fatG == "2.25")
+    }
+
+    @Test("触らなければ基準量ぶん")
+    func defaultsToBasis() async {
+        let (m, _) = await loaded(protein)
+        m.pickFood(m.foodItems[0])
+
+        m.confirmFoodPick()
+
+        #expect(m.draft.proteinG == "24")
+    }
+
+    @Test("編集で開くと比例の設定が入る")
+    func fillsScaling() async {
+        let (m, _) = await loaded(protein)
+
+        m.beginEditingFood(m.foodItems[0])
+
+        #expect(m.foodScales)
+        #expect(m.foodBaseAmount == "30")
+        #expect(m.foodBaseUnit == "g")
+    }
+
+    @Test("**比例を付けて登録できる**")
+    func registersScaling() async throws {
+        let (m, t) = await loaded(#"{"items":[]}"#)
+        m.beginRegisteringFood()
+        m.foodDraft.proteinG = "24"
+        m.foodScales = true
+        m.foodBaseAmount = "30"
+
+        await m.saveFood(name: "プロテイン")
+
+        let req = try #require(t.requests.last { $0.httpMethod == "POST" })
+        let body = try JSONSerialization.jsonObject(with: req.httpBody!) as! [String: Any]
+        #expect(body["scalesWithAmount"] as? Bool == true)
+        #expect(body["baseAmount"] as? Double == 30)
+        // **本体の PFC を落とさない**（#218 で足し算になった）
+        #expect(body["proteinG"] as? Double == 24)
+    }
+
+    @Test("**基準量が空なら登録しない**")
+    func requiresBasis() async {
+        let (m, t) = await loaded(#"{"items":[]}"#)
+        m.beginRegisteringFood()
+        m.foodScales = true
+        m.foodBaseAmount = ""
+        let before = t.requests.count
+
+        await m.saveFood(name: "x")
+
+        #expect(t.requests.count == before)
+        #expect(m.errorMessage != nil)
+    }
+
+    @Test("比例を切ると基準量を送らない")
+    func offSendsNothing() async throws {
+        let (m, t) = await loaded(#"{"items":[]}"#)
+        m.beginRegisteringFood()
+        m.foodDraft.proteinG = "24"
+        m.foodScales = false
+        m.foodBaseAmount = "30"
+
+        await m.saveFood(name: "ゆで卵")
+
+        let req = try #require(t.requests.last { $0.httpMethod == "POST" })
+        let body = try JSONSerialization.jsonObject(with: req.httpBody!) as! [String: Any]
+        #expect(body["scalesWithAmount"] as? Bool == false)
+        #expect(body["baseAmount"] == nil)
+    }
+}

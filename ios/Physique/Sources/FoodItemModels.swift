@@ -2,17 +2,27 @@ import Foundation
 
 /// 食品マスタの1項目（要件 N-02 / ADR-0017）。
 ///
-/// **引数は任意。** `components` が空なら `proteinG` 等をそのまま使う。
-/// 量が変わるもの（プロテイン・料理の材料）だけ引数を持つ。
+/// **本体の PFC と引数は足し算**（#218）。
+///
+///     total = 本体PFC × (scalesWithAmount ? 入力量 / baseAmount : 1)
+///           + Σ 引数PFC × (引数量 / 引数基準量)
 struct FoodItem: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     var name: String
     var qty: String?
 
-    /// 引数が無いときに使う値。**`components` があるときは見ない**
+    /// 本体の PFC。**引数があっても足される**（#218）
     var proteinG: Double?
     var fatG: Double?
     var carbG: Double?
+
+    // **既定値を付ける。** 付けないと memberwise init の呼び出しが全部壊れる
+    /// 「n g あたり」の n。`scalesWithAmount` のときだけ使う
+    var baseAmount: Double? = nil
+    /// 表示専用。計算に使うのは比だけ
+    var baseUnit: String? = nil
+    /// 全量が1つの量で決まるか。**立てると引数の行を作らずに比例させられる**
+    var scalesWithAmount: Bool? = nil
 
     var components: [FoodItemComponent]
     /// 選ばれた回数。一覧の並び順に使う
@@ -20,6 +30,12 @@ struct FoodItem: Codable, Identifiable, Hashable, Sendable {
 
     /// 引数を持つか。画面の出し分けに使う
     var hasComponents: Bool { !components.isEmpty }
+
+    /// 本体が量に比例するか。**基準量が無ければ比例しない**
+    var scales: Bool { (scalesWithAmount ?? false) && (baseAmount ?? 0) > 0 }
+
+    /// 選んだときに量を聞く必要があるか
+    var needsAmount: Bool { scales || hasComponents }
 
     /// 引数の既定値。入力欄の初期表示に使う
     var defaultAmounts: [String: Double] {
@@ -31,16 +47,15 @@ struct FoodItem: Codable, Identifiable, Hashable, Sendable {
     /// **サーバの `internal/foodmaster.Expand` と同じ式にする。**
     /// 食い違うと、画面の値が記録後に変わって見える。
     ///
+    /// `base` は本体の入力量。比例しないとき・nil のときは基準量ぶん。
     /// 渡さなかった引数は既定値。0 を渡したら 0（「今日は入れなかった」）。
-    func expand(_ amounts: [String: Double]) -> Macros {
-        guard hasComponents else {
-            return Macros(
-                kcal: kcalFrom(proteinG ?? 0, fatG ?? 0, carbG ?? 0),
-                proteinG: proteinG ?? 0, fatG: fatG ?? 0, carbG: carbG ?? 0
-            )
-        }
+    func expand(base: Double? = nil, _ amounts: [String: Double] = [:]) -> Macros {
+        // **本体は常に足す**（#218）。引数があっても捨てない
+        let r = baseRatio(base)
+        var p = (proteinG ?? 0) * r
+        var f = (fatG ?? 0) * r
+        var c = (carbG ?? 0) * r
 
-        var p = 0.0, f = 0.0, c = 0.0
         for comp in components {
             // **0 では割れない。** サーバ側の check で防いでいるが、
             // 古い端末から来た値で落ちないようにする
@@ -53,6 +68,13 @@ struct FoodItem: Codable, Identifiable, Hashable, Sendable {
         }
 
         return Macros(kcal: kcalFrom(p, f, c), proteinG: p, fatG: f, carbG: c)
+    }
+
+    /// 本体にかける倍率。**比例しないなら 1**
+    private func baseRatio(_ base: Double?) -> Double {
+        guard scales, let base, let basis = baseAmount, basis > 0 else { return 1 }
+
+        return base / basis
     }
 
     /// Atwater 係数 4/9/4。サーバの `analytics.KcalFromMacros` と揃える
@@ -85,6 +107,10 @@ struct FoodItemInput: Codable, Sendable {
     var proteinG: Double?
     var fatG: Double?
     var carbG: Double?
+    var baseAmount: Double? = nil
+    var baseUnit: String? = nil
+    /// 立てるなら `baseAmount` が要る
+    var scalesWithAmount: Bool? = nil
     /// 省くか空なら引数なし
     var components: [FoodItemComponent]?
 }

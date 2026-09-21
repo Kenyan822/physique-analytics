@@ -603,6 +603,11 @@ type ExerciseInput struct {
 
 // FoodItem defines model for FoodItem.
 type FoodItem struct {
+	// BaseAmount 「n g あたり」の n。`scalesWithAmount` のときだけ使う
+	BaseAmount *float32 `json:"baseAmount,omitempty"`
+
+	// BaseUnit 表示専用。計算に使うのは比だけなので型で縛らない
+	BaseUnit   *string             `json:"baseUnit,omitempty"`
 	CarbG      *float32            `json:"carbG,omitempty"`
 	Components []FoodItemComponent `json:"components"`
 	CreatedAt  time.Time           `json:"createdAt"`
@@ -615,11 +620,15 @@ type FoodItem struct {
 	// Name Examples: プロテイン
 	Name string `json:"name"`
 
-	// ProteinG 引数が無いときに使う値。`components` があるときは見ない
+	// ProteinG 本体の PFC。**引数があっても足される**
 	ProteinG *float32 `json:"proteinG,omitempty"`
 
 	// Qty 量の目安。「1杯」「1個」のような自由記述
 	Qty *string `json:"qty,omitempty"`
+
+	// ScalesWithAmount 全量が1つの量で決まるか。**立てると引数の行を作らずに比例させられる**
+	// （プロテインの「30g あたり」）
+	ScalesWithAmount *bool `json:"scalesWithAmount,omitempty"`
 
 	// UpdatedAt 競合解決に使う（ADR-0014）
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -650,7 +659,9 @@ type FoodItemComponent struct {
 
 // FoodItemInput defines model for FoodItemInput.
 type FoodItemInput struct {
-	CarbG *float32 `json:"carbG,omitempty"`
+	BaseAmount *float32 `json:"baseAmount,omitempty"`
+	BaseUnit   *string  `json:"baseUnit,omitempty"`
+	CarbG      *float32 `json:"carbG,omitempty"`
 
 	// Components 省くか空なら引数なし
 	Components *[]FoodItemComponent `json:"components,omitempty"`
@@ -658,6 +669,9 @@ type FoodItemInput struct {
 	Name       string               `json:"name"`
 	ProteinG   *float32             `json:"proteinG,omitempty"`
 	Qty        *string              `json:"qty,omitempty"`
+
+	// ScalesWithAmount 立てるなら `baseAmount` が要る
+	ScalesWithAmount *bool `json:"scalesWithAmount,omitempty"`
 }
 
 // FoodSuggestion defines model for FoodSuggestion.

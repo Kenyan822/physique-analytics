@@ -2089,8 +2089,12 @@ components:
           description: |
             食品マスタの1項目（[ADR-0017](docs/adr/0017-food-master-with-parameters.md)）。
 
-            **引数は任意。** `components` が空なら `proteinG` 等をそのまま使う。
-            あるときは入力量と基準量の比で計算する
+            **本体の PFC と引数は足し算。**
+
+            ```
+            total = 本体PFC × (scalesWithAmount ? 入力量 / baseAmount : 1)
+                  + Σ 引数PFC × (引数量 / 引数基準量)
+            ```
           properties:
             id: { type: string, format: uuid }
             name: { type: string, examples: [プロテイン] }
@@ -2101,9 +2105,25 @@ components:
               type: [number, "null"]
               minimum: 0
               maximum: 1000
-              description: 引数が無いときに使う値。`components` があるときは見ない
+              description: 本体の PFC。**引数があっても足される**
             fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
             carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
+            baseAmount:
+              type: [number, "null"]
+              exclusiveMinimum: 0
+              description: |
+                「n g あたり」の n。`scalesWithAmount` のときだけ使う
+            baseUnit:
+              type: string
+              maxLength: 10
+              default: g
+              description: 表示専用。計算に使うのは比だけなので型で縛らない
+            scalesWithAmount:
+              type: boolean
+              default: false
+              description: |
+                全量が1つの量で決まるか。**立てると引数の行を作らずに比例させられる**
+                （プロテインの「30g あたり」）
             components:
               type: array
               items: { $ref: "#/components/schemas/FoodItemComponent" }
@@ -2147,6 +2167,12 @@ components:
         proteinG: { type: [number, "null"], minimum: 0, maximum: 1000 }
         fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
         carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
+        baseAmount: { type: [number, "null"], exclusiveMinimum: 0 }
+        baseUnit: { type: string, maxLength: 10, default: g }
+        scalesWithAmount:
+          type: boolean
+          default: false
+          description: 立てるなら `baseAmount` が要る
         components:
           type: array
           description: 省くか空なら引数なし

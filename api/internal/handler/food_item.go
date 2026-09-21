@@ -129,6 +129,17 @@ func validateFoodItem(in openapi.FoodItemInput) (field, message string) {
 		}
 	}
 
+	// **比例するなら基準量が要る**（#218）。DB の check と同じことを
+	// ここでも見る —— 422 で理由を返せる方が直しやすい
+	if in.ScalesWithAmount != nil && *in.ScalesWithAmount {
+		if in.BaseAmount == nil || *in.BaseAmount <= 0 {
+			return "baseAmount", "量に比例させるなら基準量を 0 より大きくする"
+		}
+	}
+	if in.BaseAmount != nil && *in.BaseAmount <= 0 {
+		return "baseAmount", "基準量は 0 より大きくする"
+	}
+
 	if in.Components == nil {
 		return "", ""
 	}

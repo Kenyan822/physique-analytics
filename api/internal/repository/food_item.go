@@ -24,6 +24,7 @@ func NewFoodItem(db DBTX) *FoodItem {
 
 // 列の順序は scanFoodItem と一致させること
 const foodItemColumns = `id, name, qty, protein_g, fat_g, carb_g,
+	base_amount, base_unit, scales_with_amount,
 	used_count, created_at, updated_at, deleted_at`
 
 // List は食品マスタを返す。**よく使う順。**
@@ -96,12 +97,14 @@ func (r *FoodItem) Get(ctx context.Context, id uuid.UUID) (openapi.FoodItem, err
 // Create は登録する。
 func (r *FoodItem) Create(ctx context.Context, in openapi.FoodItemInput) (openapi.FoodItem, error) {
 	const q = `
-		insert into food_items (name, qty, protein_g, fat_g, carb_g)
-		values ($1, $2, $3, $4, $5)
+		insert into food_items (name, qty, protein_g, fat_g, carb_g,
+			base_amount, base_unit, scales_with_amount)
+		values ($1, $2, $3, $4, $5, $6, coalesce($7, 'g'), coalesce($8, false))
 		returning ` + foodItemColumns
 
 	it, err := scanFoodItem(r.db.QueryRow(ctx, q,
-		in.Name, in.Qty, in.ProteinG, in.FatG, in.CarbG))
+		in.Name, in.Qty, in.ProteinG, in.FatG, in.CarbG,
+		in.BaseAmount, in.BaseUnit, in.ScalesWithAmount))
 	if err != nil {
 		return openapi.FoodItem{}, fmt.Errorf("食品を登録できない: %w", err)
 	}
@@ -117,12 +120,16 @@ func (r *FoodItem) Create(ctx context.Context, in openapi.FoodItemInput) (openap
 func (r *FoodItem) Update(ctx context.Context, id uuid.UUID, in openapi.FoodItemInput) (openapi.FoodItem, error) {
 	const q = `
 		update food_items set name = $2, qty = $3,
-			protein_g = $4, fat_g = $5, carb_g = $6, updated_at = $7
+			protein_g = $4, fat_g = $5, carb_g = $6,
+			base_amount = $7, base_unit = coalesce($8, 'g'),
+			scales_with_amount = coalesce($9, false),
+			updated_at = $10
 		where id = $1 and deleted_at is null
 		returning ` + foodItemColumns
 
 	_, err := scanFoodItem(r.db.QueryRow(ctx, q,
-		id, in.Name, in.Qty, in.ProteinG, in.FatG, in.CarbG, timeutil.Now()))
+		id, in.Name, in.Qty, in.ProteinG, in.FatG, in.CarbG,
+		in.BaseAmount, in.BaseUnit, in.ScalesWithAmount, timeutil.Now()))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return openapi.FoodItem{}, fmt.Errorf("食品 %s: %w", id, ErrNotFound)
 	}
@@ -257,6 +264,7 @@ func emptyIfNil(cs []openapi.FoodItemComponent) []openapi.FoodItemComponent {
 func scanFoodItem(row pgx.Row) (openapi.FoodItem, error) {
 	var it openapi.FoodItem
 	err := row.Scan(&it.Id, &it.Name, &it.Qty, &it.ProteinG, &it.FatG, &it.CarbG,
+		&it.BaseAmount, &it.BaseUnit, &it.ScalesWithAmount,
 		&it.UsedCount, &it.CreatedAt, &it.UpdatedAt, &it.DeletedAt)
 	if err != nil {
 		return openapi.FoodItem{}, err
