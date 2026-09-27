@@ -199,32 +199,6 @@ struct MealView: View {
         if let item = model.pickingFood {
             NavigationStack {
                 Form {
-                    // **全量が比例する項目**（プロテイン）は本体の量を聞く（#218）
-                    if item.scales {
-                        Section {
-                            LabeledContent("量") {
-                                HStack(spacing: 4) {
-                                    TextField(
-                                        "",
-                                        value: Binding(
-                                            get: { model.foodBase ?? item.baseAmount ?? 0 },
-                                            set: { model.foodBase = $0 }
-                                        ),
-                                        format: .number
-                                    )
-                                    .keyboardType(.decimalPad)
-                                    .multilineTextAlignment(.trailing)
-                                    .monospacedDigit()
-                                    .accessibilityIdentifier("baseAmountInput")
-                                    Text(item.baseUnit ?? "g")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                        } footer: {
-                            Text("登録は \(trimmed(item.baseAmount ?? 0))\(item.baseUnit ?? "g") あたり。入れた量に比例して計算する")
-                        }
-                    }
-
                     Section {
                         ForEach(item.components) { c in
                             LabeledContent(c.name) {
@@ -232,7 +206,7 @@ struct MealView: View {
                                     TextField(
                                         "",
                                         value: Binding(
-                                            get: { model.foodAmounts[c.name] ?? c.defaultAmount },
+                                            get: { model.foodAmounts[c.name] ?? c.amount },
                                             set: { model.foodAmounts[c.name] = $0 }
                                         ),
                                         format: .number
@@ -252,7 +226,7 @@ struct MealView: View {
                     }
 
                     Section("この量での PFC") {
-                        let m = item.expand(base: model.foodBase, model.foodAmounts)
+                        let m = item.expand(model.foodAmounts)
                         LabeledContent("カロリー") {
                             Text("\(m.kcal) kcal").monospacedDigit()
                         }
@@ -284,7 +258,7 @@ struct MealView: View {
     /// 基準量の説明文。「30g あたり」のように出す
     private func c(_ item: FoodItem) -> String {
         item.components
-            .map { "\(trimmed($0.basisAmount))\($0.unit)" }
+            .map { "\(trimmed($0.amount))\($0.unit)" }
             .joined(separator: " / ")
     }
 
@@ -773,7 +747,6 @@ private struct FoodEditorScreen: View {
             Section {
                 TextField("名前", text: $name)
                     .accessibilityIdentifier("foodName")
-                TextField("量（1杯 / 1個）", text: $model.foodDraft.qty)
             }
 
             Section {
@@ -788,40 +761,26 @@ private struct FoodEditorScreen: View {
                         .foregroundStyle(model.foodDraft.kcal == nil ? .tertiary : .primary)
                 }
             } header: {
-                Text("PFC")
+                Text("PFC（合計）")
             } footer: {
-                // **引数があっても本体は効く**（#218）。足し算になる
-                Text(model.foodScales
-                    ? "この PFC が基準量あたりの値になる"
-                    : "毎回同じならこのまま。一部だけ量が変わるなら下で引数を足す")
-            }
-
-            // **全量が1つの量で決まるもの**（プロテイン）は引数を作らずに済む（#218）
-            Section {
-                Toggle("使う量に応じて計算する", isOn: $model.foodScales)
-                    .accessibilityIdentifier("scalesWithAmount")
-
-                if model.foodScales {
-                    // **文章として読める形にする。** 「基準量」だけ置くと
-                    // 何の量なのかが伝わらない
-                    HStack(spacing: 6) {
-                        Text("上の PFC は").font(.callout)
-                        Field(text: $model.foodBaseAmount, width: 56, placeholder: "30")
-                            .accessibilityIdentifier("baseAmount")
-                        Field(text: $model.foodBaseUnit, width: 40, placeholder: "g")
-                        Text("あたりの値").font(.callout)
-                    }
-                }
-            } footer: {
-                Text(model.foodScales
-                    ? "記録するときに量を聞く。入れた量に比例して計算する"
-                    : "プロテインのように、量を決めれば全部決まるものに使う")
+                // **引数は合計のうちの一部**（#224）
+                Text("食べたもの全体の値。一部だけ量が変わるなら下で引数を足す")
             }
 
             // **引数は詳細。** 既定は無しで、量が変わるものだけ足す（ADR-0017）
             Section {
-                ForEach($model.foodComponents) { $c in
-                    componentEditor($c)
+                ForEach(Array($model.foodComponents.enumerated()), id: \.element.id) { i, $c in
+                    VStack(spacing: 8) {
+                        componentEditor($c)
+
+                        // **全部＝合計そのもの。** 入れると引数は1つになる（#224）
+                        Toggle("全部", isOn: Binding(
+                            get: { c.coversAll },
+                            set: { model.setCoversAll($0, at: i) }
+                        ))
+                        .font(.caption)
+                        .accessibilityIdentifier("coversAll")
+                    }
                 }
                 .onDelete { model.foodComponents.remove(atOffsets: $0) }
 
@@ -834,7 +793,9 @@ private struct FoodEditorScreen: View {
             } header: {
                 Text("引数（任意）")
             } footer: {
-                Text("「30g あたり P24」の形。入力時に量を変えると比例して計算する")
+                // **合計のうち一部を任せる**（#224）
+                Text("「鶏むね 200g ぶんは P46」の形。上の合計のうち、この分だけが量で動く。"
+                    + "全部が1つの量で決まるなら「全部」を入れる")
             }
 
             if let e = model.errorMessage {
@@ -870,25 +831,23 @@ private struct FoodEditorScreen: View {
                 Field(text: c.unit, width: 44, placeholder: "g")
             }
 
-            // **「基準量」「既定」と並べても区別がつかない。** 文章にする
+            // **量は1つだけ**（#224）。「あたり」と「いつもの量」を持つと
+            // 区別がつかないと言われたので統合した
             HStack(spacing: 6) {
-                Text("下の PFC は").font(.caption).foregroundStyle(.secondary)
-                Field(text: c.basisAmount, width: 56, placeholder: "100")
-                Text("\(c.unit.wrappedValue) あたり")
+                Field(text: c.amount, width: 56, placeholder: "200")
+                    .accessibilityIdentifier("componentAmountInput")
+                Text("\(c.unit.wrappedValue) ぶんの PFC")
                     .font(.caption).foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 12) {
-                Num(label: "P", text: c.proteinG)
-                Num(label: "F", text: c.fatG)
-                Num(label: "C", text: c.carbG)
-            }
-
-            HStack(spacing: 6) {
-                Text("いつもの量").font(.caption).foregroundStyle(.secondary)
-                Field(text: c.defaultAmount, width: 56, placeholder: "200")
-                Text(c.unit.wrappedValue).font(.caption).foregroundStyle(.secondary)
                 Spacer()
+            }
+
+            // **「全部」なら PFC は合計と同じ。** 入れる意味が無いので隠す
+            if !c.coversAll.wrappedValue {
+                HStack(spacing: 12) {
+                    Num(label: "P", text: c.proteinG)
+                    Num(label: "F", text: c.fatG)
+                    Num(label: "C", text: c.carbG)
+                }
             }
         }
         .padding(.vertical, 4)

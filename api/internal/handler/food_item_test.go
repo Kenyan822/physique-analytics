@@ -124,8 +124,8 @@ func TestCreateFoodItem_引数つきで登録できる(t *testing.T) {
 
 	stub := &stubFoodItems{created: openapi.FoodItem{Id: uuid.New()}}
 	rec := postJSON(t, foodServer(stub), http.MethodPost, "/v1/food-items",
-		json.RawMessage(`{"name":"プロテイン","components":[
-			{"name":"量","unit":"g","basisAmount":30,"defaultAmount":30,"proteinG":24}]}`))
+		json.RawMessage(`{"name":"プロテイン","proteinG":24,"components":[
+			{"name":"量","unit":"g","amount":30,"proteinG":24,"coversAll":true}]}`))
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
@@ -133,8 +133,8 @@ func TestCreateFoodItem_引数つきで登録できる(t *testing.T) {
 	if stub.gotIn.Components == nil || len(*stub.gotIn.Components) != 1 {
 		t.Fatalf("Components = %v", stub.gotIn.Components)
 	}
-	if (*stub.gotIn.Components)[0].BasisAmount != 30 {
-		t.Errorf("BasisAmount = %v", (*stub.gotIn.Components)[0].BasisAmount)
+	if (*stub.gotIn.Components)[0].Amount != 30 {
+		t.Errorf("Amount = %v", (*stub.gotIn.Components)[0].Amount)
 	}
 }
 
@@ -149,13 +149,13 @@ func TestCreateFoodItem_名前が空なら422(t *testing.T) {
 	}
 }
 
-func TestCreateFoodItem_基準量が0なら422(t *testing.T) {
+func TestCreateFoodItem_量が0なら422(t *testing.T) {
 	t.Parallel()
 
 	// **0 では割れない。** DB の check より手前で弾いて、理由を返す
 	rec := postJSON(t, foodServer(&stubFoodItems{}), http.MethodPost, "/v1/food-items",
 		json.RawMessage(`{"name":"x","components":[
-			{"name":"量","basisAmount":0,"defaultAmount":10}]}`))
+			{"name":"量","amount":0}]}`))
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422, body = %s", rec.Code, rec.Body)
@@ -168,7 +168,7 @@ func TestCreateFoodItem_構成の名前が空なら422(t *testing.T) {
 	// 名前が無いと入力画面でどの欄か分からない
 	rec := postJSON(t, foodServer(&stubFoodItems{}), http.MethodPost, "/v1/food-items",
 		json.RawMessage(`{"name":"x","components":[
-			{"name":" ","basisAmount":30,"defaultAmount":30}]}`))
+			{"name":" ","amount":30}]}`))
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422, body = %s", rec.Code, rec.Body)
@@ -181,8 +181,8 @@ func TestCreateFoodItem_構成の名前が重複したら422(t *testing.T) {
 	// **入力量は名前で引く。** 重複すると片方しか届かない
 	rec := postJSON(t, foodServer(&stubFoodItems{}), http.MethodPost, "/v1/food-items",
 		json.RawMessage(`{"name":"x","components":[
-			{"name":"量","basisAmount":30,"defaultAmount":30},
-			{"name":"量","basisAmount":10,"defaultAmount":10}]}`))
+			{"name":"量","amount":30},
+			{"name":"量","amount":10}]}`))
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422, body = %s", rec.Code, rec.Body)
@@ -217,5 +217,59 @@ func TestMarkFoodItemUsed_回数を増やす(t *testing.T) {
 	}
 	if !stub.used {
 		t.Error("MarkUsed が呼ばれていない")
+	}
+}
+
+// ---- #224: 引数は合計のうちの一部 ----
+
+func TestCreateFoodItem_引数が合計を超えたら422(t *testing.T) {
+	t.Parallel()
+
+	// **引数は合計のうちの一部。** 超えたら登録できない
+	rec := postJSON(t, foodServer(&stubFoodItems{}), http.MethodPost, "/v1/food-items",
+		json.RawMessage(`{"name":"x","proteinG":10,"components":[
+			{"name":"肉","amount":100,"proteinG":30}]}`))
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422, body = %s", rec.Code, rec.Body)
+	}
+}
+
+func TestCreateFoodItem_引数が収まっていれば通る(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubFoodItems{created: openapi.FoodItem{Id: uuid.New()}}
+	rec := postJSON(t, foodServer(stub), http.MethodPost, "/v1/food-items",
+		json.RawMessage(`{"name":"定食","proteinG":66,"components":[
+			{"name":"鶏むね","amount":200,"proteinG":46}]}`))
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+}
+
+func TestCreateFoodItem_全部が2つあれば422(t *testing.T) {
+	t.Parallel()
+
+	rec := postJSON(t, foodServer(&stubFoodItems{}), http.MethodPost, "/v1/food-items",
+		json.RawMessage(`{"name":"x","proteinG":10,"components":[
+			{"name":"a","amount":10,"proteinG":5,"coversAll":true},
+			{"name":"b","amount":10,"proteinG":5,"coversAll":true}]}`))
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422, body = %s", rec.Code, rec.Body)
+	}
+}
+
+func TestCreateFoodItem_全部があるのに他の引数があれば422(t *testing.T) {
+	t.Parallel()
+
+	rec := postJSON(t, foodServer(&stubFoodItems{}), http.MethodPost, "/v1/food-items",
+		json.RawMessage(`{"name":"x","proteinG":10,"components":[
+			{"name":"a","amount":10,"proteinG":5,"coversAll":true},
+			{"name":"b","amount":10,"proteinG":5}]}`))
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422, body = %s", rec.Code, rec.Body)
 	}
 }

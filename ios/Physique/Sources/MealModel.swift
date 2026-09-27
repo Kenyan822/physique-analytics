@@ -175,35 +175,23 @@ final class MealModel {
         }
 
         pickingFood = item
+        // 触らなければ登録したときの量
         foodAmounts = item.defaultAmounts
-        // 触らなければ基準量ぶん
-        foodBase = item.scales ? item.baseAmount : nil
     }
 
     func confirmFoodPick() {
         guard let item = pickingFood else { return }
-        apply(item.expand(base: foodBase, foodAmounts), from: item)
+        apply(item.expand(foodAmounts), from: item)
     }
 
     func cancelFoodPick() {
         pickingFood = nil
         foodAmounts = [:]
-        foodBase = nil
     }
 
     /// 登録する引数。**数値は文字列のまま持つ**（「30.」で丸められないように）
     var foodComponents: [FoodComponentDraft] = []
 
-    // MARK: - 全量が量に比例する（#218）
-
-    /// 「全量が量に比例する」チェック。プロテインのように引数の行を作らずに済ませる
-    var foodScales = false
-    /// 基準量。**文字列のまま持つ**（他の数値欄と同じ理由）
-    var foodBaseAmount = ""
-    var foodBaseUnit = "g"
-
-    /// 入力中の本体の量。比例する項目を選んだときだけ使う
-    var foodBase: Double?
 
     /// 直している項目。**nil なら新規登録**。保存先が PATCH か POST かを決める
     private(set) var editingFoodID: UUID?
@@ -215,9 +203,6 @@ final class MealModel {
         foodDraft = draft
         // **既定は引数なし**（ADR-0017）。量が変わるものだけ足す
         foodComponents = []
-        foodScales = false
-        foodBaseAmount = ""
-        foodBaseUnit = "g"
         errorMessage = nil
     }
 
@@ -238,14 +223,54 @@ final class MealModel {
         foodDraft = d
 
         foodComponents = item.components.map { FoodComponentDraft($0) }
-        foodScales = item.scalesWithAmount ?? false
-        foodBaseAmount = item.baseAmount.map(trim) ?? ""
-        foodBaseUnit = item.baseUnit ?? "g"
         errorMessage = nil
     }
 
     func addFoodComponent() {
         foodComponents.append(FoodComponentDraft())
+    }
+
+    /// 「全部」を入れる。**押したら引数は1つだけになる**（#224）。
+    /// 合計そのものを表すので、他の引数が残っていると意味が壊れる
+    func setCoversAll(_ on: Bool, at index: Int) {
+        guard foodComponents.indices.contains(index) else { return }
+
+        if on {
+            let kept = foodComponents[index]
+            foodComponents = [kept]
+            foodComponents[0].coversAll = true
+            // 合計そのもの。本体の PFC をそのまま写す
+            foodComponents[0].proteinG = foodDraft.proteinG
+            foodComponents[0].fatG = foodDraft.fatG
+            foodComponents[0].carbG = foodDraft.carbG
+
+            return
+        }
+
+        foodComponents[index].coversAll = false
+    }
+
+    /// 引数の合計が本体を超えていないか。**超えていれば理由を返す**（#224）
+    ///
+    /// **式を分けてある。** 1つにまとめると型推論が通らなくなる
+    private func overTotal(_ components: [FoodItemComponent]) -> String? {
+        let totalP = Double(foodDraft.proteinG) ?? 0
+        let totalF = Double(foodDraft.fatG) ?? 0
+        let totalC = Double(foodDraft.carbG) ?? 0
+
+        var sumP = 0.0, sumF = 0.0, sumC = 0.0
+        for c in components {
+            sumP += c.proteinG
+            sumF += c.fatG
+            sumC += c.carbG
+        }
+
+        // 浮動小数の誤差で弾かない
+        if sumP > totalP + 0.01 { return "P の引数の合計が全体を超えている" }
+        if sumF > totalF + 0.01 { return "F の引数の合計が全体を超えている" }
+        if sumC > totalC + 0.01 { return "C の引数の合計が全体を超えている" }
+
+        return nil
     }
 
     func removeFoodComponent(at index: Int) {
@@ -283,27 +308,20 @@ final class MealModel {
             components = out
         }
 
-        // **比例するなら基準量が要る**（#218）。0 では割れない
-        var basis: Double?
-        if foodScales {
-            guard let v = Double(foodBaseAmount.trimmingCharacters(in: .whitespaces)), v > 0 else {
-                errorMessage = "基準量は 0 より大きい数にする"
+        // **引数は合計のうちの一部。** 超えていたら送らない（#224）
+        if let c = components, let msg = overTotal(c) {
+            errorMessage = msg
 
-                return
-            }
-            basis = v
+            return
         }
 
         let input = FoodItemInput(
             name: trimmed,
             qty: foodDraft.qty.isEmpty ? nil : foodDraft.qty,
-            // **本体の PFC は引数があっても送る**（#218 で足し算になった）
+            // **本体の PFC は合計**（#224）
             proteinG: Double(foodDraft.proteinG),
             fatG: Double(foodDraft.fatG),
             carbG: Double(foodDraft.carbG),
-            baseAmount: basis,
-            baseUnit: foodScales ? foodBaseUnit : nil,
-            scalesWithAmount: foodScales,
             components: components
         )
 

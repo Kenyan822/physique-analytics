@@ -335,10 +335,10 @@ struct FoodItemExpandTests {
     private func protein() -> FoodItem {
         FoodItem(
             id: UUID(), name: "プロテイン", qty: nil,
-            proteinG: nil, fatG: nil, carbG: nil,
+            proteinG: 24, fatG: 1.5, carbG: 2,
             components: [
-                FoodItemComponent(name: "量", unit: "g", basisAmount: 30, defaultAmount: 30,
-                                  proteinG: 24, fatG: 1.5, carbG: 2),
+                FoodItemComponent(name: "量", unit: "g", amount: 30,
+                              proteinG: 24, fatG: 1.5, carbG: 2, coversAll: true),
             ],
             usedCount: 0
         )
@@ -365,7 +365,7 @@ struct FoodItemExpandTests {
         #expect(x.expand([:]).proteinG == 0)
     }
 
-    @Test("基準量との比で計算する")
+    @Test("登録時の量との比で計算する")
     func ratio() {
         let got = protein().expand(["量": 45])
 
@@ -374,7 +374,7 @@ struct FoodItemExpandTests {
         #expect(abs(got.carbG - 3) < 0.001)
     }
 
-    @Test("渡さなければ既定値を使う")
+    @Test("渡さなければ登録時の量を使う")
     func usesDefault() {
         let got = protein().expand([:])
 
@@ -385,20 +385,20 @@ struct FoodItemExpandTests {
     func multiple() {
         let soboro = FoodItem(
             id: UUID(), name: "鶏そぼろ", qty: nil,
-            proteinG: nil, fatG: nil, carbG: nil,
+            proteinG: 35, fatG: 24, carbG: 9.92,
             components: [
-                FoodItemComponent(name: "鶏ひき肉", unit: "g", basisAmount: 100,
-                                  defaultAmount: 200, proteinG: 17.5, fatG: 12, carbG: 0),
-                FoodItemComponent(name: "砂糖", unit: "g", basisAmount: 100,
-                                  defaultAmount: 10, proteinG: 0, fatG: 0, carbG: 99.2),
+                FoodItemComponent(name: "鶏ひき肉", unit: "g", amount: 200,
+                                  proteinG: 35, fatG: 24, carbG: 0),
+                FoodItemComponent(name: "砂糖", unit: "g", amount: 10,
+                                  proteinG: 0, fatG: 0, carbG: 9.92),
             ],
             usedCount: 0
         )
 
-        // 肉だけ 230g に変える。砂糖は既定の 10g
+        // 肉だけ 230g に変える。砂糖は登録時の 10g のまま
         let got = soboro.expand(["鶏ひき肉": 230])
 
-        #expect(abs(got.proteinG - 17.5 * 2.3) < 0.001)
+        #expect(abs(got.proteinG - 35 * 1.15) < 0.001)
         #expect(abs(got.carbG - 9.92) < 0.001)
     }
 
@@ -407,16 +407,17 @@ struct FoodItemExpandTests {
         #expect(protein().expand(["量": 0]).proteinG == 0)
     }
 
-    @Test("基準量が 0 なら 0 扱い")
-    func zeroBasis() {
+    @Test("登録時の量が 0 なら動かさない")
+    func zeroAmount() {
+        // 割り算の前に落ちないことの保証。登録どおりの分が出る
         let broken = FoodItem(
-            id: UUID(), name: "x", qty: nil, proteinG: nil, fatG: nil, carbG: nil,
-            components: [FoodItemComponent(name: "量", unit: "g", basisAmount: 0,
-                                           defaultAmount: 10, proteinG: 5, fatG: 0, carbG: 0)],
+            id: UUID(), name: "x", qty: nil, proteinG: 5, fatG: nil, carbG: nil,
+            components: [FoodItemComponent(name: "量", unit: "g", amount: 0,
+                                           proteinG: 5, fatG: 0, carbG: 0)],
             usedCount: 0
         )
 
-        #expect(broken.expand([:]).proteinG == 0)
+        #expect(broken.expand(["量": 100]).proteinG == 5)
     }
 
     @Test("既定値を取り出せる")
@@ -438,22 +439,22 @@ struct FoodItemExpandTests {
 struct FoodItemParityTests {
     private let protein = FoodItem(
         id: UUID(), name: "プロテイン", qty: nil,
-        proteinG: nil, fatG: nil, carbG: nil,
+        proteinG: 24, fatG: 1.5, carbG: 2,
         components: [
-            FoodItemComponent(name: "量", unit: "g", basisAmount: 30, defaultAmount: 30,
-                              proteinG: 24, fatG: 1.5, carbG: 2),
+            FoodItemComponent(name: "量", unit: "g", amount: 30,
+                              proteinG: 24, fatG: 1.5, carbG: 2, coversAll: true),
         ],
         usedCount: 0
     )
 
     private let soboro = FoodItem(
         id: UUID(), name: "鶏そぼろ", qty: nil,
-        proteinG: nil, fatG: nil, carbG: nil,
+        proteinG: 35, fatG: 24, carbG: 9.92,
         components: [
-            FoodItemComponent(name: "鶏ひき肉", unit: "g", basisAmount: 100, defaultAmount: 200,
-                              proteinG: 17.5, fatG: 12, carbG: 0),
-            FoodItemComponent(name: "砂糖", unit: "g", basisAmount: 100, defaultAmount: 10,
-                              proteinG: 0, fatG: 0, carbG: 99.2),
+            FoodItemComponent(name: "鶏ひき肉", unit: "g", amount: 200,
+                              proteinG: 35, fatG: 24, carbG: 0),
+            FoodItemComponent(name: "砂糖", unit: "g", amount: 10,
+                              proteinG: 0, fatG: 0, carbG: 9.92),
         ],
         usedCount: 0
     )
@@ -470,58 +471,33 @@ struct FoodItemParityTests {
     @Test("そぼろ 肉 230g・砂糖は既定")
     func soboro230() { assertSame(soboro.expand(["鶏ひき肉": 230]), 40.25, 27.6, 9.92) }
 
-    // ---- #218: 本体と引数の足し算 ----
+    // ---- #224: 引数は合計のうち一部 ----
 
-    /// 本体が量に比例する形（引数の行を作らない）
-    private let scaled = FoodItem(
-        id: UUID(), name: "プロテイン", qty: nil,
-        proteinG: 24, fatG: 1.5, carbG: 2,
-        baseAmount: 30, baseUnit: "g", scalesWithAmount: true,
-        components: [], usedCount: 0
-    )
-
-    /// 固定部分＋量が変わる部分
+    /// 合計 P66 のうち 46 を鶏むねが占める。固定部は 20（ごはん・味噌汁）
     private let teishoku = FoodItem(
-        id: UUID(), name: "定食", qty: nil,
-        proteinG: 20, fatG: 10, carbG: 80,
+        id: UUID(), name: "鶏そぼろ定食", qty: nil,
+        proteinG: 66, fatG: 13.8, carbG: 80,
         components: [
-            FoodItemComponent(name: "鶏むね", unit: "g", basisAmount: 100, defaultAmount: 200,
-                              proteinG: 23, fatG: 1.9, carbG: 0),
+            FoodItemComponent(name: "鶏むね", unit: "g", amount: 200,
+                              proteinG: 46, fatG: 3.8, carbG: 0),
         ],
         usedCount: 0
     )
 
-    @Test("比例する本体 45g")
-    func scaled45() { assertSame(scaled.expand(base: 45), 36.0, 2.25, 3.0) }
+    @Test("**触らなければ合計に戻る**")
+    func teishokuDefault() { assertSame(teishoku.expand(), 66, 13.8, 80) }
 
-    @Test("比例する本体 量を渡さなければ基準量ぶん")
-    func scaledDefault() { assertSame(scaled.expand(), 24.0, 1.5, 2.0) }
-
-    @Test("**本体と引数を足す**")
-    func basePlusComponents() {
-        // 20 + 46 / 10 + 3.8 / 80 + 0
-        assertSame(teishoku.expand(), 66.0, 13.8, 80.0)
+    @Test("引数を変えるとその分だけ動く")
+    func teishoku230() {
+        // 固定部 20 + 46 × 230/200 = 72.9
+        assertSame(teishoku.expand(["鶏むね": 230]), 72.9, 13.8 - 3.8 + 3.8 * 1.15, 80)
     }
 
-    @Test("比例しないなら入力量を無視する")
-    func ignoresAmountWhenNotScaling() {
-        assertSame(teishoku.expand(base: 999), 66.0, 13.8, 80.0)
-    }
+    @Test("引数を 0 にすると固定部だけ残る")
+    func teishokuZero() { assertSame(teishoku.expand(["鶏むね": 0]), 20, 10, 80) }
 
-    // **既存の登録の結果が変わらないことを固定する**（#218 の一番の関心事）
-    @Test("既存: 引数なしは従来どおり")
-    func legacyNoComponents() {
-        let egg = FoodItem(id: UUID(), name: "ゆで卵", qty: nil,
-                           proteinG: 6.5, fatG: 5.2, carbG: 0.2,
-                           components: [], usedCount: 0)
-
-        assertSame(egg.expand(), 6.5, 5.2, 0.2)
-    }
-
-    @Test("既存: 引数ありは従来どおり")
-    func legacyWithComponents() {
-        assertSame(protein.expand(["量": 45]), 36.0, 2.25, 3.0)
-    }
+    @Test("**全部なら固定部が 0**")
+    func coversAll() { assertSame(protein.expand(["量": 45]), 36, 2.25, 3) }
 
     private func assertSame(_ got: Macros, _ p: Double, _ f: Double, _ c: Double) {
         #expect(abs(got.proteinG - p) < 0.0001)

@@ -1276,50 +1276,41 @@ export interface components {
             name: string;
             /** @description 量の目安。「1杯」「1個」のような自由記述 */
             qty?: string | null;
-            /** @description 本体の PFC。**引数があっても足される** */
+            /** @description **合計。** 引数はこの内訳で、超えてはいけない */
             proteinG?: number | null;
             fatG?: number | null;
             carbG?: number | null;
-            /** @description 「n g あたり」の n。`scalesWithAmount` のときだけ使う */
-            baseAmount?: number | null;
-            /**
-             * @description 表示専用。計算に使うのは比だけなので型で縛らない
-             * @default g
-             */
-            baseUnit?: string;
-            /**
-             * @description 全量が1つの量で決まるか。**立てると引数の行を作らずに比例させられる**
-             *     （プロテインの「30g あたり」）
-             * @default false
-             */
-            scalesWithAmount?: boolean;
             components: components["schemas"]["FoodItemComponent"][];
             /** @description 選ばれた回数。並び順に使う（N-02 の頻度順と同じ） */
             readonly usedCount?: number;
         };
         /**
-         * @description 引数1つ。**基準量あたりの PFC** を持ち、入力量との比で計算する。
+         * @description 引数1つ。**合計のうちこの引数が担う分**を、登録したときの量とともに持つ。
          *
-         *     「30g あたり P24」を登録し、45g と入れたら P = 24 × (45/30) = 36
+         *     「鶏むね 200g で P46」を登録し、230g と入れたら
+         *     P = 46 × (230/200) = 52.9
          */
         FoodItemComponent: {
-            /** @example 量 */
+            /** @example 鶏むね */
             name: string;
             /**
              * @description 表示専用。計算に使うのは比だけなので型で縛らない
              * @default g
              */
             unit?: string;
-            /** @description パッケージの「n g あたり」の n。**0 では割れない** */
-            basisAmount: number;
-            /** @description 入力時の初期値 */
-            defaultAmount: number;
+            /** @description 登録したときの量。**基準にも初期値にもなる**。0 では割れない */
+            amount: number;
             /** @default 0 */
             proteinG?: number;
             /** @default 0 */
             fatG?: number;
             /** @default 0 */
             carbG?: number;
+            /**
+             * @description 合計そのものを表すか。**立つと引数は1つだけ**（プロテイン）
+             * @default false
+             */
+            coversAll?: boolean;
         };
         FoodItemInput: {
             name: string;
@@ -1327,14 +1318,6 @@ export interface components {
             proteinG?: number | null;
             fatG?: number | null;
             carbG?: number | null;
-            baseAmount?: number | null;
-            /** @default g */
-            baseUnit?: string;
-            /**
-             * @description 立てるなら `baseAmount` が要る
-             * @default false
-             */
-            scalesWithAmount?: boolean;
             /** @description 省くか空なら引数なし */
             components?: components["schemas"]["FoodItemComponent"][];
         };
