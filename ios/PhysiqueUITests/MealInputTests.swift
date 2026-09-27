@@ -214,6 +214,12 @@ final class MealInputTests: XCTestCase {
         comp.tap()
         comp.typeText("量")
 
+        // **欄を移る前にキーボードを閉じる。** 量の欄は画面の下の方にあり、
+        // キーボードの高さは環境で変わる（CI は予測変換バーのぶん高い）。
+        // 隠れているとタップしてもフォーカスが当たらない
+        app.buttons["完了"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+
         // **量は必須**（#224）。空だと登録が弾かれる
         let regAmount = app.textFields["componentAmountInput"]
         XCTAssertTrue(regAmount.waitForExistence(timeout: 5), "量の欄が出ること")
