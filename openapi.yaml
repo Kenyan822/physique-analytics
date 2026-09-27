@@ -2089,11 +2089,11 @@ components:
           description: |
             食品マスタの1項目（[ADR-0017](docs/adr/0017-food-master-with-parameters.md)）。
 
-            **本体の PFC と引数は足し算。**
+            **本体の PFC は合計。引数はそのうちの一部を担う。**
 
             ```
-            total = 本体PFC × (scalesWithAmount ? 入力量 / baseAmount : 1)
-                  + Σ 引数PFC × (引数量 / 引数基準量)
+            固定部 = 本体PFC − Σ 引数PFC
+            total  = 固定部 + Σ 引数PFC × (入力量 / 登録時の量)
             ```
           properties:
             id: { type: string, format: uuid }
@@ -2105,25 +2105,10 @@ components:
               type: [number, "null"]
               minimum: 0
               maximum: 1000
-              description: 本体の PFC。**引数があっても足される**
+              description: |
+                **合計。** 引数はこの内訳で、超えてはいけない
             fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
             carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
-            baseAmount:
-              type: [number, "null"]
-              exclusiveMinimum: 0
-              description: |
-                「n g あたり」の n。`scalesWithAmount` のときだけ使う
-            baseUnit:
-              type: string
-              maxLength: 10
-              default: g
-              description: 表示専用。計算に使うのは比だけなので型で縛らない
-            scalesWithAmount:
-              type: boolean
-              default: false
-              description: |
-                全量が1つの量で決まるか。**立てると引数の行を作らずに比例させられる**
-                （プロテインの「30g あたり」）
             components:
               type: array
               items: { $ref: "#/components/schemas/FoodItemComponent" }
@@ -2134,29 +2119,32 @@ components:
 
     FoodItemComponent:
       type: object
-      required: [name, basisAmount, defaultAmount]
+      required: [name, amount]
       description: |
-        引数1つ。**基準量あたりの PFC** を持ち、入力量との比で計算する。
+        引数1つ。**合計のうちこの引数が担う分**を、登録したときの量とともに持つ。
 
-        「30g あたり P24」を登録し、45g と入れたら P = 24 × (45/30) = 36
+        「鶏むね 200g で P46」を登録し、230g と入れたら
+        P = 46 × (230/200) = 52.9
       properties:
-        name: { type: string, minLength: 1, maxLength: 100, examples: [量] }
+        name: { type: string, minLength: 1, maxLength: 100, examples: [鶏むね] }
         unit:
           type: string
           maxLength: 10
           default: g
           description: 表示専用。計算に使うのは比だけなので型で縛らない
-        basisAmount:
+        amount:
           type: number
           exclusiveMinimum: 0
-          description: パッケージの「n g あたり」の n。**0 では割れない**
-        defaultAmount:
-          type: number
-          minimum: 0
-          description: 入力時の初期値
+          description: |
+            登録したときの量。**基準にも初期値にもなる**。0 では割れない
         proteinG: { type: number, minimum: 0, maximum: 1000, default: 0 }
         fatG: { type: number, minimum: 0, maximum: 1000, default: 0 }
         carbG: { type: number, minimum: 0, maximum: 2000, default: 0 }
+        coversAll:
+          type: boolean
+          default: false
+          description: |
+            合計そのものを表すか。**立つと引数は1つだけ**（プロテイン）
 
     FoodItemInput:
       type: object
@@ -2167,12 +2155,6 @@ components:
         proteinG: { type: [number, "null"], minimum: 0, maximum: 1000 }
         fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
         carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
-        baseAmount: { type: [number, "null"], exclusiveMinimum: 0 }
-        baseUnit: { type: string, maxLength: 10, default: g }
-        scalesWithAmount:
-          type: boolean
-          default: false
-          description: 立てるなら `baseAmount` が要る
         components:
           type: array
           description: 省くか空なら引数なし

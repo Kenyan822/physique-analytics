@@ -24,7 +24,6 @@ func NewFoodItem(db DBTX) *FoodItem {
 
 // 列の順序は scanFoodItem と一致させること
 const foodItemColumns = `id, name, qty, protein_g, fat_g, carb_g,
-	base_amount, base_unit, scales_with_amount,
 	used_count, created_at, updated_at, deleted_at`
 
 // List は食品マスタを返す。**よく使う順。**
@@ -97,14 +96,12 @@ func (r *FoodItem) Get(ctx context.Context, id uuid.UUID) (openapi.FoodItem, err
 // Create は登録する。
 func (r *FoodItem) Create(ctx context.Context, in openapi.FoodItemInput) (openapi.FoodItem, error) {
 	const q = `
-		insert into food_items (name, qty, protein_g, fat_g, carb_g,
-			base_amount, base_unit, scales_with_amount)
-		values ($1, $2, $3, $4, $5, $6, coalesce($7, 'g'), coalesce($8, false))
+		insert into food_items (name, qty, protein_g, fat_g, carb_g)
+		values ($1, $2, $3, $4, $5)
 		returning ` + foodItemColumns
 
 	it, err := scanFoodItem(r.db.QueryRow(ctx, q,
-		in.Name, in.Qty, in.ProteinG, in.FatG, in.CarbG,
-		in.BaseAmount, in.BaseUnit, in.ScalesWithAmount))
+		in.Name, in.Qty, in.ProteinG, in.FatG, in.CarbG))
 	if err != nil {
 		return openapi.FoodItem{}, fmt.Errorf("食品を登録できない: %w", err)
 	}
@@ -120,16 +117,12 @@ func (r *FoodItem) Create(ctx context.Context, in openapi.FoodItemInput) (openap
 func (r *FoodItem) Update(ctx context.Context, id uuid.UUID, in openapi.FoodItemInput) (openapi.FoodItem, error) {
 	const q = `
 		update food_items set name = $2, qty = $3,
-			protein_g = $4, fat_g = $5, carb_g = $6,
-			base_amount = $7, base_unit = coalesce($8, 'g'),
-			scales_with_amount = coalesce($9, false),
-			updated_at = $10
+			protein_g = $4, fat_g = $5, carb_g = $6, updated_at = $7
 		where id = $1 and deleted_at is null
 		returning ` + foodItemColumns
 
 	_, err := scanFoodItem(r.db.QueryRow(ctx, q,
-		id, in.Name, in.Qty, in.ProteinG, in.FatG, in.CarbG,
-		in.BaseAmount, in.BaseUnit, in.ScalesWithAmount, timeutil.Now()))
+		id, in.Name, in.Qty, in.ProteinG, in.FatG, in.CarbG, timeutil.Now()))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return openapi.FoodItem{}, fmt.Errorf("食品 %s: %w", id, ErrNotFound)
 	}
@@ -185,17 +178,18 @@ func (r *FoodItem) replaceComponents(ctx context.Context, id uuid.UUID, in *[]op
 
 	const q = `
 		insert into food_item_components
-			(food_item_id, item_order, name, unit, basis_amount, default_amount,
-			 protein_g, fat_g, carb_g)
-		values ($1, $2, $3, coalesce($4, 'g'), $5, $6,
+			(food_item_id, item_order, name, unit, amount,
+			 protein_g, fat_g, carb_g, covers_all)
+		values ($1, $2, $3, coalesce($4, 'g'), $5,
 			-- **リテラルの 0 に型を付ける。** QueryExecModeExec では
 			-- pgx がサーバに型を問い合わせないので、0 が integer と
 			-- 解釈されて "17.5" が入らなくなる
-			coalesce($7, 0::numeric), coalesce($8, 0::numeric), coalesce($9, 0::numeric))`
+			coalesce($6, 0::numeric), coalesce($7, 0::numeric), coalesce($8, 0::numeric),
+			coalesce($9, false))`
 
 	for i, c := range *in {
 		_, err := r.db.Exec(ctx, q, id, i+1, c.Name, c.Unit,
-			c.BasisAmount, c.DefaultAmount, c.ProteinG, c.FatG, c.CarbG)
+			c.Amount, c.ProteinG, c.FatG, c.CarbG, c.CoversAll)
 		if err != nil {
 			return fmt.Errorf("構成を保存できない（%s）: %w", c.Name, err)
 		}
@@ -221,8 +215,8 @@ func (r *FoodItem) componentsOf(ctx context.Context, ids []uuid.UUID) (map[uuid.
 	}
 
 	const q = `
-		select food_item_id, name, unit, basis_amount, default_amount,
-			protein_g, fat_g, carb_g
+		select food_item_id, name, unit, amount,
+			protein_g, fat_g, carb_g, covers_all
 		from food_item_components
 		where food_item_id = any($1::uuid[])
 		order by food_item_id, item_order`
@@ -238,11 +232,13 @@ func (r *FoodItem) componentsOf(ctx context.Context, ids []uuid.UUID) (map[uuid.
 		var c openapi.FoodItemComponent
 		var unit string
 		var p, f, cb float32
-		if err := rows.Scan(&itemID, &c.Name, &unit, &c.BasisAmount, &c.DefaultAmount,
-			&p, &f, &cb); err != nil {
+		var coversAll bool
+		if err := rows.Scan(&itemID, &c.Name, &unit, &c.Amount,
+			&p, &f, &cb, &coversAll); err != nil {
 			return nil, fmt.Errorf("構成を読めない: %w", err)
 		}
 		c.Unit, c.ProteinG, c.FatG, c.CarbG = &unit, &p, &f, &cb
+		c.CoversAll = &coversAll
 		out[itemID] = append(out[itemID], c)
 	}
 	if err := rows.Err(); err != nil {
@@ -264,7 +260,6 @@ func emptyIfNil(cs []openapi.FoodItemComponent) []openapi.FoodItemComponent {
 func scanFoodItem(row pgx.Row) (openapi.FoodItem, error) {
 	var it openapi.FoodItem
 	err := row.Scan(&it.Id, &it.Name, &it.Qty, &it.ProteinG, &it.FatG, &it.CarbG,
-		&it.BaseAmount, &it.BaseUnit, &it.ScalesWithAmount,
 		&it.UsedCount, &it.CreatedAt, &it.UpdatedAt, &it.DeletedAt)
 	if err != nil {
 		return openapi.FoodItem{}, err

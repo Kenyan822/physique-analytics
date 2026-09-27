@@ -274,7 +274,7 @@ struct FoodItemAPITests {
     func components() async throws {
         let t = FakeTransport(json: #"""
         {"items":[{"id":"11111111-1111-1111-1111-111111111111","name":"プロテイン",
-          "components":[{"name":"量","unit":"g","basisAmount":30,"defaultAmount":30,
+          "components":[{"name":"量","unit":"g","amount":30,
             "proteinG":24,"fatG":1.5,"carbG":2}],"usedCount":0,
           "createdAt":"2026-09-21T00:00:00Z","updatedAt":"2026-09-21T00:00:00Z"}]}
         """#)
@@ -284,7 +284,7 @@ struct FoodItemAPITests {
         let c = try #require(items.first?.components.first)
 
         #expect(c.name == "量")
-        #expect(c.basisAmount == 30)
+        #expect(c.amount == 30)
         #expect(c.proteinG == 24)
     }
 

@@ -56,9 +56,9 @@ func TestFoodItem_引数つきで登録できる(t *testing.T) {
 	in := openapi.FoodItemInput{
 		Name: "引数つきテスト",
 		Components: &[]openapi.FoodItemComponent{
-			{Name: "鶏ひき肉", Unit: ptr("g"), BasisAmount: 100, DefaultAmount: 200,
+			{Name: "鶏ひき肉", Unit: ptr("g"), Amount: 200,
 				ProteinG: ptr(float32(17.5)), FatG: ptr(float32(12))},
-			{Name: "砂糖", Unit: ptr("g"), BasisAmount: 100, DefaultAmount: 10,
+			{Name: "砂糖", Unit: ptr("g"), Amount: 10,
 				CarbG: ptr(float32(99.2))},
 		},
 	}
@@ -74,8 +74,8 @@ func TestFoodItem_引数つきで登録できる(t *testing.T) {
 	if created.Components[0].Name != "鶏ひき肉" {
 		t.Errorf("1つ目 = %q, want 鶏ひき肉", created.Components[0].Name)
 	}
-	if created.Components[0].BasisAmount != 100 {
-		t.Errorf("BasisAmount = %v, want 100", created.Components[0].BasisAmount)
+	if created.Components[0].Amount != 200 {
+		t.Errorf("Amount = %v, want 200", created.Components[0].Amount)
 	}
 }
 
@@ -107,7 +107,7 @@ func TestFoodItem_更新は構成をまるごと置き換える(t *testing.T) {
 	in := openapi.FoodItemInput{
 		Name: "更新テスト",
 		Components: &[]openapi.FoodItemComponent{
-			{Name: "量", BasisAmount: 30, DefaultAmount: 30, ProteinG: ptr(float32(24))},
+			{Name: "量", Amount: 30, ProteinG: ptr(float32(24))},
 		},
 	}
 	created, err := repo.Create(ctx, in)
@@ -117,13 +117,13 @@ func TestFoodItem_更新は構成をまるごと置き換える(t *testing.T) {
 
 	// **差分更新にしない。** 消したつもりが残るのを避ける（plan と同じ判断）
 	in.Components = &[]openapi.FoodItemComponent{
-		{Name: "量", BasisAmount: 25, DefaultAmount: 25, ProteinG: ptr(float32(20))},
+		{Name: "量", Amount: 25, ProteinG: ptr(float32(20))},
 	}
 	updated, err := repo.Update(ctx, created.Id, in)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if len(updated.Components) != 1 || updated.Components[0].BasisAmount != 25 {
+	if len(updated.Components) != 1 || updated.Components[0].Amount != 25 {
 		t.Errorf("Components = %+v", updated.Components)
 	}
 }
@@ -136,7 +136,7 @@ func TestFoodItem_引数を消せる(t *testing.T) {
 	in := openapi.FoodItemInput{
 		Name: "引数を消すテスト",
 		Components: &[]openapi.FoodItemComponent{
-			{Name: "量", BasisAmount: 30, DefaultAmount: 30, ProteinG: ptr(float32(24))},
+			{Name: "量", Amount: 30, ProteinG: ptr(float32(24))},
 		},
 	}
 	created, _ := repo.Create(ctx, in)
@@ -260,86 +260,3 @@ func TestFoodItem_引数が無ければ空配列を返す(t *testing.T) {
 }
 
 // ---- #218: 本体の比例 ----
-
-func TestFoodItem_比例の設定を往復できる(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	repo := repository.NewFoodItem(testdb.Begin(t))
-
-	in := simpleFood("比例テスト")
-	in.BaseAmount = f32(30)
-	in.BaseUnit = strptr("g")
-	in.ScalesWithAmount = boolptr(true)
-
-	created, err := repo.Create(ctx, in)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if created.BaseAmount == nil || *created.BaseAmount != 30 {
-		t.Errorf("BaseAmount = %v, want 30", created.BaseAmount)
-	}
-	if created.ScalesWithAmount == nil || !*created.ScalesWithAmount {
-		t.Errorf("ScalesWithAmount = %v, want true", created.ScalesWithAmount)
-	}
-
-	// **引き直しても残る。** insert の returning だけ通って
-	// select が列を落としている、を捕まえる
-	got, err := repo.Get(ctx, created.Id)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got.BaseAmount == nil || *got.BaseAmount != 30 {
-		t.Errorf("Get.BaseAmount = %v, want 30", got.BaseAmount)
-	}
-	if got.BaseUnit == nil || *got.BaseUnit != "g" {
-		t.Errorf("Get.BaseUnit = %v, want g", got.BaseUnit)
-	}
-}
-
-// **既定値のままなら既存と同じに見える**（#218 の移行の前提）
-func TestFoodItem_比例を指定しなければ既定のまま(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	repo := repository.NewFoodItem(testdb.Begin(t))
-
-	created, err := repo.Create(ctx, simpleFood("既定テスト"))
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	if created.ScalesWithAmount == nil || *created.ScalesWithAmount {
-		t.Errorf("ScalesWithAmount = %v, want false", created.ScalesWithAmount)
-	}
-	if created.BaseAmount != nil {
-		t.Errorf("BaseAmount = %v, want nil", created.BaseAmount)
-	}
-}
-
-func TestFoodItem_比例を後から外せる(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	repo := repository.NewFoodItem(testdb.Begin(t))
-
-	in := simpleFood("比例やめるテスト")
-	in.BaseAmount = f32(30)
-	in.ScalesWithAmount = boolptr(true)
-	created, err := repo.Create(ctx, in)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-
-	off := simpleFood("比例やめるテスト")
-	updated, err := repo.Update(ctx, created.Id, off)
-	if err != nil {
-		t.Fatalf("Update: %v", err)
-	}
-	if updated.ScalesWithAmount == nil || *updated.ScalesWithAmount {
-		t.Errorf("ScalesWithAmount = %v, want false", updated.ScalesWithAmount)
-	}
-	if updated.BaseAmount != nil {
-		t.Errorf("BaseAmount = %v, want nil", updated.BaseAmount)
-	}
-}
-
-func f32(v float32) *float32  { return &v }
-func strptr(s string) *string { return &s }
-func boolptr(b bool) *bool    { return &b }

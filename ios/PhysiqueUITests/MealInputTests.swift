@@ -167,34 +167,26 @@ final class MealInputTests: XCTestCase {
         )
     }
 
-    func test_全量が量に比例するを付けられる() {
-        // **チェックを入れると基準量の欄が出る**（#218）。
-        // 出ないと比例させる設定に辿り着けない
+    func test_全部を入れると引数が1つになる() {
+        // **「全部」は合計そのもの**（#224）。他の引数が残っていると意味が壊れる
         app.buttons["pickFromMaster"].tap()
         XCTAssertTrue(app.navigationBars["マスタから選ぶ"].waitForExistence(timeout: 10))
         app.buttons["openFoodRegister"].tap()
         XCTAssertTrue(app.navigationBars["マスタに登録"].waitForExistence(timeout: 5))
 
-        let toggle = app.switches["scalesWithAmount"]
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "チェックが出ること")
+        app.buttons["addFoodComponent"].tap()
+        XCTAssertTrue(app.textFields["componentName"].waitForExistence(timeout: 5),
+                      "引数の欄が増えること")
+
+        let toggle = app.switches["coversAll"].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "全部のトグルが出ること")
         XCTAssertTrue(toggle.isHittable, "押せる位置にあること")
-        // **行の中央を押しても切り替わらない。** Form の Toggle は
-        // スイッチ本体だけが反応する（iOS の標準の挙動）。
-        // `tap()` は要素の中央＝ラベルの上を押してしまう。
-        //
-        // **0.95 では外れる。** スイッチは行の右端から 16pt ほど内側にあり、
-        // 幅 370pt の行だと 0.95 は右端から 18pt ＝ スイッチの縁ぎりぎり。
-        // 手元では通ったが CI で落ちた。0.9 なら 37pt でスイッチの中に入る
+
+        // **行の中央では切り替わらない。** スイッチ本体を押す（#222）
         toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
 
         XCTAssertEqual(toggle.value as? String, "1", "チェックが入ること")
-
-        XCTAssertTrue(
-            app.textFields["baseAmount"].waitForExistence(timeout: 5),
-            "入れると基準量の欄が出ること"
-        )
     }
-
     func test_入力するときに量を変えられる() {
         // **ADR-0017 の狙いそのもの。** 登録した「いつもの量」を、
         // 記録するときに変えられるか（#218 の確認）
@@ -221,6 +213,18 @@ final class MealInputTests: XCTestCase {
         XCTAssertTrue(comp.waitForExistence(timeout: 5), "引数の欄が増えること")
         comp.tap()
         comp.typeText("量")
+
+        // **欄を移る前にキーボードを閉じる。** 量の欄は画面の下の方にあり、
+        // キーボードの高さは環境で変わる（CI は予測変換バーのぶん高い）。
+        // 隠れているとタップしてもフォーカスが当たらない
+        app.buttons["完了"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+
+        // **量は必須**（#224）。空だと登録が弾かれる
+        let regAmount = app.textFields["componentAmountInput"]
+        XCTAssertTrue(regAmount.waitForExistence(timeout: 5), "量の欄が出ること")
+        regAmount.tap()
+        regAmount.typeText("30")
 
         // ツールバーは Form の外なので、キーボードが出たままでも押せる
         app.buttons["saveFood"].tap()

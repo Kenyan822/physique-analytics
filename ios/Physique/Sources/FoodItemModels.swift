@@ -2,27 +2,19 @@ import Foundation
 
 /// 食品マスタの1項目（要件 N-02 / ADR-0017）。
 ///
-/// **本体の PFC と引数は足し算**（#218）。
+/// **本体の PFC は合計。引数はそのうちの一部を担う**（#224）。
 ///
-///     total = 本体PFC × (scalesWithAmount ? 入力量 / baseAmount : 1)
-///           + Σ 引数PFC × (引数量 / 引数基準量)
+///     固定部 = 本体PFC − Σ 引数PFC
+///     total  = 固定部 + Σ 引数PFC × (入力量 / 登録時の量)
 struct FoodItem: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     var name: String
     var qty: String?
 
-    /// 本体の PFC。**引数があっても足される**（#218）
+    /// **合計。** 引数はこの内訳で、超えてはいけない（#224）
     var proteinG: Double?
     var fatG: Double?
     var carbG: Double?
-
-    // **既定値を付ける。** 付けないと memberwise init の呼び出しが全部壊れる
-    /// 「n g あたり」の n。`scalesWithAmount` のときだけ使う
-    var baseAmount: Double? = nil
-    /// 表示専用。計算に使うのは比だけ
-    var baseUnit: String? = nil
-    /// 全量が1つの量で決まるか。**立てると引数の行を作らずに比例させられる**
-    var scalesWithAmount: Bool? = nil
 
     var components: [FoodItemComponent]
     /// 選ばれた回数。一覧の並び順に使う
@@ -31,15 +23,17 @@ struct FoodItem: Codable, Identifiable, Hashable, Sendable {
     /// 引数を持つか。画面の出し分けに使う
     var hasComponents: Bool { !components.isEmpty }
 
-    /// 本体が量に比例するか。**基準量が無ければ比例しない**
-    var scales: Bool { (scalesWithAmount ?? false) && (baseAmount ?? 0) > 0 }
-
     /// 選んだときに量を聞く必要があるか
-    var needsAmount: Bool { scales || hasComponents }
+    var needsAmount: Bool { hasComponents }
 
-    /// 引数の既定値。入力欄の初期表示に使う
+    /// 「全部」の引数（あれば）。画面の出し分けに使う
+    var coversAllComponent: FoodItemComponent? {
+        components.first { $0.coversAll ?? false }
+    }
+
+    /// 引数の初期値。登録したときの量をそのまま使う
     var defaultAmounts: [String: Double] {
-        Dictionary(uniqueKeysWithValues: components.map { ($0.name, $0.defaultAmount) })
+        Dictionary(uniqueKeysWithValues: components.map { ($0.name, $0.amount) })
     }
 
     /// 入力量から PFC を出す。
@@ -47,21 +41,20 @@ struct FoodItem: Codable, Identifiable, Hashable, Sendable {
     /// **サーバの `internal/foodmaster.Expand` と同じ式にする。**
     /// 食い違うと、画面の値が記録後に変わって見える。
     ///
-    /// `base` は本体の入力量。比例しないとき・nil のときは基準量ぶん。
-    /// 渡さなかった引数は既定値。0 を渡したら 0（「今日は入れなかった」）。
-    func expand(base: Double? = nil, _ amounts: [String: Double] = [:]) -> Macros {
-        // **本体は常に足す**（#218）。引数があっても捨てない
-        let r = baseRatio(base)
-        var p = (proteinG ?? 0) * r
-        var f = (fatG ?? 0) * r
-        var c = (carbG ?? 0) * r
+    /// 渡さなかった引数は登録時の量。0 を渡したら 0（「今日は入れなかった」）。
+    func expand(_ amounts: [String: Double] = [:]) -> Macros {
+        // 固定部 = 合計 − 引数の登録時の分。**負にしない**
+        var p = max((proteinG ?? 0) - components.reduce(0) { $0 + $1.proteinG }, 0)
+        var f = max((fatG ?? 0) - components.reduce(0) { $0 + $1.fatG }, 0)
+        var c = max((carbG ?? 0) - components.reduce(0) { $0 + $1.carbG }, 0)
 
         for comp in components {
             // **0 では割れない。** サーバ側の check で防いでいるが、
-            // 古い端末から来た値で落ちないようにする
-            guard comp.basisAmount > 0 else { continue }
+            // 古い端末から来た値で落ちないようにする。動かせないので登録どおり
+            let ratio = comp.amount > 0
+                ? (amounts[comp.name] ?? comp.amount) / comp.amount
+                : 1
 
-            let ratio = (amounts[comp.name] ?? comp.defaultAmount) / comp.basisAmount
             p += comp.proteinG * ratio
             f += comp.fatG * ratio
             c += comp.carbG * ratio
@@ -70,34 +63,30 @@ struct FoodItem: Codable, Identifiable, Hashable, Sendable {
         return Macros(kcal: kcalFrom(p, f, c), proteinG: p, fatG: f, carbG: c)
     }
 
-    /// 本体にかける倍率。**比例しないなら 1**
-    private func baseRatio(_ base: Double?) -> Double {
-        guard scales, let base, let basis = baseAmount, basis > 0 else { return 1 }
-
-        return base / basis
-    }
-
     /// Atwater 係数 4/9/4。サーバの `analytics.KcalFromMacros` と揃える
     private func kcalFrom(_ p: Double, _ f: Double, _ c: Double) -> Int {
         Int((p * 4 + f * 9 + c * 4).rounded())
     }
 }
 
-/// 引数1つ。**基準量あたりの PFC** を持つ。
+/// 引数1つ。**合計のうちこの引数が担う分**を、登録したときの量とともに持つ。
+///
+/// 量は1つだけ（#224）。「あたり」と「いつもの量」を別に持つと区別がつかない。
 struct FoodItemComponent: Codable, Hashable, Sendable, Identifiable {
     var id: String { name }
 
     var name: String
     /// 表示専用。計算に使うのは比だけ
     var unit: String
-    /// パッケージの「n g あたり」の n
-    var basisAmount: Double
-    /// 入力時の初期値
-    var defaultAmount: Double
+    /// 登録したときの量。**基準にも初期値にもなる**
+    var amount: Double
 
     var proteinG: Double
     var fatG: Double
     var carbG: Double
+
+    /// 合計そのものを表すか。**立つと引数は1つだけ**
+    var coversAll: Bool? = nil
 }
 
 /// 登録・更新で送る内容。
@@ -107,10 +96,6 @@ struct FoodItemInput: Codable, Sendable {
     var proteinG: Double?
     var fatG: Double?
     var carbG: Double?
-    var baseAmount: Double? = nil
-    var baseUnit: String? = nil
-    /// 立てるなら `baseAmount` が要る
-    var scalesWithAmount: Bool? = nil
     /// 省くか空なら引数なし
     var components: [FoodItemComponent]?
 }
@@ -131,34 +116,33 @@ struct FoodComponentDraft: Identifiable, Hashable, Sendable {
 
     var name = ""
     var unit = "g"
-    /// パッケージの表示は「100g あたり」が多いので既定にする
-    var basisAmount = "100"
-    var defaultAmount = ""
+    /// 登録したときの量。**基準にも初期値にもなる**（#224）
+    var amount = ""
     var proteinG = ""
     var fatG = ""
     var carbG = ""
+    /// 合計そのものを表すか。**立つと引数は1つだけ**
+    var coversAll = false
 
     /// 送れる形にする。**読めなければ nil**
     func toComponent() -> FoodItemComponent? {
         let n = name.trimmingCharacters(in: .whitespaces)
-        guard !n.isEmpty, let basis = positive(basisAmount) else { return nil }
-
-        // 既定値を書かなければ基準量と同じ。「30g あたり」を 30g 使う、が普通
-        let def = number(defaultAmount) ?? basis
+        guard !n.isEmpty, let a = positive(amount) else { return nil }
 
         return FoodItemComponent(
             name: n, unit: unit.isEmpty ? "g" : unit,
-            basisAmount: basis, defaultAmount: def,
+            amount: a,
             proteinG: number(proteinG) ?? 0,
             fatG: number(fatG) ?? 0,
-            carbG: number(carbG) ?? 0
+            carbG: number(carbG) ?? 0,
+            coversAll: coversAll
         )
     }
 
     /// 何が足りないかを返す。**「登録できない」だけだと直しようがない**
     func problem() -> String {
         if name.trimmingCharacters(in: .whitespaces).isEmpty { return "引数の名前を入れる" }
-        if positive(basisAmount) == nil { return "基準量は 0 より大きい数にする" }
+        if positive(amount) == nil { return "量は 0 より大きい数にする" }
 
         return "引数の入力を見直す"
     }
@@ -184,10 +168,10 @@ extension FoodComponentDraft {
         self.init()
         name = c.name
         unit = c.unit
-        basisAmount = numberText(c.basisAmount)
-        defaultAmount = numberText(c.defaultAmount)
+        amount = numberText(c.amount)
         proteinG = numberText(c.proteinG)
         fatG = numberText(c.fatG)
         carbG = numberText(c.carbG)
+        coversAll = c.coversAll ?? false
     }
 }

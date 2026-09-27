@@ -447,3 +447,27 @@ Form の `Toggle` はスイッチ本体しか反応しないので座標で押�
 
 座標を使うときは、**当たり判定の中心を狙う**。端から数 pt の位置は、
 画面サイズや余白の差で簡単に外れる。
+
+### 下の方にある欄は、キーボードに隠れていないか疑う
+
+```
+componentAmountInput  y = 505〜539   （画面の高さ 874）
+```
+
+キーボードの高さは**環境で変わる**。CI のシミュレータは予測変換バーのぶん高く、
+手元では触れていた欄が隠れる。
+
+`exists` は true、`tap()` も例外を出さない。
+**次の `typeText` が「Neither element nor any descendant has keyboard focus」で
+落ちて初めて気づく**（#225）。
+
+欄を移る前にキーボードを閉じる。
+
+```swift
+app.buttons["完了"].tap()
+XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+```
+
+**これはテストの都合ではなく、実際の使い勝手の話でもある。**
+隠れている欄は利用者も押せない。テストが落ちたら、
+まず「利用者はこれを押せるのか」を考える。

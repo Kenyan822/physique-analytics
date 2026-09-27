@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
+	"github.com/Kenyan822/physique-analytics/api/internal/foodmaster"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 )
 
@@ -129,18 +130,7 @@ func validateFoodItem(in openapi.FoodItemInput) (field, message string) {
 		}
 	}
 
-	// **比例するなら基準量が要る**（#218）。DB の check と同じことを
-	// ここでも見る —— 422 で理由を返せる方が直しやすい
-	if in.ScalesWithAmount != nil && *in.ScalesWithAmount {
-		if in.BaseAmount == nil || *in.BaseAmount <= 0 {
-			return "baseAmount", "量に比例させるなら基準量を 0 より大きくする"
-		}
-	}
-	if in.BaseAmount != nil && *in.BaseAmount <= 0 {
-		return "baseAmount", "基準量は 0 より大きくする"
-	}
-
-	if in.Components == nil {
+	if in.Components == nil || len(*in.Components) == 0 {
 		return "", ""
 	}
 
@@ -157,11 +147,8 @@ func validateFoodItem(in openapi.FoodItemInput) (field, message string) {
 		seen[name] = true
 
 		// **0 では割れない**（foodmaster.Expand の前提）
-		if c.BasisAmount <= 0 {
-			return "components", name + ": 基準量は 0 より大きくする"
-		}
-		if c.DefaultAmount < 0 {
-			return "components", name + ": 既定値は 0 以上にする"
+		if c.Amount <= 0 {
+			return "components", name + ": 量は 0 より大きくする"
 		}
 		for _, m := range []struct {
 			field string
@@ -178,7 +165,69 @@ func validateFoodItem(in openapi.FoodItemInput) (field, message string) {
 		}
 	}
 
+	// **「全部」は1つだけ**（#224）。2つあると合計の意味が壊れる
+	var coversAll int
+	for _, c := range *in.Components {
+		if c.CoversAll != nil && *c.CoversAll {
+			coversAll++
+		}
+	}
+	if coversAll > 1 {
+		return "components", "「全部」にできる引数は1つだけ"
+	}
+	if coversAll > 0 && len(*in.Components) > 1 {
+		return "components", "「全部」の引数があるときは、他の引数を持てない"
+	}
+
+	// **引数は合計のうちの一部。** 超えたら弾く（#224）
+	if msg := foodmaster.Validate(toFoodmasterItem(in)); msg != "" {
+		return "components", msg
+	}
+
 	return "", ""
+}
+
+// toFoodmasterItem は検証のために計算側の型へ移す。
+//
+// **計算の正は foodmaster**（ADR-0011 と同じ考え方）。ここで 判断 しない
+func toFoodmasterItem(in openapi.FoodItemInput) foodmaster.Item {
+	item := foodmaster.Item{
+		ProteinG: f64(in.ProteinG),
+		FatG:     f64(in.FatG),
+		CarbG:    f64(in.CarbG),
+	}
+	if in.Components == nil {
+		return item
+	}
+
+	for _, c := range *in.Components {
+		item.Components = append(item.Components, foodmaster.Component{
+			Name:     c.Name,
+			Amount:   float64(c.Amount),
+			ProteinG: f32to64(c.ProteinG),
+			FatG:     f32to64(c.FatG),
+			CarbG:    f32to64(c.CarbG),
+		})
+	}
+
+	return item
+}
+
+func f64(v *float32) *float64 {
+	if v == nil {
+		return nil
+	}
+	d := float64(*v)
+
+	return &d
+}
+
+func f32to64(v *float32) float64 {
+	if v == nil {
+		return 0
+	}
+
+	return float64(*v)
 }
 
 // normalizeFoodItem は前後の空白を落とす。
