@@ -304,7 +304,7 @@ jobs:
       # 落ちたときに、どの要素が押せなかったかを後から見る
       - name: 失敗したら結果を残す
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: xcresult
           path: ${{ runner.temp }}/result.xcresult
