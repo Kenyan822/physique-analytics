@@ -432,3 +432,18 @@ $ xcodebuild test -only-testing:PhysiqueUITests/MealInputTests/test_PFCを入れ
 - **Web の UI テスト**。Playwright で本番を見る運用にしている
 - **実機での HealthKit**。Personal Team では entitlement を付けられない
   （[build-config.md](build-config.md#personal-team-の制約)）
+
+### 座標でタップするなら、外れる余地を残さない
+
+Form の `Toggle` はスイッチ本体しか反応しないので座標で押すしかないが、
+**`dx: 0.95` は CI で外れた**（#222 で発覚）。
+
+| 指定 | 右端からの距離（行幅 370pt） | |
+|---|---|---|
+| `0.95` | 18pt | スイッチの縁ぎりぎり。**環境差で外れる** |
+| `0.9` | 37pt | 中に入る |
+
+スイッチは行の右端から 16pt ほど内側にある。**手元で通ったのは偶然だった。**
+
+座標を使うときは、**当たり判定の中心を狙う**。端から数 pt の位置は、
+画面サイズや余白の差で簡単に外れる。

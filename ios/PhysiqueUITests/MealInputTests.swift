@@ -180,8 +180,12 @@ final class MealInputTests: XCTestCase {
         XCTAssertTrue(toggle.isHittable, "押せる位置にあること")
         // **行の中央を押しても切り替わらない。** Form の Toggle は
         // スイッチ本体だけが反応する（iOS の標準の挙動）。
-        // `tap()` は要素の中央＝ラベルの上を押してしまう
-        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        // `tap()` は要素の中央＝ラベルの上を押してしまう。
+        //
+        // **0.95 では外れる。** スイッチは行の右端から 16pt ほど内側にあり、
+        // 幅 370pt の行だと 0.95 は右端から 18pt ＝ スイッチの縁ぎりぎり。
+        // 手元では通ったが CI で落ちた。0.9 なら 37pt でスイッチの中に入る
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
 
         XCTAssertEqual(toggle.value as? String, "1", "チェックが入ること")
 
