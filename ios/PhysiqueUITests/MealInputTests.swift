@@ -144,9 +144,7 @@ final class MealInputTests: XCTestCase {
 
         // **キーボードを閉じてからボタンを押す。** 出たままだと、
         // 1タップ目は閉じるだけになる（`dismissesKeyboardOnTap` の仕様）
-        app.buttons["完了"].tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5),
-                      "キーボードが閉じること")
+        dismissKeyboard()
 
         // **スクロールの回避策を書かない。** 出ないこと自体が症状（#217）
         let add = app.buttons["addFoodComponent"]
@@ -159,17 +157,16 @@ final class MealInputTests: XCTestCase {
         comp.tap()
         comp.typeText("量")
 
-        // **欄を移る前にキーボードを閉じる。** 量の欄は画面の下の方にあり、
-        // キーボードの高さは環境で変わる（CI は予測変換バーのぶん高い）。
-        // 隠れているとタップしてもフォーカスが当たらない
-        app.buttons["完了"].tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
+        // **「次へ」で移る**（#226）。量の欄は画面の下にあり、キーボードの高さは
+        // 環境で変わる（CI は予測変換バーのぶん高い）。隠れていると押せないので、
+        // 閉じずに移れる道が要る。**閉じてから押す回避策は書かない**
+        let next = app.buttons["keyboardNext"]
+        XCTAssertTrue(next.waitForExistence(timeout: 5), "次へが出ること")
+        next.tap()   // 名前 → 単位
+        next.tap()   // 単位 → 量
 
         // **量は必須**（#224）。空だと登録が弾かれる
-        let regAmount = app.textFields["componentAmountInput"]
-        XCTAssertTrue(regAmount.waitForExistence(timeout: 5), "量の欄が出ること")
-        regAmount.tap()
-        regAmount.typeText("30")
+        app.typeText("30")
 
         // ツールバーは Form の外なので、キーボードが出たままでも押せる
         app.buttons["saveFood"].tap()
@@ -262,6 +259,17 @@ final class MealInputTests: XCTestCase {
         field.typeText(name)
 
         app.buttons["saveFood"].tap()
+    }
+
+    /// キーボードを閉じる。**「完了」は登録画面には無い**（次へ／前へに置き換えた）
+    private func dismissKeyboard() {
+        if app.buttons["完了"].exists {
+            app.buttons["完了"].tap()
+        } else {
+            app.buttons["keyboardDone"].tap()
+        }
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5),
+                      "キーボードが閉じること")
     }
 
     private func openTargetSheet() {

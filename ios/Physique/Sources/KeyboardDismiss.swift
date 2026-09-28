@@ -10,9 +10,11 @@ extension View {
     ///
     /// | | いつ効くか |
     /// |---|---|
-    /// | タップ | 入力欄でない場所を押したとき |
     /// | スクロール | 指を下ろした時点で追従して閉じる |
-    /// | 「完了」 | 上2つが効かない場所でも確実に閉じられる逃げ道 |
+    /// | タップ | **読むだけの行**を押したとき（`dismissesKeyboardWhenTapped`） |
+    /// | 「完了」／「次へ」 | 上2つが効かない場所でも確実に閉じられる逃げ道 |
+    ///
+    /// **画面全体にタップ判定を付けない。** コントロールからタップを奪う（#229）。
     ///
     /// **`@FocusState` を経由しない。** 画面ごとに `@FocusState` の型が違うので、
     /// 共通化するには「いま誰が first responder か」を知らずに降ろせる必要がある。
@@ -22,33 +24,27 @@ extension View {
 }
 
 private struct DismissKeyboardOnTap: ViewModifier {
-    /// キーボードが出ているか。**タップを受けるかどうかの判断にだけ使う**
-    @State private var keyboardUp = false
-
     func body(content: Content) -> some View {
         content
             // .interactively にすると、指を下ろした量に追従して閉じる。
             // .immediately は少し触れただけで消えて、行を選びたいだけのときに邪魔
             .scrollDismissesKeyboard(.interactively)
-            // **キーボードが出ているときだけ受ける。**
-            //
-            // 常に付けると Form の中の Button や Toggle からタップを奪う。
-            // `simultaneousGesture` でも奪う。明示的な `buttonStyle` を持つ
-            // ものだけが生き残るので、効くものと効かないものが混在して
-            // 原因が見えにくくなる（#217 の Button、#218 の Toggle）。
-            //
-            // `including:` を切り替えるのは、`if` で付け外しすると
-            // view の識別が変わってしまうため。
-            // **キーボードが下りているときは `.subviews`** ＝ この gesture は
-            // 働かず、下のコントロールがそのまま受ける
-            .gesture(
-                TapGesture().onEnded { dismissKeyboard() },
-                including: keyboardUp ? .all : .subviews
-            )
-            .onReceive(NotificationCenter.default.publisher(
-                for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
-            .onReceive(NotificationCenter.default.publisher(
-                for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
+    }
+}
+
+extension View {
+    /// **押しても何も起きない場所**に付ける。ここを叩いたらキーボードを閉じる。
+    ///
+    /// **画面全体には付けない。** 画面に付けると Form の中の Button や Toggle
+    /// からタップを奪い、1タップ目が閉じるだけになる（#217 / #218）。
+    /// 「キーボードが出ているときだけ受ける」でも、**コントロールを押すのに
+    /// 2タップ要る**のは変わらず、使っていて煩わしかった（#229）。
+    ///
+    /// 合計や記録の一覧のように、**読むだけの行**に付けるのが正解。
+    /// コントロールは常に1タップで効き、空いた場所では今までどおり閉じる。
+    func dismissesKeyboardWhenTapped() -> some View {
+        contentShape(Rectangle())
+            .onTapGesture(perform: dismissKeyboard)
     }
 }
 
@@ -88,6 +84,8 @@ extension View {
                     Image(systemName: "chevron.up")
                 }
                 .disabled(index(focus.wrappedValue, in: order) == 0)
+                // UI テストから引くため（#226）
+                .accessibilityIdentifier("keyboardPrev")
 
                 Button {
                     focus.wrappedValue = step(focus.wrappedValue, in: order, by: 1)
@@ -95,6 +93,7 @@ extension View {
                     Image(systemName: "chevron.down")
                 }
                 .disabled(index(focus.wrappedValue, in: order) == order.count - 1)
+                .accessibilityIdentifier("keyboardNext")
 
                 Spacer()
                 if let action {
@@ -108,6 +107,7 @@ extension View {
                     .accessibilityIdentifier("keyboardPrimaryAction")
                 } else {
                     Button("完了") { focus.wrappedValue = nil }
+                        .accessibilityIdentifier("keyboardDone")
                 }
             }
         }

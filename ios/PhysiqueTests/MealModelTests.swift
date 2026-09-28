@@ -429,7 +429,7 @@ struct FoodMasterPickTests {
         let (m, _) = await loaded(protein)
         m.pickFood(m.foodItems[0])
 
-        m.foodAmounts["量"] = 45
+        m.foodAmountText["量"] = "45"
         m.confirmFoodPick()
 
         #expect(m.draft.proteinG == "36")
@@ -781,7 +781,7 @@ struct FoodPartialTests {
         let (m, _) = await loaded(protein)
         m.pickFood(m.foodItems[0])
 
-        m.foodAmounts["量"] = 45
+        m.foodAmountText["量"] = "45"
         m.confirmFoodPick()
 
         #expect(m.draft.proteinG == "36")
@@ -854,3 +854,82 @@ struct FoodPartialTests {
     }
 }
 
+
+@Suite("量の欄は文字列で持つ（#229）")
+@MainActor
+struct FoodAmountTextTests {
+    private let protein = #"""
+    {"items":[{"id":"77777777-7777-7777-7777-777777777777","name":"プロテイン",
+      "proteinG":24,"fatG":1.5,"carbG":2,
+      "components":[{"name":"量","unit":"g","amount":30,
+        "proteinG":24,"fatG":1.5,"carbG":2,"coversAll":true}],"usedCount":0,
+      "createdAt":"2026-09-28T00:00:00Z","updatedAt":"2026-09-28T00:00:00Z"}]}
+    """#
+
+    private func picked() async -> MealModel {
+        let (client, _) = api([emptyMeals, targets, (protein, 200)])
+        let m = MealModel(api: client, date: "2026-09-28")
+        await m.load()
+        await m.loadFoodItems()
+        m.pickFood(m.foodItems[0])
+
+        return m
+    }
+
+    @Test("選ぶと登録時の量が文字列で入る")
+    func startsWithRegistered() async {
+        let m = await picked()
+
+        // **「30.0」ではない。** 打ち直しづらい
+        #expect(m.foodAmountText["量"] == "30")
+    }
+
+    @Test("**全部消せる**")
+    func canClear() async {
+        let m = await picked()
+
+        m.foodAmountText["量"] = ""
+
+        // 消えたまま。直前の値に戻らない
+        #expect(m.foodAmountText["量"] == "")
+    }
+
+    @Test("消したら 0 として計算する")
+    func emptyIsZero() async {
+        let m = await picked()
+        m.foodAmountText["量"] = ""
+
+        m.confirmFoodPick()
+
+        #expect(m.draft.proteinG == "0")
+    }
+
+    @Test("**小数の途中で丸められない**")
+    func keepsPartialDecimal() async {
+        let m = await picked()
+
+        m.foodAmountText["量"] = "1."
+
+        #expect(m.foodAmountText["量"] == "1.")
+    }
+
+    @Test("打った値で計算する")
+    func usesTyped() async {
+        let m = await picked()
+        m.foodAmountText["量"] = "45"
+
+        m.confirmFoodPick()
+
+        #expect(m.draft.proteinG == "36")
+    }
+
+    @Test("読めない値は 0 にする")
+    func garbageIsZero() async {
+        let m = await picked()
+        m.foodAmountText["量"] = "だいたい"
+
+        m.confirmFoodPick()
+
+        #expect(m.draft.proteinG == "0")
+    }
+}
