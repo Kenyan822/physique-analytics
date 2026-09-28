@@ -60,6 +60,7 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 | [mcp.md](mcp.md) | MCP サーバ。ツールの説明文の書き方、読み取り専用 SQL の守り方 |
 | [interfaces.md](interfaces.md) | nil ポインタと interface、使う側での定義、共通化の判断 |
 | [numeric.md](numeric.md) | 定数と引数の切り分け、`*float64` で「未測定」を表す、従属変数のクランプ |
+| [routine-cycle.md](routine-cycle.md) | **巡回するルーティン**。状態を持たずに「今日は何日目か」を導く。`%` の符号 |
 
 ## 想定しているトピック
 
