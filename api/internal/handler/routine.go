@@ -44,8 +44,6 @@ func (s *Server) GetTodayRoutine(ctx context.Context, req openapi.GetTodayRoutin
 	if len(days) == 0 {
 		return openapi.GetTodayRoutine200JSONResponse(out), nil
 	}
-	total := len(days)
-	out.TotalDays = &total
 
 	// **今日の途中では切り替えない。** 今日すでに記録があればその Day のまま
 	last, err := s.routines.TodaySession(ctx, date)
@@ -57,22 +55,17 @@ func (s *Server) GetTodayRoutine(ctx context.Context, req openapi.GetTodayRoutin
 			return nil, err
 		}
 	}
-
-	day := routine.Today(toRoutineDays(days), toRoutineSession(last), date)
-	if day == nil {
-		return openapi.GetTodayRoutine200JSONResponse(out), nil
+	if day := routine.Today(toRoutineDays(days), toRoutineSession(last), date); day != nil {
+		order := day.Order
+		out.TodayOrder = &order
 	}
 
-	src := findDay(days, day.Order)
-	if src == nil {
-		return openapi.GetTodayRoutine200JSONResponse(out), nil
-	}
-
-	// **前回値と今日の記録はまとめて引く。** 種目ごとに叩くと
-	// 画面を開くたびに種目数ぶんの往復になる
-	ids := make([]uuid.UUID, 0, len(src.Items))
-	for _, it := range src.Items {
-		ids = append(ids, it.ExerciseID)
+	// **前回値と今日の記録はまとめて引く。** Day ごとに叩くと往復が増える
+	var ids []uuid.UUID
+	for _, d := range days {
+		for _, it := range d.Items {
+			ids = append(ids, it.ExerciseID)
+		}
 	}
 	lasts, err := s.routines.LastForExercises(ctx, ids)
 	if err != nil {
@@ -83,7 +76,11 @@ func (s *Server) GetTodayRoutine(ctx context.Context, req openapi.GetTodayRoutin
 		return nil, err
 	}
 
-	out.Day = toAPIDay(*src, lasts, done)
+	all := make([]openapi.RoutineDay, 0, len(days))
+	for _, d := range days {
+		all = append(all, *toAPIDay(d, lasts, done))
+	}
+	out.Days = &all
 
 	return openapi.GetTodayRoutine200JSONResponse(out), nil
 }
@@ -103,16 +100,6 @@ func toRoutineSession(s *repository.SessionRow) *routine.Session {
 	}
 
 	return &routine.Session{Date: s.Date, TemplateID: s.TemplateID}
-}
-
-func findDay(days []repository.RoutineDayRow, order int) *repository.RoutineDayRow {
-	for i := range days {
-		if days[i].Order == order {
-			return &days[i]
-		}
-	}
-
-	return nil
 }
 
 func toAPIDay(

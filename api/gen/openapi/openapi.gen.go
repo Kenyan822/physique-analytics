@@ -1098,13 +1098,16 @@ type Timestamps struct {
 // `day` が null ならルーティンが未登録。**そのときも記録はできる**
 type TodayRoutine struct {
 	Date openapi_types.Date `json:"date"`
-	Day  *RoutineDay        `json:"day,omitempty"`
+
+	// Days ルーティンの全 Day。**手でずらせるように全部返す。**
+	// 6日 × 4種目で数 KB なので、Day ごとに引き直す方が高くつく
+	Days *[]RoutineDay `json:"days,omitempty"`
 
 	// RoutineName Examples: 6日サイクル
 	RoutineName *string `json:"routineName,omitempty"`
 
-	// TotalDays 巡回の長さ。「3 / 6日目」のように出すため
-	TotalDays *int `json:"totalDays,omitempty"`
+	// TodayOrder 今日やる Day の `dayOrder`。**`days` の添字ではない**（番号は飛びうる）
+	TodayOrder *int `json:"todayOrder,omitempty"`
 }
 
 // VolumeRange defines model for VolumeRange.
