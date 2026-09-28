@@ -16,6 +16,34 @@ final class LogModel {
     static let isolationRestSec = 90
 
     private(set) var exercises: [Exercise] = []
+
+    // MARK: - 今日やる想定（要件 T-01 / #232）
+
+    /// **nil ならルーティン未登録。** そのときも記録はできる
+    private(set) var routine: TodayRoutine?
+    /// 手でずらした Day の `dayOrder`。nil ならサーバの判断に従う
+    private(set) var pickedOrder: Int?
+
+    /// 画面に出す Day。手でずらしていればそちらを優先する
+    var currentDay: RoutineDay? {
+        guard let t = routine else { return nil }
+        guard let order = pickedOrder else { return t.today }
+
+        return t.days?.first { $0.dayOrder == order }
+    }
+
+    /// 手でずらすときの選択肢
+    var allDays: [RoutineDay] { routine?.days ?? [] }
+
+    /// 「1 / 6日目 胸」。ルーティンが無ければ nil
+    var dayLabel: String? {
+        guard let d = currentDay else { return nil }
+        let total = routine?.totalDays ?? 0
+        guard total > 0 else { return d.templateName }
+
+        return "\(d.dayOrder) / \(total)日目  \(d.templateName)"
+    }
+
     private(set) var logged: [PendingSet] = []
     private(set) var last: LastPerformance?
     private(set) var loadingLast = false
@@ -30,7 +58,10 @@ final class LogModel {
     var showError = false
     private(set) var errorMessage = ""
 
-    let date: String
+    /// 表示している日。**前日・翌日に移動できる**（食事と同じ形・#232）
+    private(set) var date: String
+    /// 「今日」。これより先には進めない。テストで固定するため引数にする
+    private let today: String
     private let api: APIClient
     private let queue: PendingQueue
     private var restStartedAt: Date?
@@ -39,11 +70,44 @@ final class LogModel {
     init(
         api: APIClient = APIClient(baseURL: AppConfig.apiBaseURL),
         queue: PendingQueue = PendingQueue(store: FilePendingStore()),
-        date: String = JST.dateString()
+        date: String = JST.dateString(),
+        today: String = JST.dateString()
     ) {
         self.api = api
         self.queue = queue
         self.date = date
+        self.today = today
+    }
+
+    // MARK: - 日付の行き来（食事と同じ形・#232）
+
+    /// `9/28(月)` の形
+    var dateLabel: String { JST.displayString(from: date) }
+
+    /// **今日より先には進めない。** 記録できない日を開いても意味が無い
+    var canGoNext: Bool { date < today }
+
+    func goToPreviousDay() async {
+        await move(to: JST.shift(date, days: -1))
+    }
+
+    func goToNextDay() async {
+        guard canGoNext else { return }
+        await move(to: JST.shift(date, days: 1))
+    }
+
+    /// 日付を選び直す。未来を選んだら今日に丸める
+    func goTo(_ newDate: String) async {
+        await move(to: min(newDate, today))
+    }
+
+    private func move(to newDate: String) async {
+        guard newDate != date else { return }
+        date = newDate
+        // **手でずらした Day は持ち越さない。** 別の日の選択が残ると混乱する
+        pickedOrder = nil
+        selectedExerciseId = nil
+        await load()
     }
 
     // MARK: - 読み込み
@@ -65,7 +129,27 @@ final class LogModel {
             // 読めなくても入力はできる。積んでおけば復帰時に送られる
             report(error)
         }
+
+        // **失敗しても握る。** 今日の想定が出ないだけで、記録はできる
+        routine = try? await api.todayRoutine(date: date)
+
         updatePendingMessage()
+    }
+
+    /// Day を手でずらす（要件 T-01 / #232）。
+    ///
+    /// **サーバの判断を上書きするだけ。** 記録すればその Day が履歴に残り、
+    /// 次回からはそこを起点に巡回する。
+    ///
+    /// nil で自動に戻す。
+    /// nil で自動に戻す。**全 Day を持っているので引き直さない。**
+    func pickDay(_ day: RoutineDay?) {
+        pickedOrder = day?.dayOrder
+    }
+
+    /// その種目を今日やったか。行の印に使う
+    func isDoneToday(_ exerciseId: UUID) -> Bool {
+        logged.contains { $0.exerciseId == exerciseId }
     }
 
     func selectExercise(_ id: UUID?) async {
@@ -152,7 +236,10 @@ final class LogModel {
         let existing = try await api.listSessions(from: date, to: date, limit: 1)
         if let s = existing.first { return s }
 
-        return try await api.createSession(WorkoutSessionInput(date: date))
+        // **どの Day をやったかを残す。** 入れないと巡回が進まない（#232）
+        return try await api.createSession(
+            WorkoutSessionInput(date: date, templateId: currentDay?.templateId)
+        )
     }
 
     // MARK: - インターバル（要件 T-05）

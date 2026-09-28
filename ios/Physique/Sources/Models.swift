@@ -78,6 +78,11 @@ struct WorkoutSetInput: Codable, Sendable {
 struct WorkoutSessionInput: Codable, Sendable {
     var id: UUID?
     var date: String
+    /// どの Day をやったか（要件 T-01 / #232）。
+    ///
+    /// **これを入れないと巡回が進まない。** 次に何日目かは
+    /// 直近のセッションの template_id から導いている
+    var templateId: UUID?
     var note: String?
     var sets: [WorkoutSetInput]?
 }

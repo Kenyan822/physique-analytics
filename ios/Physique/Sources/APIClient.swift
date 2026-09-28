@@ -104,6 +104,16 @@ struct APIClient: Sendable {
     }
 
     /// 前回の実施内容（要件 T-02）。
+    /// 今日やる想定の種目（要件 T-01 / #232）。
+    ///
+    /// **前回値も一緒に返る。** 行ごとに `lastPerformance` を叩くと
+    /// 画面を開くたびに種目数ぶんの往復になる
+    func todayRoutine(date: String? = nil) async throws -> TodayRoutine {
+        let q = date.map { [URLQueryItem(name: "date", value: $0)] } ?? []
+
+        return try await request(TodayRoutine.self, "GET", "v1/routines/today", query: q)
+    }
+
     func lastPerformance(exerciseId: UUID) async throws -> LastPerformance {
         try await request(
             LastPerformance.self, "GET",

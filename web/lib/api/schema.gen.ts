@@ -1085,9 +1085,13 @@ export interface components {
             date: string;
             /** @example 6日サイクル */
             routineName?: string | null;
-            day?: components["schemas"]["RoutineDay"];
-            /** @description 巡回の長さ。「3 / 6日目」のように出すため */
-            totalDays?: number | null;
+            /**
+             * @description ルーティンの全 Day。**手でずらせるように全部返す。**
+             *     6日 × 4種目で数 KB なので、Day ごとに引き直す方が高くつく
+             */
+            days?: components["schemas"]["RoutineDay"][];
+            /** @description 今日やる Day の `dayOrder`。**`days` の添字ではない**（番号は飛びうる） */
+            todayOrder?: number | null;
         };
         RoutineDay: {
             /** @description 巡回の順。**連番とは限らない**（途中の日を消せる） */
@@ -1097,7 +1101,7 @@ export interface components {
             /** @example 胸 */
             templateName: string;
             items: components["schemas"]["RoutineDayItem"][];
-        } | null;
+        };
         /**
          * @description 今日やる種目1つ。**前回の実施内容を含める。**
          *     行ごとに `/v1/exercises/{id}/last` を叩くと、画面を開くたびに

@@ -1822,13 +1822,19 @@ components:
         routineName:
           type: [string, "null"]
           examples: ["6日サイクル"]
-        day: { $ref: "#/components/schemas/RoutineDay" }
-        totalDays:
+        days:
+          type: array
+          description: |
+            ルーティンの全 Day。**手でずらせるように全部返す。**
+            6日 × 4種目で数 KB なので、Day ごとに引き直す方が高くつく
+          items: { $ref: "#/components/schemas/RoutineDay" }
+        todayOrder:
           type: [integer, "null"]
-          description: 巡回の長さ。「3 / 6日目」のように出すため
+          description: |
+            今日やる Day の `dayOrder`。**`days` の添字ではない**（番号は飛びうる）
 
     RoutineDay:
-      type: [object, "null"]
+      type: object
       required: [dayOrder, templateId, templateName, items]
       properties:
         dayOrder:

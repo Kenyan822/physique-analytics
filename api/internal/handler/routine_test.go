@@ -97,8 +97,8 @@ func TestGetTodayRoutine_未登録でも200(t *testing.T) {
 
 	got := getToday(t, routineServer(&stubRoutines{}))
 
-	if got["day"] != nil {
-		t.Errorf("day = %v, want null", got["day"])
+	if got["days"] != nil {
+		t.Errorf("days = %v, want null", got["days"])
 	}
 	if got["date"] != "2026-09-28" {
 		t.Errorf("date = %v", got["date"])
@@ -113,12 +113,12 @@ func TestGetTodayRoutine_記録が無ければ1日目(t *testing.T) {
 		days:   twoDays(),
 	}))
 
-	day := got["day"].(map[string]any)
-	if day["templateName"] != "胸" {
-		t.Errorf("templateName = %v, want 胸", day["templateName"])
+	if got["todayOrder"].(float64) != 1 {
+		t.Errorf("todayOrder = %v, want 1", got["todayOrder"])
 	}
-	if got["totalDays"].(float64) != 2 {
-		t.Errorf("totalDays = %v, want 2", got["totalDays"])
+	// **全 Day を返す。** 手でずらすときに引き直さずに済む
+	if len(got["days"].([]any)) != 2 {
+		t.Errorf("days = %d件, want 2", len(got["days"].([]any)))
 	}
 }
 
@@ -131,9 +131,8 @@ func TestGetTodayRoutine_前回の次に進む(t *testing.T) {
 		last:   &repository.SessionRow{Date: "2026-09-26", TemplateID: &tplA},
 	}))
 
-	day := got["day"].(map[string]any)
-	if day["templateName"] != "脚" {
-		t.Errorf("templateName = %v, want 脚", day["templateName"])
+	if got["todayOrder"].(float64) != 2 {
+		t.Errorf("todayOrder = %v, want 2", got["todayOrder"])
 	}
 }
 
@@ -148,9 +147,8 @@ func TestGetTodayRoutine_今日すでに記録があればその日のまま(t *
 		last:   &repository.SessionRow{Date: "2026-09-26", TemplateID: &tplA},
 	}))
 
-	day := got["day"].(map[string]any)
-	if day["templateName"] != "脚" {
-		t.Errorf("templateName = %v, want 脚（今日の記録のまま）", day["templateName"])
+	if got["todayOrder"].(float64) != 2 {
+		t.Errorf("todayOrder = %v, want 2（今日の記録のまま）", got["todayOrder"])
 	}
 }
 
@@ -164,7 +162,7 @@ func TestGetTodayRoutine_前回値を添えて返す(t *testing.T) {
 		done:   map[uuid.UUID]bool{exA: true},
 	}))
 
-	item := got["day"].(map[string]any)["items"].([]any)[0].(map[string]any)
+	item := got["days"].([]any)[0].(map[string]any)["items"].([]any)[0].(map[string]any)
 	if item["lastWeightKg"].(float64) != 80 {
 		t.Errorf("lastWeightKg = %v, want 80", item["lastWeightKg"])
 	}
@@ -188,7 +186,7 @@ func TestGetTodayRoutine_前回値が無ければnull(t *testing.T) {
 		days:   twoDays(),
 	}))
 
-	item := got["day"].(map[string]any)["items"].([]any)[0].(map[string]any)
+	item := got["days"].([]any)[0].(map[string]any)["items"].([]any)[0].(map[string]any)
 	if v, ok := item["lastDate"]; ok && v != nil {
 		t.Errorf("lastDate = %v, want null", v)
 	}
