@@ -92,6 +92,18 @@ type MealRepository interface {
 	Copy(ctx context.Context, from, to openapi_types.Date, slot *openapi.MealSlot) ([]openapi.Meal, error)
 }
 
+// RoutineRepository は今日やる想定を組み立てるためのもの（要件 T-01 / #232）。
+//
+// **nil でもよい。** 未設定なら「今日の想定」が出ないだけで記録はできる
+type RoutineRepository interface {
+	Active(ctx context.Context) (*repository.RoutineRow, error)
+	Days(ctx context.Context, routineID uuid.UUID) ([]repository.RoutineDayRow, error)
+	LastWithSets(ctx context.Context, before string) (*repository.SessionRow, error)
+	TodaySession(ctx context.Context, date string) (*repository.SessionRow, error)
+	LastForExercises(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]repository.LastRow, error)
+	DoneToday(ctx context.Context, date string) (map[uuid.UUID]bool, error)
+}
+
 // FoodItemRepository は食品マスタへのアクセス（要件 N-02 / ADR-0017）。
 //
 // **nil でもよい。** 未設定なら食品マスタだけが使えない
@@ -206,11 +218,21 @@ type Server struct {
 	manualTargets ManualTargetsRepository
 	// foodItems も任意。未設定なら食品マスタだけが使えない
 	foodItems FoodItemRepository
+	// routines も任意。未設定なら「今日の想定」が出ないだけで記録はできる
+	routines RoutineRepository
 }
 
 // WithFoodItems は食品マスタの置き場所を差す（要件 N-02）。
 func (s *Server) WithFoodItems(r FoodItemRepository) *Server {
 	s.foodItems = r
+
+	return s
+}
+
+// WithRoutines はルーティンを挿す。**New の引数を増やさない** ——
+// 既に多く、呼び出し側を全部直すことになる
+func (s *Server) WithRoutines(r RoutineRepository) *Server {
+	s.routines = r
 
 	return s
 }

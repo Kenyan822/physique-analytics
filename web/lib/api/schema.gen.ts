@@ -174,6 +174,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/routines/today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 今日やる想定の種目
+         * @description 有効なルーティンから、今日やる Day を返す（要件 T-01 / #232）。
+         *
+         *     **やった日だけ進む巡回。** 曜日では決めない。
+         *
+         *     ```
+         *     今日すでに記録がある → その Day のまま（入力中に並びが変わらない）
+         *     無い               → 前回の次（最後まで行ったら先頭に戻る）
+         *     ```
+         *
+         *     ルーティンが未登録なら `day` は null。**記録自体はできる**ので 404 にしない。
+         */
+        get: operations["getTodayRoutine"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/templates": {
         parameters: {
             query?: never;
@@ -1045,6 +1074,58 @@ export interface components {
             targetRepsMin?: number | null;
             targetRepsMax?: number | null;
             targetRir?: number | null;
+        };
+        /**
+         * @description 今日やる想定（要件 T-01 / #232）。
+         *
+         *     `day` が null ならルーティンが未登録。**そのときも記録はできる**
+         */
+        TodayRoutine: {
+            /** Format: date */
+            date: string;
+            /** @example 6日サイクル */
+            routineName?: string | null;
+            day?: components["schemas"]["RoutineDay"];
+            /** @description 巡回の長さ。「3 / 6日目」のように出すため */
+            totalDays?: number | null;
+        };
+        RoutineDay: {
+            /** @description 巡回の順。**連番とは限らない**（途中の日を消せる） */
+            dayOrder: number;
+            /** Format: uuid */
+            templateId: string;
+            /** @example 胸 */
+            templateName: string;
+            items: components["schemas"]["RoutineDayItem"][];
+        } | null;
+        /**
+         * @description 今日やる種目1つ。**前回の実施内容を含める。**
+         *     行ごとに `/v1/exercises/{id}/last` を叩くと、画面を開くたびに
+         *     種目数ぶんの往復になる
+         */
+        RoutineDayItem: {
+            /** Format: uuid */
+            exerciseId: string;
+            exerciseName: string;
+            muscleGroup: components["schemas"]["MuscleGroup"];
+            order: number;
+            targetSets: number;
+            targetRepsMin?: number | null;
+            targetRepsMax?: number | null;
+            targetRir?: number | null;
+            /**
+             * Format: date
+             * @description 前回実施日。未実施なら null
+             */
+            lastDate?: string | null;
+            lastWeightKg?: number | null;
+            lastReps?: number | null;
+            lastRir?: number | null;
+            /**
+             * @description 今日すでに記録したか。並びと印に使う
+             * @default false
+             */
+            doneToday?: boolean;
         };
         Template: components["schemas"]["Timestamps"] & {
             /** Format: uuid */
@@ -2060,6 +2141,29 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    getTodayRoutine: {
+        parameters: {
+            query?: {
+                /** @description JST の日付（ADR-0013）。省くと今日 */
+                date?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodayRoutine"];
+                };
+            };
         };
     };
     listTemplates: {

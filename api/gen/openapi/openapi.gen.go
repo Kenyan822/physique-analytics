@@ -1002,6 +1002,41 @@ type Problem struct {
 // 検査票に書いていない基準を勝手に当てて「異常」と言わない。
 type RefFlag string
 
+// RoutineDay defines model for RoutineDay.
+type RoutineDay struct {
+	// DayOrder 巡回の順。**連番とは限らない**（途中の日を消せる）
+	DayOrder   int                `json:"dayOrder"`
+	Items      []RoutineDayItem   `json:"items"`
+	TemplateId openapi_types.UUID `json:"templateId"`
+
+	// TemplateName Examples: 胸
+	TemplateName string `json:"templateName"`
+}
+
+// RoutineDayItem 今日やる種目1つ。**前回の実施内容を含める。**
+// 行ごとに `/v1/exercises/{id}/last` を叩くと、画面を開くたびに
+// 種目数ぶんの往復になる
+type RoutineDayItem struct {
+	// DoneToday 今日すでに記録したか。並びと印に使う
+	DoneToday    *bool              `json:"doneToday,omitempty"`
+	ExerciseId   openapi_types.UUID `json:"exerciseId"`
+	ExerciseName string             `json:"exerciseName"`
+
+	// LastDate 前回実施日。未実施なら null
+	LastDate     *openapi_types.Date `json:"lastDate,omitempty"`
+	LastReps     *int                `json:"lastReps,omitempty"`
+	LastRir      *int                `json:"lastRir,omitempty"`
+	LastWeightKg *float32            `json:"lastWeightKg,omitempty"`
+
+	// MuscleGroup 部位。肩は前部/中部/後部、背中は広背筋/僧帽筋に分ける
+	MuscleGroup   MuscleGroup `json:"muscleGroup"`
+	Order         int         `json:"order"`
+	TargetRepsMax *int        `json:"targetRepsMax,omitempty"`
+	TargetRepsMin *int        `json:"targetRepsMin,omitempty"`
+	TargetRir     *int        `json:"targetRir,omitempty"`
+	TargetSets    int         `json:"targetSets"`
+}
+
 // SyncConflict push で適用されなかった変更。サーバ側の `updatedAt` の方が新しい（ADR-0014）。
 // クライアントは pull し直してから再送する。
 type SyncConflict struct {
@@ -1056,6 +1091,20 @@ type Timestamps struct {
 
 	// UpdatedAt 競合解決に使う（ADR-0014）
 	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// TodayRoutine 今日やる想定（要件 T-01 / #232）。
+//
+// `day` が null ならルーティンが未登録。**そのときも記録はできる**
+type TodayRoutine struct {
+	Date openapi_types.Date `json:"date"`
+	Day  *RoutineDay        `json:"day,omitempty"`
+
+	// RoutineName Examples: 6日サイクル
+	RoutineName *string `json:"routineName,omitempty"`
+
+	// TotalDays 巡回の長さ。「3 / 6日目」のように出すため
+	TotalDays *int `json:"totalDays,omitempty"`
 }
 
 // VolumeRange defines model for VolumeRange.
@@ -1297,6 +1346,12 @@ type GetMonthlyTargetsParams struct {
 
 // GetMonthlyTargetsParamsBaseline defines parameters for GetMonthlyTargets.
 type GetMonthlyTargetsParamsBaseline string
+
+// GetTodayRoutineParams defines parameters for GetTodayRoutine.
+type GetTodayRoutineParams struct {
+	// Date JST の日付（ADR-0013）。省くと今日
+	Date *openapi_types.Date `form:"date,omitempty" json:"date,omitempty"`
+}
 
 // PullSyncParams defines parameters for PullSync.
 type PullSyncParams struct {
@@ -1569,6 +1624,9 @@ type ServerInterface interface {
 	// GetMonthlyTargets 月次目標
 	// (GET /v1/plan/monthly-targets)
 	GetMonthlyTargets(w http.ResponseWriter, r *http.Request, params GetMonthlyTargetsParams)
+	// GetTodayRoutine 今日やる想定の種目
+	// (GET /v1/routines/today)
+	GetTodayRoutine(w http.ResponseWriter, r *http.Request, params GetTodayRoutineParams)
 	// PullSync 差分の取得
 	// (GET /v1/sync)
 	PullSync(w http.ResponseWriter, r *http.Request, params PullSyncParams)
@@ -2859,6 +2917,39 @@ func (siw *ServerInterfaceWrapper) GetMonthlyTargets(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// GetTodayRoutine operation middleware
+func (siw *ServerInterfaceWrapper) GetTodayRoutine(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetTodayRoutineParams
+
+	// ------------- Optional query parameter "date" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "date", r.URL.Query(), &params.Date, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "date"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "date", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTodayRoutine(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PullSync operation middleware
 func (siw *ServerInterfaceWrapper) PullSync(w http.ResponseWriter, r *http.Request) {
 
@@ -3457,6 +3548,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/workout-sets/{setId}", wrapper.DeleteWorkoutSet)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/workout-sets/{setId}", wrapper.UpdateWorkoutSet)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/exercises/{exerciseId}/last-performance", wrapper.GetLastPerformance)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/routines/today", wrapper.GetTodayRoutine)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/templates", wrapper.ListTemplates)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/templates", wrapper.CreateTemplate)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/templates/{templateId}", wrapper.DeleteTemplate)
@@ -6290,6 +6382,28 @@ func (response GetMonthlyTargets422ApplicationProblemPlusJSONResponse) VisitGetM
 	return err
 }
 
+type GetTodayRoutineRequestObject struct {
+	Params GetTodayRoutineParams
+}
+
+type GetTodayRoutineResponseObject interface {
+	VisitGetTodayRoutineResponse(w http.ResponseWriter) error
+}
+
+type GetTodayRoutine200JSONResponse TodayRoutine
+
+func (response GetTodayRoutine200JSONResponse) VisitGetTodayRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PullSyncRequestObject struct {
 	Params PullSyncParams
 }
@@ -7323,6 +7437,9 @@ type StrictServerInterface interface {
 	// GetMonthlyTargets 月次目標
 	// (GET /v1/plan/monthly-targets)
 	GetMonthlyTargets(ctx context.Context, request GetMonthlyTargetsRequestObject) (GetMonthlyTargetsResponseObject, error)
+	// GetTodayRoutine 今日やる想定の種目
+	// (GET /v1/routines/today)
+	GetTodayRoutine(ctx context.Context, request GetTodayRoutineRequestObject) (GetTodayRoutineResponseObject, error)
 	// PullSync 差分の取得
 	// (GET /v1/sync)
 	PullSync(ctx context.Context, request PullSyncRequestObject) (PullSyncResponseObject, error)
@@ -8819,6 +8936,32 @@ func (sh *strictHandler) GetMonthlyTargets(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMonthlyTargetsResponseObject); ok {
 		if err := validResponse.VisitGetMonthlyTargetsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetTodayRoutine operation middleware
+func (sh *strictHandler) GetTodayRoutine(w http.ResponseWriter, r *http.Request, params GetTodayRoutineParams) {
+	var request GetTodayRoutineRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetTodayRoutine(ctx, request.(GetTodayRoutineRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetTodayRoutine")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetTodayRoutineResponseObject); ok {
+		if err := validResponse.VisitGetTodayRoutineResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
