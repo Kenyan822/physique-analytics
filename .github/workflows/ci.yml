@@ -271,7 +271,31 @@ jobs:
       run:
         working-directory: ios
     steps:
+      # UI テストを回すかの判定に、base との差分が要る
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # **iOS に関わらない PR では UI テストを回さない**（#227）。
+      # シミュレータで5分かかるので、web の依存更新などで毎回待つのは無駄。
+      #
+      # `openapi.yaml` を含めるのは、型が変わると iOS のコンパイルが壊れるため。
+      # **ジョブごと skip にしない** —— 必須チェック扱いのときに止まる
+      - name: iOS に関わる変更か
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "ios=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch origin "${{ github.base_ref }}" -q
+          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
+               | grep -qE '^(ios/|openapi\.yaml|\.github/workflows/ci\.yml)'; then
+            echo "ios=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ios=false" >> "$GITHUB_OUTPUT"
+            echo "iOS に関わる変更が無いので UI テストは回さない" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # 同梱の Xcode が古いことがある。docs/06-技術選定.md の要求は iOS 26 SDK
       - name: Xcode を選ぶ
@@ -293,6 +317,7 @@ jobs:
       #
       # シミュレータを起動するので数分かかる。対象を広げない。
       - name: UI テスト（シミュレータ）
+        if: steps.changed.outputs.ios == 'true'
         run: |
           set -o pipefail
           xcodebuild test -project Physique.xcodeproj -scheme Physique \
