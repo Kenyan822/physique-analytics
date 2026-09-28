@@ -344,6 +344,35 @@ paths:
                     description: 前回の推定1RM（Epley + RIR補正）
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/routines/today:
+    get:
+      operationId: getTodayRoutine
+      tags: [routines]
+      summary: 今日やる想定の種目
+      description: |
+        有効なルーティンから、今日やる Day を返す（要件 T-01 / #232）。
+
+        **やった日だけ進む巡回。** 曜日では決めない。
+
+        ```
+        今日すでに記録がある → その Day のまま（入力中に並びが変わらない）
+        無い               → 前回の次（最後まで行ったら先頭に戻る）
+        ```
+
+        ルーティンが未登録なら `day` は null。**記録自体はできる**ので 404 にしない。
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: JST の日付（ADR-0013）。省くと今日
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TodayRoutine" }
+
   /v1/templates:
     get:
       operationId: listTemplates
@@ -1780,6 +1809,64 @@ components:
         targetRepsMin: { type: [integer, "null"], minimum: 1 }
         targetRepsMax: { type: [integer, "null"], minimum: 1 }
         targetRir: { type: [integer, "null"], minimum: 0, maximum: 10 }
+
+    TodayRoutine:
+      type: object
+      required: [date]
+      description: |
+        今日やる想定（要件 T-01 / #232）。
+
+        `day` が null ならルーティンが未登録。**そのときも記録はできる**
+      properties:
+        date: { type: string, format: date }
+        routineName:
+          type: [string, "null"]
+          examples: ["6日サイクル"]
+        day: { $ref: "#/components/schemas/RoutineDay" }
+        totalDays:
+          type: [integer, "null"]
+          description: 巡回の長さ。「3 / 6日目」のように出すため
+
+    RoutineDay:
+      type: [object, "null"]
+      required: [dayOrder, templateId, templateName, items]
+      properties:
+        dayOrder:
+          type: integer
+          description: 巡回の順。**連番とは限らない**（途中の日を消せる）
+        templateId: { type: string, format: uuid }
+        templateName: { type: string, examples: ["胸"] }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/RoutineDayItem" }
+
+    RoutineDayItem:
+      type: object
+      required: [exerciseId, exerciseName, muscleGroup, order, targetSets]
+      description: |
+        今日やる種目1つ。**前回の実施内容を含める。**
+        行ごとに `/v1/exercises/{id}/last` を叩くと、画面を開くたびに
+        種目数ぶんの往復になる
+      properties:
+        exerciseId: { type: string, format: uuid }
+        exerciseName: { type: string }
+        muscleGroup: { $ref: "#/components/schemas/MuscleGroup" }
+        order: { type: integer, minimum: 1 }
+        targetSets: { type: integer }
+        targetRepsMin: { type: [integer, "null"] }
+        targetRepsMax: { type: [integer, "null"] }
+        targetRir: { type: [integer, "null"] }
+        lastDate:
+          type: [string, "null"]
+          format: date
+          description: 前回実施日。未実施なら null
+        lastWeightKg: { type: [number, "null"] }
+        lastReps: { type: [integer, "null"] }
+        lastRir: { type: [integer, "null"] }
+        doneToday:
+          type: boolean
+          default: false
+          description: 今日すでに記録したか。並びと印に使う
 
     Template:
       allOf:
