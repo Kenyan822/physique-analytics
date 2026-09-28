@@ -116,8 +116,15 @@ final class MealModel {
     private(set) var foodItems: [FoodItem] = []
     /// 量の入力中の項目。nil なら誰も選んでいない
     private(set) var pickingFood: FoodItem?
-    /// 引数の入力量。**キーは引数の名前**
-    var foodAmounts: [String: Double] = [:]
+    /// 引数の入力量。**文字列のまま持つ**（#229）。
+    /// 数値に直しながら持つと、最後の1桁を消したときに読めなくなって
+    /// 直前の値に戻る。「1.」の途中でも丸められる（MealDraft と同じ理由）
+    var foodAmountText: [String: String] = [:]
+
+    /// 計算に渡す形。**空欄と読めない値は 0**（「今日は入れなかった」）
+    var foodAmounts: [String: Double] {
+        foodAmountText.mapValues { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+    }
     /// 登録するときの入力。**いまの記録の入力とは別に持つ** ——
     /// 「これから食べるもの」と「登録しておきたいもの」は必ずしも同じではない
     var foodDraft = MealDraft()
@@ -176,7 +183,7 @@ final class MealModel {
 
         pickingFood = item
         // 触らなければ登録したときの量
-        foodAmounts = item.defaultAmounts
+        foodAmountText = item.defaultAmounts.mapValues { numberText($0) }
     }
 
     func confirmFoodPick() {
@@ -186,7 +193,7 @@ final class MealModel {
 
     func cancelFoodPick() {
         pickingFood = nil
-        foodAmounts = [:]
+        foodAmountText = [:]
     }
 
     /// 登録する引数。**数値は文字列のまま持つ**（「30.」で丸められないように）

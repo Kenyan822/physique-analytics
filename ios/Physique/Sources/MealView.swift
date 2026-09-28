@@ -19,7 +19,7 @@ struct MealView: View {
 
     /// 入力欄の並び。**キーボードの「次へ」がこの順に送る**
     private enum Field: Int, CaseIterable {
-        case protein, fat, carb
+        case protein, fat, carb, draftName
         case editP, editF, editC, editName, editQty
     }
 
@@ -203,13 +203,14 @@ struct MealView: View {
                         ForEach(item.components) { c in
                             LabeledContent(c.name) {
                                 HStack(spacing: 4) {
+                                    // **文字列で持つ**（#229）。数値に直しながら
+                                    // 持つと最後の1桁を消せない
                                     TextField(
                                         "",
-                                        value: Binding(
-                                            get: { model.foodAmounts[c.name] ?? c.amount },
-                                            set: { model.foodAmounts[c.name] = $0 }
-                                        ),
-                                        format: .number
+                                        text: Binding(
+                                            get: { model.foodAmountText[c.name] ?? "" },
+                                            set: { model.foodAmountText[c.name] = $0 }
+                                        )
                                     )
                                     .keyboardType(.decimalPad)
                                     .multilineTextAlignment(.trailing)
@@ -218,10 +219,15 @@ struct MealView: View {
                                     Text(c.unit).font(.caption).foregroundStyle(.secondary)
                                 }
                             }
+
+                            // **どう登録したかを添える**（#230）。
+                            // 基準が見えないと、いくつに直せばいいか決められない
+                            Text(registered(c))
+                                .font(.caption2).foregroundStyle(.secondary)
                         }
                     } footer: {
                         if item.hasComponents {
-                            Text("登録は \(c(item)) あたり。入れた量に比例して計算する")
+                            Text("入れた量に比例して計算する")
                         }
                     }
 
@@ -253,6 +259,18 @@ struct MealView: View {
             }
             .presentationDetents([.medium, .large])
         }
+    }
+
+    /// 引数をどう登録したか。「30g で P24 F1.5 C2」の形（#230）
+    private func registered(_ c: FoodItemComponent) -> String {
+        let macros = [("P", c.proteinG), ("F", c.fatG), ("C", c.carbG)]
+            .filter { $0.1 > 0 }
+            .map { "\($0.0)\(trimmed($0.1))" }
+            .joined(separator: " ")
+
+        let base = "登録: \(trimmed(c.amount))\(c.unit)"
+
+        return macros.isEmpty ? base : "\(base) で \(macros)"
     }
 
     /// 基準量の説明文。「30g あたり」のように出す
@@ -465,6 +483,9 @@ struct MealView: View {
             }
         } header: {
             Text(model.remaining == nil ? "今日の合計" : "今日の合計 / 残り")
+                // **読むだけの場所。** ここを叩いたらキーボードを閉じる（#229）。
+                // 画面全体に付けるとコントロールからタップを奪う
+                .dismissesKeyboardWhenTapped()
         }
     }
 
@@ -496,6 +517,15 @@ struct MealView: View {
                 Text(model.draft.kcal.map { "\($0) kcal" } ?? "— kcal")
                     .monospacedDigit()
                     .foregroundStyle(model.draft.kcal == nil ? .tertiary : .primary)
+            }
+
+            // **任意。** PFC を打つのが主目的なので後ろに置くが、
+            // 打っている流れで名前を入れたいときに手が止まるので戻した（#230）
+            LabeledContent("食べたもの") {
+                TextField("任意", text: $model.draft.name)
+                    .multilineTextAlignment(.trailing)
+                    .focused($focus, equals: .draftName)
+                    .accessibilityIdentifier("draftName")
             }
 
             // **PFC の下、記録の上。** 選ぶ → 確認 → 記録 の順で下に進む
@@ -534,8 +564,9 @@ struct MealView: View {
             Text("記録する")
         }
 
-        // 「食べたもの」「量」は入力から外した（#188）。**PFC を打つのが主目的**で、
-        // 名前は思い出せないことも多い。後から足したければ行をタップして直せる。
+        // 「量（1個 / 200g）」は入力に出さない。**PFC を打つのが主目的**で、
+        // 量は思い出せないことも多い。後から足したければ行をタップして直せる。
+        // 「食べたもの」は #230 で任意欄として戻した（外しすぎだった）。
         //
         // 過去の記録から選ぶ（N-02）もここに付いていたので、いまは使えない。
         // 引数つきの食品マスタ（#201）で作り直す
@@ -735,6 +766,14 @@ private struct Total: View {
 /// 観測スコープの外になり、`model.foodComponents` を足しても再描画されない
 /// （#217 で「引数を足すが効かない」として出た）。
 /// **独立した `View` にすれば自分の `body` が観測スコープになる。**
+/// 登録画面の入力欄。**引数は増えるので index を持つ**（#226）
+private enum EditorField: Hashable {
+    case name
+    case totalP, totalF, totalC
+    case compName(Int), compUnit(Int), compAmount(Int)
+    case compP(Int), compF(Int), compC(Int)
+}
+
 private struct FoodEditorScreen: View {
     /// `@Bindable` にすると `$model.foodDraft.qty` のような束縛が取れる
     @Bindable var model: MealModel
@@ -742,18 +781,38 @@ private struct FoodEditorScreen: View {
     /// 保存が終わって画面を畳むとき
     let done: () -> Void
 
+    @FocusState private var focus: EditorField?
+
+    /// 入力欄の並び。**引数が増えると伸びる**ので毎回組み立てる（#226）
+    private var fieldOrder: [EditorField] {
+        var out: [EditorField] = [.name, .totalP, .totalF, .totalC]
+        for (i, c) in model.foodComponents.enumerated() {
+            out += [.compName(i), .compUnit(i), .compAmount(i)]
+            // 「全部」の引数は PFC 欄を出していないので飛ばす
+            if !c.coversAll {
+                out += [.compP(i), .compF(i), .compC(i)]
+            }
+        }
+
+        return out
+    }
+
     var body: some View {
         Form {
             Section {
                 TextField("名前", text: $name)
                     .accessibilityIdentifier("foodName")
+                    .focused($focus, equals: .name)
             }
 
             Section {
                 HStack(spacing: 12) {
                     Num(label: "P", text: $model.foodDraft.proteinG)
+                        .focused($focus, equals: .totalP)
                     Num(label: "F", text: $model.foodDraft.fatG)
+                        .focused($focus, equals: .totalF)
                     Num(label: "C", text: $model.foodDraft.carbG)
+                        .focused($focus, equals: .totalC)
                 }
                 LabeledContent("カロリー") {
                     Text(model.foodDraft.kcal.map { "\($0) kcal" } ?? "— kcal")
@@ -771,7 +830,7 @@ private struct FoodEditorScreen: View {
             Section {
                 ForEach(Array($model.foodComponents.enumerated()), id: \.element.id) { i, $c in
                     VStack(spacing: 8) {
-                        componentEditor($c)
+                        componentEditor($c, at: i)
 
                         // **全部＝合計そのもの。** 入れると引数は1つになる（#224）
                         Toggle("全部", isOn: Binding(
@@ -805,7 +864,10 @@ private struct FoodEditorScreen: View {
         .navigationTitle(model.editingFoodID == nil ? "マスタに登録" : "登録した内容を直す")
         .navigationBarTitleDisplayMode(.inline)
         .dismissesKeyboardOnTap()
-        .keyboardDoneButton()
+        // **「次へ」で欄を移れるようにする**（#226）。
+        // 下の方の欄はキーボードに隠れて押せないので、閉じずに移れる道が要る。
+        // `keyboardDoneButton` と併用しない —— ツールバーが2つ出る
+        .keyboardFocusBar(focus: $focus, order: fieldOrder)
         // **「やめる」は置かない。** push したので戻るボタンがその役目になる。
         // .cancellationAction を足すと戻るボタンが消える
         .toolbar {
@@ -823,12 +885,14 @@ private struct FoodEditorScreen: View {
     }
 
     /// 引数1つの編集。
-    private func componentEditor(_ c: Binding<FoodComponentDraft>) -> some View {
+    private func componentEditor(_ c: Binding<FoodComponentDraft>, at i: Int) -> some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
                 TextField("名前（鶏ひき肉 / 砂糖）", text: c.name)
                     .accessibilityIdentifier("componentName")
+                    .focused($focus, equals: .compName(i))
                 Field(text: c.unit, width: 44, placeholder: "g")
+                    .focused($focus, equals: .compUnit(i))
             }
 
             // **量は1つだけ**（#224）。「あたり」と「いつもの量」を持つと
@@ -836,6 +900,7 @@ private struct FoodEditorScreen: View {
             HStack(spacing: 6) {
                 Field(text: c.amount, width: 56, placeholder: "200")
                     .accessibilityIdentifier("componentAmountInput")
+                    .focused($focus, equals: .compAmount(i))
                 Text("\(c.unit.wrappedValue) ぶんの PFC")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
@@ -844,9 +909,9 @@ private struct FoodEditorScreen: View {
             // **「全部」なら PFC は合計と同じ。** 入れる意味が無いので隠す
             if !c.coversAll.wrappedValue {
                 HStack(spacing: 12) {
-                    Num(label: "P", text: c.proteinG)
-                    Num(label: "F", text: c.fatG)
-                    Num(label: "C", text: c.carbG)
+                    Num(label: "P", text: c.proteinG).focused($focus, equals: .compP(i))
+                    Num(label: "F", text: c.fatG).focused($focus, equals: .compF(i))
+                    Num(label: "C", text: c.carbG).focused($focus, equals: .compC(i))
                 }
             }
         }
