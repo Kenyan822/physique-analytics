@@ -521,6 +521,29 @@ if !tab.waitForExistence(timeout: 30) {
 static func moved(_ list: [Row], from source: IndexSet, to destination: Int) -> [Row]
 ```
 
+## 行に identifier を付けると子が引けなくなる（#256）
+
+`HStack` に `.accessibilityIdentifier` を付けると、**中の `TextField` までその
+identifier で上書きされる。**
+
+```swift
+HStack {
+    TextField("", text: $w).accessibilityIdentifier("weightInput")
+    TextField("", text: $r).accessibilityIdentifier("repsInput")
+}
+.accessibilityIdentifier("setRow")   // ✗ 子が全部 setRow になる
+```
+
+ツリーを見ると分かる。
+
+```
+TextField, identifier: 'setRow'      ← weightInput のつもりだった
+StaticText, identifier: 'setRow', label: 'kg'
+```
+
+行そのものを引く必要が無いなら**付けない**。必要なら
+`.accessibilityElement(children: .contain)` を併用する。
+
 ## 入口ごとに1本足さない
 
 UI テストが 14本まで増え、**CI で約5分**かかるようになった（#227）。

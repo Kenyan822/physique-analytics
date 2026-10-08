@@ -176,12 +176,19 @@ struct EditSetTests {
         #expect(m.sets(of: dips).isEmpty)
     }
 
-    @Test("**セット番号は最大値 + 1**")
-    func nextSetNo() async {
-        let (m, _) = await model(sessionWithSets)
+    @Test("**セット番号は件数ではなく最大値 + 1**")
+    func setNoFromMax() async {
+        let (m, t) = await model(sessionWithSets)
         m.selectedExerciseId = bench
+        t.responses = [(Data("{}".utf8), 204)]
 
-        #expect(m.nextSetNo == 3)
+        // 1セット目を消しても、次は 3（2 の次）。件数で決めると 2 と衝突する
+        await m.deleteDraft(UUID(uuidString: "77777777-0000-0000-0000-000000000001")!)
+
+        // 空行は自動で用意される（3）。さらに足すと 4
+        #expect(m.drafts.map(\.setNo) == [2, 3])
+        m.addSetRow()
+        #expect(m.drafts.map(\.setNo) == [2, 3, 4])
     }
 
     @Test("直すと PATCH を送る")
@@ -241,45 +248,45 @@ struct CompactInputTests {
     @Test("RIR も文字列で持つ（空にできる）")
     func rirIsText() async {
         let (m, _) = await model(emptySession)
+        m.selectedExerciseId = bench
+        m.addSetRow()
+        let id = m.drafts.last!.id
 
-        m.rirText = "2"
-        #expect(m.rir == 2)
+        m.setRir("2", for: id)
+        #expect(m.drafts.last?.rir == 2)
 
         // **空にできる。** 数値で持つと最後の1桁が消せない（#229）
-        m.rirText = ""
-        #expect(m.rir == nil)
+        m.setRir("", for: id)
+        #expect(m.drafts.last?.rir == nil)
     }
 
     @Test("読めない RIR は未入力あつかい")
     func badRir() async {
         let (m, _) = await model(emptySession)
+        m.selectedExerciseId = bench
+        m.addSetRow()
+        let id = m.drafts.last!.id
 
-        m.rirText = "あ"
+        m.setRir("あ", for: id)
 
-        #expect(m.rir == nil)
+        #expect(m.drafts.last?.rir == nil)
     }
 
-    @Test("**重量かレップが空なら記録できない**")
-    func cannotRecordWhenEmpty() async {
+    @Test("**重量かレップが空なら保存しない**")
+    func incompleteRow() async {
         let (m, _) = await model(emptySession)
         m.selectedExerciseId = bench
+        m.addSetRow()
+        let id = m.drafts.last!.id
 
-        m.weightText = "80"; m.repsText = "8"
-        #expect(m.canRecord)
+        m.setWeight("80", for: id); m.setReps("8", for: id)
+        #expect(m.drafts.last?.isComplete == true)
 
-        m.weightText = ""
-        #expect(!m.canRecord)
+        m.setWeight("", for: id)
+        #expect(m.drafts.last?.isComplete == false)
 
-        m.weightText = "80"; m.repsText = ""
-        #expect(!m.canRecord)
-    }
-
-    @Test("種目を選んでいなければ記録できない")
-    func needsExercise() async {
-        let (m, _) = await model(emptySession)
-        m.weightText = "80"; m.repsText = "8"
-
-        #expect(!m.canRecord)
+        m.setWeight("80", for: id); m.setReps("", for: id)
+        #expect(m.drafts.last?.isComplete == false)
     }
 
     @Test("**前回は日付とそのセッションの全セット**")
@@ -300,5 +307,136 @@ struct CompactInputTests {
         await m.selectExercise(bench)
 
         #expect(m.lastSummary == nil)
+    }
+}
+
+/// 行ごとその場で直す（#256）。
+@Suite("行ごとに直す")
+@MainActor
+struct DraftRowTests {
+    private let set1 = UUID(uuidString: "77777777-0000-0000-0000-000000000001")!
+
+    @Test("記録済みが行として出る")
+    func drafts() async {
+        let (m, _) = await model(sessionWithSets)
+        m.selectedExerciseId = bench
+
+        // 記録済み2行 + **常に打てる空行が1つ**
+        #expect(m.drafts.map(\.setNo) == [1, 2, 3])
+        #expect(m.drafts.first?.weightText == "80")
+        #expect(m.drafts.first?.rirText == "2")
+        #expect(m.drafts.filter(\.recorded).count == 2)
+    }
+
+    @Test("**＋で1行増える。直前の値を引き継ぐ**")
+    func addsRow() async {
+        let (m, _) = await model(sessionWithSets)
+        m.selectedExerciseId = bench
+
+        m.addSetRow()
+
+        #expect(m.drafts.map(\.setNo) == [1, 2, 3, 4])
+        let added = m.drafts.last!
+        #expect(added.weightText == "80")
+        #expect(added.repsText == "7")
+        #expect(!added.recorded)
+    }
+
+    @Test("打った値を確定すると記録される")
+    func commitsNew() async {
+        let (m, t) = await model(sessionWithSets)
+        m.selectedExerciseId = bench
+        m.addSetRow()
+        let id = m.drafts.last!.id
+        m.setWeight("85", for: id)
+        m.setReps("5", for: id)
+
+        let created = #"{"id":"\#(id.uuidString.lowercased())","sessionId":"55555555-5555-5555-5555-555555555555","exerciseId":"22222222-2222-2222-2222-222222222222","setNo":3,"weightKg":85,"reps":5,"rir":1}"#
+        t.responses = [(Data(created.utf8), 201)]
+
+        await m.commitDraft(id)
+
+        #expect(m.drafts.last?.recorded == true)
+        #expect(m.sets(of: bench).count == 3)
+    }
+
+    @Test("**空欄のままでは記録しない**")
+    func skipsEmpty() async {
+        let (m, t) = await model(sessionWithSets)
+        m.selectedExerciseId = bench
+        m.addSetRow()
+        let id = m.drafts.last!.id
+        m.setWeight("", for: id)
+        let n = t.requests.count
+
+        await m.commitDraft(id)
+
+        #expect(t.requests.count == n)
+        #expect(m.drafts.last?.recorded == false)
+    }
+
+    @Test("記録済みを直すと PATCH")
+    func commitsExisting() async {
+        let (m, t) = await model(sessionWithSets)
+        m.selectedExerciseId = bench
+        m.setWeight("85", for: set1)
+        let patched = #"{"id":"77777777-0000-0000-0000-000000000001","sessionId":"55555555-5555-5555-5555-555555555555","exerciseId":"22222222-2222-2222-2222-222222222222","setNo":1,"weightKg":85,"reps":8,"rir":2}"#
+        t.responses = [(Data(patched.utf8), 200)]
+
+        await m.commitDraft(set1)
+
+        #expect(t.requests.last?.httpMethod == "PATCH")
+        #expect(m.sets(of: bench).first?.weightKg == 85)
+    }
+
+    @Test("変えていなければ送らない")
+    func skipsUnchanged() async {
+        let (m, t) = await model(sessionWithSets)
+        m.selectedExerciseId = bench
+        let n = t.requests.count
+
+        await m.commitDraft(set1)
+
+        #expect(t.requests.count == n)
+    }
+
+    @Test("**まだ記録していない行は、消してもサーバを叩かない**")
+    func deletesUnrecorded() async {
+        let (m, t) = await model(sessionWithSets)
+        m.selectedExerciseId = bench
+        m.addSetRow()
+        let id = m.drafts.last!.id
+        let n = t.requests.count
+
+        await m.deleteDraft(id)
+
+        #expect(t.requests.count == n)
+        #expect(m.drafts.count == 3)
+        #expect(!m.showError)
+    }
+
+    @Test("記録済みを消すと DELETE")
+    func deletesRecorded() async {
+        let (m, t) = await model(sessionWithSets)
+        m.selectedExerciseId = bench
+        t.responses = [(Data("{}".utf8), 204)]
+
+        await m.deleteDraft(set1)
+
+        #expect(t.requests.last?.httpMethod == "DELETE")
+        #expect(m.drafts.filter(\.recorded).map(\.setNo) == [2])
+    }
+
+    @Test("種目を変えると行も入れ替わる")
+    func switchesExercise() async {
+        let (m, _) = await model(sessionWithSets)
+        m.selectedExerciseId = bench
+        #expect(m.drafts.count == 3)
+
+        m.selectedExerciseId = dips
+
+        // 記録は無いが、**打てる空行は1つある**
+        #expect(m.drafts.filter(\.recorded).isEmpty)
+        #expect(m.drafts.count == 1)
     }
 }

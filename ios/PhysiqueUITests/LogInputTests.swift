@@ -29,19 +29,20 @@ final class LogInputTests: XCTestCase {
         row.tap()
 
         // **その行の下に開く**（#232）。押せて、打てるところまで見る
-        let weight = app.textFields["weightInput"]
+        let weight = app.textFields["weightInput"].firstMatch
         XCTAssertTrue(weight.waitForExistence(timeout: 5), "押すと入力欄が開くこと")
         XCTAssertTrue(weight.isHittable, "重量が打てる位置にあること")
-        XCTAssertTrue(app.textFields["repsInput"].isHittable, "レップが打てる位置にあること")
+        XCTAssertTrue(app.textFields["repsInput"].firstMatch.isHittable, "レップが打てる位置にあること")
+        XCTAssertTrue(app.textFields["rirInput"].firstMatch.isHittable, "RIR が打てる位置にあること")
 
-        let record = app.buttons["recordSet"]
-        XCTAssertTrue(record.exists, "記録が出ること")
-        XCTAssertTrue(record.isHittable, "押せる位置にあること")
+        let add = app.buttons["addSet"]
+        XCTAssertTrue(add.exists, "セットを足すが出ること")
+        XCTAssertTrue(add.isHittable, "押せる位置にあること")
 
         // **同じ行をもう一度押したら閉じる**（トグル）
         row.tap()
         XCTAssertFalse(
-            app.textFields["weightInput"].waitForExistence(timeout: 2),
+            app.textFields["weightInput"].firstMatch.waitForExistence(timeout: 2),
             "もう一度押すと閉じること"
         )
     }
@@ -77,36 +78,39 @@ final class LogInputTests: XCTestCase {
         let weight = app.textFields["weightInput"]
         XCTAssertTrue(weight.waitForExistence(timeout: 5), "足すと入力欄が開くこと")
         XCTAssertTrue(weight.isHittable, "打てる位置にあること")
-        XCTAssertTrue(app.buttons["recordSet"].isHittable, "記録が押せること")
+        XCTAssertTrue(app.buttons["addSet"].isHittable, "セットを足すが押せること")
     }
 
-    /// #247。記録したセットが行として出て、そこから直せるところまで。
-    ///
-    /// **並べ替えのドラッグは見ない。** XCUITest の press(forDuration:thenDragTo:) は
-    /// Form の中で不安定で、落ちても製品の問題か判別できない。
-    /// 並び替えのロジックは `swift test` が見ている
-    func test_記録したセットが行で出て直せる() {
+    /// #256。**記録済みも入力中も同じ行**で、その場で直せるところまで。
+    func test_セットが行で出てその場で直せる() {
         let row = app.buttons["routineRow"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20), "今日の想定が出ること")
         row.tap()
 
-        let record = app.buttons["recordSet"]
-        XCTAssertTrue(record.waitForExistence(timeout: 5), "記録が出ること")
-        XCTAssertTrue(record.isHittable, "押せる位置にあること")
-        record.tap()
-
-        // **1セット = 1行**で出る
-        let logged = app.buttons["loggedSet"].firstMatch
-        XCTAssertTrue(logged.waitForExistence(timeout: 10), "記録したセットが行で出ること")
-        XCTAssertTrue(logged.isHittable, "押せる位置にあること")
-        logged.tap()
-
-        // 押すと直せる
-        let weight = app.textFields["editWeight"]
-        XCTAssertTrue(weight.waitForExistence(timeout: 5), "直す画面が開くこと")
+        // 開いた時点で1行ある（前回値が入る）
+        let weight = app.textFields["weightInput"].firstMatch
+        XCTAssertTrue(weight.waitForExistence(timeout: 10), "入力行が出ること")
         XCTAssertTrue(weight.isHittable, "打てる位置にあること")
-        XCTAssertTrue(app.buttons["saveSet"].isHittable, "保存が押せること")
-        XCTAssertTrue(app.buttons["deleteSet"].isHittable, "削除が押せること")
+        weight.tap()
+
+        // **キーボードの ↑↓ で欄を移動できる**（食事と同じ・#229）
+        let next = app.buttons["keyboardNext"]
+        XCTAssertTrue(next.waitForExistence(timeout: 5), "次へが出ること")
+        XCTAssertTrue(next.isHittable, "押せる位置にあること")
+        next.tap()
+        XCTAssertTrue(app.buttons["keyboardPrev"].isHittable, "前へも押せること")
+
+        app.buttons["keyboardDone"].tap()
+
+        // **＋でセットが増える**
+        let before = app.textFields.matching(identifier: "weightInput").count
+        let add = app.buttons["addSet"]
+        XCTAssertTrue(add.isHittable, "セットを足すが押せること")
+        add.tap()
+        XCTAssertEqual(
+            app.textFields.matching(identifier: "weightInput").count, before + 1,
+            "行が1つ増えること"
+        )
     }
 
     func test_Dayを手でずらせる() {
