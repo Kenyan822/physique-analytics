@@ -136,9 +136,39 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
             var s = body
             s["id"] = UUID().uuidString.lowercased()
             s["sets"] = []
+            s["exercises"] = []
             sessions.append(s)
 
             return (s, 201)
+
+        // その日の種目リストを全置換する（#242）
+        case ("PUT", let p) where p.hasSuffix("/exercises"):
+            let ids = (body["exerciseIds"] as? [String]) ?? []
+            let byId = Dictionary(uniqueKeysWithValues:
+                Self.exercises.map { ($0["id"] as? String ?? "", $0) })
+            let items = ids.enumerated().compactMap { i, id -> [String: Any]? in
+                guard let e = byId[id] else { return nil }
+
+                return ["exerciseId": id, "exerciseName": e["name"] as Any,
+                        "muscleGroup": e["muscleGroup"] as Any, "itemOrder": i + 1]
+            }
+            if let i = sessions.firstIndex(where: { $0["id"] as? String == lastPath(p, drop: 1) }) {
+                sessions[i]["exercises"] = items
+            }
+
+            return (["items": items], 200)
+
+        case ("PATCH", let p) where p.contains("/v1/workout-sets/"):
+            return (patchSet(id: lastPath(p), with: body), 200)
+
+        case ("DELETE", let p) where p.contains("/v1/workout-sets/"):
+            for i in sessions.indices {
+                var sets = (sessions[i]["sets"] as? [[String: Any]]) ?? []
+                sets.removeAll { $0["id"] as? String == lastPath(p) }
+                sessions[i]["sets"] = sets
+            }
+
+            return ([:], 204)
 
         case ("POST", let p) where p.hasSuffix("/sets"):
             let sessionId = lastPath(p, drop: 1)
@@ -232,6 +262,19 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
         default:
             return (["items": []], 200)
         }
+    }
+
+    private func patchSet(id: String, with body: [String: Any]) -> [String: Any] {
+        for i in sessions.indices {
+            var sets = (sessions[i]["sets"] as? [[String: Any]]) ?? []
+            guard let j = sets.firstIndex(where: { $0["id"] as? String == id }) else { continue }
+            for (k, v) in body { sets[j][k] = v }
+            sessions[i]["sets"] = sets
+
+            return sets[j]
+        }
+
+        return [:]
     }
 
     /// 末尾から `drop` 個手前のセグメント。`.../{id}/sets` の id を取るのに使う

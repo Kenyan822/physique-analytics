@@ -150,6 +150,31 @@ struct APIClient: Sendable {
         )
     }
 
+    /// その日の種目リストを全置換する（#242）。
+    ///
+    /// **追加・削除・並べ替えを分けない。** ドラッグ中の中間状態で順序が壊れる
+    func replaceSessionExercises(
+        sessionId: UUID, exerciseIds: [UUID]
+    ) async throws -> [SessionExercise] {
+        struct Body: Encodable { let exerciseIds: [UUID] }
+        struct Response: Decodable { let items: [SessionExercise] }
+
+        return try await request(
+            Response.self, "PUT",
+            "/v1/workout-sessions/\(escape(sessionId.uuidString))/exercises",
+            body: Body(exerciseIds: exerciseIds)
+        ).items
+    }
+
+    func updateSet(id: UUID, _ input: WorkoutSetInput) async throws -> WorkoutSet {
+        try await request(WorkoutSet.self, "PATCH",
+                          "/v1/workout-sets/\(escape(id.uuidString))", body: input)
+    }
+
+    func deleteSet(id: UUID) async throws {
+        try await requestNoContent("DELETE", "/v1/workout-sets/\(escape(id.uuidString))")
+    }
+
     // MARK: - 食事（要件 N-01 / N-02 / N-05）
 
     func listMeals(from: String, to: String) async throws -> [Meal] {

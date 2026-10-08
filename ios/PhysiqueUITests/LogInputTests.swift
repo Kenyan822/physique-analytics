@@ -80,6 +80,35 @@ final class LogInputTests: XCTestCase {
         XCTAssertTrue(app.buttons["recordSet"].isHittable, "記録が押せること")
     }
 
+    /// #247。記録したセットが行として出て、そこから直せるところまで。
+    ///
+    /// **並べ替えのドラッグは見ない。** XCUITest の press(forDuration:thenDragTo:) は
+    /// Form の中で不安定で、落ちても製品の問題か判別できない。
+    /// 並び替えのロジックは `swift test` が見ている
+    func test_記録したセットが行で出て直せる() {
+        let row = app.buttons["routineRow"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "今日の想定が出ること")
+        row.tap()
+
+        let record = app.buttons["recordSet"]
+        XCTAssertTrue(record.waitForExistence(timeout: 5), "記録が出ること")
+        XCTAssertTrue(record.isHittable, "押せる位置にあること")
+        record.tap()
+
+        // **1セット = 1行**で出る
+        let logged = app.buttons["loggedSet"].firstMatch
+        XCTAssertTrue(logged.waitForExistence(timeout: 10), "記録したセットが行で出ること")
+        XCTAssertTrue(logged.isHittable, "押せる位置にあること")
+        logged.tap()
+
+        // 押すと直せる
+        let weight = app.textFields["editWeight"]
+        XCTAssertTrue(weight.waitForExistence(timeout: 5), "直す画面が開くこと")
+        XCTAssertTrue(weight.isHittable, "打てる位置にあること")
+        XCTAssertTrue(app.buttons["saveSet"].isHittable, "保存が押せること")
+        XCTAssertTrue(app.buttons["deleteSet"].isHittable, "削除が押せること")
+    }
+
     func test_Dayを手でずらせる() {
         let change = app.buttons["changeDay"]
         XCTAssertTrue(change.waitForExistence(timeout: 20), "変更が出ること")

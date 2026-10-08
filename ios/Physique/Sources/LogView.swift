@@ -9,6 +9,8 @@ struct LogView: View {
     @State private var addingExercise = false
     @State private var changingDay = false
     @State private var pickingDate = false
+    /// 直している記録済みセット（#247）
+    @State private var editing: PendingSet?
     @FocusState private var focus: Field?
 
     /// 入力欄の並び。キーボードの「次へ」がこの順に送る
@@ -29,22 +31,9 @@ struct LogView: View {
                     }
                 }
 
+                // **セットは種目の下に出る**（#247）。ここに一覧を出すと
+                // 同じものが2か所に並び、どちらを直すのか分からなくなる
                 todaySection
-
-                // **ルーティンがあるときは行の下に開く**（#232）。
-                // ここに出すと二重になり、どちらに打つのか分からなくなる
-                if model.selectedExerciseId != nil, model.currentDay == nil {
-                    lastPerformanceSection
-                    inputSection
-                }
-
-                if !model.logged.isEmpty {
-                    Section("今日の記録") {
-                        ForEach(model.logged) { s in
-                            Text(model.describe(s)).font(.callout).monospacedDigit()
-                        }
-                    }
-                }
             }
             .navigationBarTitleDisplayMode(.inline)
             // **食事と同じ形**（#193 と揃える）。中央上部に置き、左右で1日ずつ
@@ -58,6 +47,7 @@ struct LogView: View {
             // **カテゴリ別に全種目。** 今日の想定に無いものをその日だけ足す（#232）
             .sheet(isPresented: $addingExercise) { addExerciseSheet }
             .sheet(isPresented: $changingDay) { changeDaySheet }
+            .sheet(item: $editing) { editSetSheet($0) }
             .alert("エラー", isPresented: $model.showError) {
                 Button("閉じる", role: .cancel) {}
             } message: {
@@ -122,8 +112,8 @@ struct LogView: View {
                         Section(g.rawValue) {
                             ForEach(items) { e in
                                 Button {
-                                    model.addExercise(e.id)
                                     addingExercise = false
+                                    Task { await model.addExercise(e.id) }
                                 } label: {
                                     HStack {
                                         Text(e.name)
@@ -194,76 +184,116 @@ struct LogView: View {
         }
     }
 
-    /// 今日やる想定（要件 T-01 / #232）。
+    /// 今日やる種目（要件 T-01 / #232 / #247）。
     ///
-    /// **最初から並んでいる。** 以前は別画面で50種目から1つ選ばせていたが、
-    /// ジムで毎セットこれをやるのは重い。
-    ///
-    /// ルーティンが未登録なら、今までどおり全種目から選ぶ。
+    /// **ルーティンはプレースホルダ。** 並べ替え・追加・削除はその日だけに効き、
+    /// ルーティン自体は変わらない（#242）。
     @ViewBuilder
     private var todaySection: some View {
-        if let day = model.currentDay {
-            Section {
-                ForEach(day.items) { item in
-                    Button {
-                        model.toggleExercise(item.exerciseId)
-                    } label: {
-                        routineRow(item)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("routineRow")
-
-                    // **その行の下に開く。** 画面の一番下に入力欄があると、
-                    // どの種目を打っているのか分からなくなる（#232）
-                    if model.selectedExerciseId == item.exerciseId {
-                        inlineEditor
-                    }
-                }
-
-                // **足した種目も行として並べる。** 開くだけだと入力欄が
-                // ルーティンの行の下にしか出ず、何も起きない（実機で踏んだ）
-                ForEach(model.extraExercises) { e in
-                    Button {
-                        model.toggleExercise(e.id)
-                    } label: {
-                        extraRow(e)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("routineRow")
-
-                    if model.selectedExerciseId == e.id {
-                        inlineEditor
-                    }
-                }
-
+        Section {
+            ForEach(model.rows) { row in
                 Button {
-                    addingExercise = true
+                    model.toggleExercise(row.exerciseId)
                 } label: {
-                    Label("種目を足す", systemImage: "plus")
+                    exerciseRow(row)
                 }
-                .accessibilityIdentifier("addExercise")
-            } header: {
-                HStack {
-                    Text(model.dayLabel ?? "今日")
-                    Spacer()
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("routineRow")
+
+                // **その行の下に開く。** 画面の一番下に入力欄があると、
+                // どの種目を打っているのか分からなくなる（#232）
+                if model.selectedExerciseId == row.exerciseId {
+                    setList(for: row.exerciseId)
+                    inlineEditor
+                }
+            }
+            .onMove { from, to in Task { await model.moveRows(from: from, to: to) } }
+            .onDelete { offsets in Task { await model.removeRows(offsets) } }
+
+            Button {
+                addingExercise = true
+            } label: {
+                Label("種目を足す", systemImage: "plus")
+            }
+            .accessibilityIdentifier("addExercise")
+        } header: {
+            HStack {
+                Text(model.dayLabel ?? "今日")
+                Spacer()
+                if model.savingRows {
+                    ProgressView().controlSize(.mini)
+                }
+                if !model.allDays.isEmpty {
                     Button("変更") { changingDay = true }
                         .font(.caption)
                         .accessibilityIdentifier("changeDay")
                 }
             }
-        } else {
-            // ルーティンが未登録。**記録はできる**ので今までどおり選ばせる
-            Section("種目") {
-                Picker("種目", selection: $model.selectedExerciseId) {
-                    Text("選ぶ").tag(UUID?.none)
-                    ForEach(model.exercises) { e in
-                        Text("\(e.name)（\(e.muscleGroup.rawValue)）\(model.doneMark(e.id))")
-                            .tag(UUID?.some(e.id))
-                    }
-                }
-                .pickerStyle(.navigationLink)
+        } footer: {
+            if !model.rows.isEmpty {
+                Text("長押しで並べ替え・左スワイプで削除。ルーティンは変わらない")
+                    .font(.caption2)
             }
         }
+    }
+
+    /// 1行。ルーティン由来なら目標、手で足したなら部位を添える
+    private func exerciseRow(_ row: LogModel.Row) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(row.name)
+                    if model.isDoneToday(row.exerciseId) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption).foregroundStyle(.green)
+                    }
+                }
+                Text(row.target ?? row.muscleGroup.rawValue)
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+
+            Spacer()
+
+            if model.selectedExerciseId == row.exerciseId {
+                Image(systemName: "chevron.down")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    /// 記録済みのセット。**1セット = 1行。** 押すと直せる、左スワイプで消せる（#247）
+    @ViewBuilder
+    private func setList(for exerciseId: UUID) -> some View {
+        ForEach(model.sets(of: exerciseId)) { s in
+            Button {
+                editing = s
+            } label: {
+                HStack(spacing: 10) {
+                    Text("\(s.setNo)")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .frame(width: 16, alignment: .trailing)
+                    Text(setLabel(s)).monospacedDigit()
+                    Spacer()
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption).foregroundStyle(.green)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("loggedSet")
+            .swipeActions {
+                Button("削除", role: .destructive) {
+                    Task { await model.deleteSet(id: s.id) }
+                }
+            }
+        }
+    }
+
+    private func setLabel(_ s: PendingSet) -> String {
+        let w = s.weightKg == s.weightKg.rounded() ? String(Int(s.weightKg)) : String(s.weightKg)
+
+        return "\(w)kg × \(s.reps)回" + (s.rir.map { "  RIR\($0)" } ?? "")
     }
 
     /// 開いた行の下に出す入力欄（#232）。
@@ -356,29 +386,19 @@ struct LogView: View {
         .padding(.vertical, 4)
     }
 
-    /// その日だけ足した種目の1行。**目標が無い**ので部位だけ添える
-    private func extraRow(_ e: Exercise) -> some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(e.name)
-                    if model.isDoneToday(e.id) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.caption).foregroundStyle(.green)
-                    }
-                }
-                Text("\(e.muscleGroup.rawValue)   今日だけ")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
 
-            Spacer()
-
-            if model.selectedExerciseId == e.id {
-                Image(systemName: "chevron.down")
-                    .font(.caption).foregroundStyle(.tertiary)
-            }
+    /// 記録済みセットを直すシート（#247）。
+    ///
+    /// **その場で直さずシートにする。** 行の中に TextField を置くと、
+    /// 並べ替えのドラッグと取り合いになる
+    private func editSetSheet(_ s: PendingSet) -> some View {
+        EditSetSheet(set: s) { w, r, rir in
+            await model.updateSet(id: s.id, weightKg: w, reps: r, rir: rir)
+            editing = nil
+        } onDelete: {
+            await model.deleteSet(id: s.id)
+            editing = nil
         }
-        .contentShape(Rectangle())
     }
 
     /// 見出し + 中身の1行。**前回の表示に使う**
@@ -391,62 +411,8 @@ struct LogView: View {
         }
     }
 
-    /// 今日やる種目1行。**目標と前回を並べて、超えられるか即断できるようにする。**
-    private func routineRow(_ item: RoutineDayItem) -> some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(item.exerciseName)
-                    if model.isDoneToday(item.exerciseId) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.caption).foregroundStyle(.green)
-                    }
-                }
-                Text("\(item.targetLabel)   \(item.lastLabel)")
-                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-            }
 
-            Spacer()
 
-            if model.selectedExerciseId == item.exerciseId {
-                Image(systemName: "chevron.down")
-                    .font(.caption).foregroundStyle(.tertiary)
-            }
-        }
-        .contentShape(Rectangle())
-    }
-
-    /// 前回の実施内容（要件 T-02 / T-09）。その場で超えられるか判断できるようにする。
-    @ViewBuilder
-    private var lastPerformanceSection: some View {
-        Section("前回") {
-            if model.loadingLast {
-                Text("取得中…").foregroundStyle(.secondary)
-            } else if let last = model.last, let date = last.date {
-                HStack {
-                    Text(JST.displayString(from: date))
-                    Spacer()
-                    if let e1rm = last.estimatedOneRm {
-                        Text("推定1RM \(e1rm, specifier: "%.1f")kg")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                }
-                .font(.footnote)
-
-                Text(model.describeLastSets())
-                    .font(.callout)
-                    .monospacedDigit()
-            } else {
-                Text("この種目は初回").foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    /// ルーティンが未登録のときの入力欄。**中身はインラインと同じ。**
-    private var inputSection: some View {
-        Section("入力") { inlineEditor }
-    }
 }
 
 #Preview {

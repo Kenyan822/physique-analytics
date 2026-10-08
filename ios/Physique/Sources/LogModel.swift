@@ -76,28 +76,104 @@ final class LogModel {
         selectedExerciseId = selectedExerciseId == id ? nil : id
     }
 
-    /// その日だけ足した種目（#232）。ルーティンには入らない
-    private(set) var extraExerciseIds: [UUID] = []
+    // MARK: - その日の種目リスト（#242 / #247）
 
-    /// 足した種目を行として出すための実体。**並びは足した順**
-    var extraExercises: [Exercise] {
-        extraExerciseIds.compactMap { id in exercises.first { $0.id == id } }
+    /// 画面に並べる1行。ルーティン由来でも手で足したものでも同じ形にする
+    struct Row: Identifiable, Hashable {
+        var id: UUID { exerciseId }
+
+        let exerciseId: UUID
+        let name: String
+        let muscleGroup: MuscleGroup
+        /// ルーティンの目標。手で足した種目には無い
+        var target: String?
     }
 
-    /// 今日の想定に無い種目を足す（#232）。
-    ///
-    /// **行を増やしてから開く。** 開くだけだと入力欄はルーティンの行の下にしか
-    /// 出ないので、足した種目を選んでも画面に何も起きない（実機で踏んだ）。
-    ///
-    /// 永続化はまだしない。セッションに持たせるのは #242。
-    func addExercise(_ id: UUID) {
+    /// サーバに保存されたその日の並び。**空ならまだ触っていない**
+    private(set) var savedOrder: [UUID] = []
+    /// 画面に並べる行。保存された並びがあればそちら、無ければルーティン
+    private(set) var rows: [Row] = []
+    private(set) var savingRows = false
+
+    /// 行を組み直す。**保存された並びが正、無ければルーティン**（#242）
+    private func rebuildRows() {
+        let fromRoutine = (currentDay?.items ?? []).map {
+            Row(exerciseId: $0.exerciseId, name: $0.exerciseName,
+                muscleGroup: MuscleGroup(rawValue: $0.muscleGroup) ?? .chest,
+                target: $0.targetLabel)
+        }
+        guard !savedOrder.isEmpty else {
+            rows = fromRoutine
+
+            return
+        }
+
+        let byId = Dictionary(uniqueKeysWithValues: fromRoutine.map { ($0.exerciseId, $0) })
+        rows = savedOrder.compactMap { id in
+            if let r = byId[id] { return r }
+            guard let e = exercises.first(where: { $0.id == id }) else { return nil }
+
+            return Row(exerciseId: e.id, name: e.name, muscleGroup: e.muscleGroup)
+        }
+    }
+
+    /// 並べ替える。**先に画面を動かしてから保存する**（ドラッグが固まらないように）
+    func moveRows(from source: IndexSet, to destination: Int) async {
+        let before = rows
+        rows = Self.moved(rows, from: source, to: destination)
+        await persistRows(revertTo: before)
+    }
+
+    /// 行を消す。**セットのある種目はサーバが 422 で弾く**（#242）
+    func removeRows(_ offsets: IndexSet) async {
+        let before = rows
+        rows = rows.enumerated().filter { !offsets.contains($0.offset) }.map(\.element)
+        await persistRows(revertTo: before)
+    }
+
+    /// 今日の想定に無い種目を足す。**末尾に入る**
+    func addExercise(_ id: UUID) async {
         defer { selectedExerciseId = id }
+        guard !rows.contains(where: { $0.exerciseId == id }) else { return }
+        guard let e = exercises.first(where: { $0.id == id }) else { return }
 
-        // 既に行があるなら増やさない。開くだけでよい
-        guard currentDay?.items.contains(where: { $0.exerciseId == id }) != true,
-              !extraExerciseIds.contains(id) else { return }
+        let before = rows
+        rows.append(Row(exerciseId: e.id, name: e.name, muscleGroup: e.muscleGroup))
+        await persistRows(revertTo: before)
+    }
 
-        extraExerciseIds.append(id)
+    /// `move(fromOffsets:toOffset:)` の中身。**SwiftUI の拡張なので自前で書く**
+    /// （`PhysiqueCore` は SwiftUI に依存しない。そうしないと `swift test` で回せない）
+    static func moved(_ list: [Row], from source: IndexSet, to destination: Int) -> [Row] {
+        let picked = source.sorted().map { list[$0] }
+        var rest = list
+        for i in source.sorted(by: >) { rest.remove(at: i) }
+        // 抜いた分だけ挿入位置が前にずれる
+        let at = destination - source.filter { $0 < destination }.count
+
+        rest.insert(contentsOf: picked, at: min(max(0, at), rest.count))
+
+        return rest
+    }
+
+    /// 並びをサーバに全置換で送る。
+    ///
+    /// **失敗したら画面も戻す。** 消えたまま残ると、次の全置換で本当に消える
+    private func persistRows(revertTo before: [Row]) async {
+        savingRows = true
+        defer { savingRows = false }
+
+        do {
+            let sid = try await ensureSessionID()
+            let saved = try await api.replaceSessionExercises(
+                sessionId: sid, exerciseIds: rows.map(\.exerciseId))
+            savedOrder = saved.isEmpty ? rows.map(\.exerciseId) : saved.map(\.exerciseId)
+            rebuildRows()
+        } catch {
+            rows = before
+            savedOrder = before.map(\.exerciseId)
+            report(error)
+        }
     }
 
     var showError = false
@@ -109,6 +185,8 @@ final class LogModel {
     private let today: String
     private let api: APIClient
     private let queue: PendingQueue
+    /// 読み込み済みのセッション id。日を移ったら捨てる
+    private var knownSessionID: UUID?
     private var restStartedAt: Date?
     private var restSeconds = 0
 
@@ -153,7 +231,9 @@ final class LogModel {
         // 別の日の選択が残ると混乱する
         pickedOrder = nil
         selectedExerciseId = nil
-        extraExerciseIds = []
+        savedOrder = []
+        rows = []
+        knownSessionID = nil
         await load()
     }
 
@@ -165,6 +245,10 @@ final class LogModel {
             // その日の記録を先に読む。画面を開き直したときにセット番号が
             // 1 に戻ると、既に記録した番号と衝突して入力できない
             let sessions = try await api.listSessions(from: date, to: date, limit: 1)
+            knownSessionID = sessions.first?.id
+            savedOrder = (sessions.first?.exercises ?? [])
+                .sorted { $0.itemOrder < $1.itemOrder }
+                .map(\.exerciseId)
             logged = (sessions.first?.sets ?? []).map {
                 PendingSet(
                     id: $0.id, date: date, exerciseId: $0.exerciseId, setNo: $0.setNo,
@@ -180,6 +264,7 @@ final class LogModel {
         // **失敗しても握る。** 今日の想定が出ないだけで、記録はできる
         routine = try? await api.todayRoutine(date: date)
 
+        rebuildRows()
         updatePendingMessage()
     }
 
@@ -192,6 +277,7 @@ final class LogModel {
     /// nil で自動に戻す。**全 Day を持っているので引き直さない。**
     func pickDay(_ day: RoutineDay?) {
         pickedOrder = day?.dayOrder
+        rebuildRows()
     }
 
     /// その種目を今日やったか。行の印に使う
@@ -254,14 +340,50 @@ final class LogModel {
     }
 
     /// 溜まった記録を送る（要件 T-07）。
+    // MARK: - 記録したセットを直す・消す（#247）
+
+    /// その種目のセット。**番号順**
+    func sets(of exerciseId: UUID) -> [PendingSet] {
+        logged.filter { $0.exerciseId == exerciseId }.sorted { $0.setNo < $1.setNo }
+    }
+
+    /// 打ち間違いを直す。
+    ///
+    /// **キューを経由しない。** 未送信のものを直す経路まで作ると、同じ id が
+    /// キューとサーバの両方にある状態を考えることになる。直せるのは送信済みだけ
+    func updateSet(id: UUID, weightKg: Double, reps: Int, rir: Int?) async {
+        guard let i = logged.firstIndex(where: { $0.id == id }) else { return }
+
+        do {
+            _ = try await api.updateSet(id: id, WorkoutSetInput(
+                id: id, exerciseId: logged[i].exerciseId, setNo: logged[i].setNo,
+                weightKg: weightKg, reps: reps, rir: rir))
+            logged[i].weightKg = weightKg
+            logged[i].reps = reps
+            logged[i].rir = rir
+        } catch {
+            report(error)
+        }
+    }
+
+    /// セットを消す。**サーバが消えたことを返すまで画面からは消さない**
+    func deleteSet(id: UUID) async {
+        do {
+            try await api.deleteSet(id: id)
+            logged.removeAll { $0.id == id }
+        } catch {
+            report(error)
+        }
+    }
+
     func flush() async {
         var sent: [UUID] = []
 
         for item in queue.all() {
             do {
-                let session = try await ensureSession()
+                let sid = try await ensureSessionID()
                 _ = try await api.createSet(
-                    sessionId: session.id,
+                    sessionId: sid,
                     WorkoutSetInput(
                         id: item.id, exerciseId: item.exerciseId, setNo: item.setNo,
                         weightKg: item.weightKg, reps: item.reps, rir: item.rir
@@ -280,14 +402,25 @@ final class LogModel {
         queue.remove(ids: sent)
     }
 
-    private func ensureSession() async throws -> WorkoutSession {
+    /// その日のセッション id。**読み込み済みなら引き直さない。**
+    /// セットを記録するたびに一覧を叩くと、ジムの電波で毎回待たされる
+    private func ensureSessionID() async throws -> UUID {
+        if let id = knownSessionID { return id }
+
         let existing = try await api.listSessions(from: date, to: date, limit: 1)
-        if let s = existing.first { return s }
+        if let s = existing.first {
+            knownSessionID = s.id
+
+            return s.id
+        }
 
         // **どの Day をやったかを残す。** 入れないと巡回が進まない（#232）
-        return try await api.createSession(
+        let created = try await api.createSession(
             WorkoutSessionInput(date: date, templateId: currentDay?.templateId)
         )
+        knownSessionID = created.id
+
+        return created.id
     }
 
     // MARK: - インターバル（要件 T-05）
