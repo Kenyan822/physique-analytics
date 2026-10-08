@@ -1353,9 +1353,14 @@ export interface components {
          * @description 手入力か AI 推定か（docs/02-データモデル.md）。
          *     推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
          *     分析の確度を下げて扱う。
+         *
+         *     `rough` は飲み会・外食などの**ざっくり入力**（要件 N-01）。kcal だけ入れて
+         *     PFC を P 20% / F 30% / C 50%（kcal 比）で按分したもの。**自分で計った
+         *     `manual` と混ぜない** —— 混ぜると推定の良し悪しを後から検証できない。
+         *     精度より、記録が残ることを優先する入口。
          * @enum {string}
          */
-        MealSource: "manual" | "ai_estimated";
+        MealSource: "manual" | "ai_estimated" | "rough";
         Meal: components["schemas"]["Timestamps"] & {
             /** Format: uuid */
             id: string;
@@ -1405,7 +1410,11 @@ export interface components {
             /** @description 任意。空白だけなら「無し」として扱う */
             name?: string | null;
             qty?: string | null;
-            /** @description 省くと PFC から計算される（Atwater 係数 4/9/4） */
+            /**
+             * @description 省くと PFC から計算される（Atwater 係数 4/9/4）。
+             *     **`source: rough` で PFC を1つも送らないと、この kcal を P 20% / F 30% / C 50%
+             *     で按分して PFC を決める**（保存後に手で直せる）
+             */
             kcal?: number | null;
             proteinG?: number | null;
             fatG?: number | null;
