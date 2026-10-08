@@ -1020,6 +1020,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/streaks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 日別の達成フラグ（食事の目標・筋トレ）
+         * @description 月カレンダーに印を出すための元データ。**記録が無い日も行として返す**
+         *     （カレンダーが歯抜けにならない）。
+         *
+         *     - `mealGoalMet`: P・F・C **すべて**がその日の目標の ±10% 以内なら true。
+         *       kcal は見ない（PFC から導けるので二重に判定しない）
+         *     - `trained`: その日に `workout_sets` が1件でもあれば true
+         *
+         *     **目標は「その日に有効だったもの」で判定する**（手動目標の履歴を
+         *     `starts_on <= 日付` で引く）。いまの目標で過去日を再計算すると、
+         *     目標を変えるたびにカレンダーが書き換わる。
+         *     **目標が引けない日は `mealGoalMet` が null。** 「未達」と「判定できない」を混ぜない。
+         */
+        get: operations["getStreaks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1781,6 +1811,17 @@ export interface components {
                 field: string;
                 message: string;
             }[];
+        };
+        StreakDay: {
+            /** Format: date */
+            date: string;
+            /**
+             * @description P・F・C すべてが当日の目標の ±10% 以内なら true。**目標が引けない日は null**
+             *     （false ではない）
+             */
+            mealGoalMet: boolean | null;
+            /** @description その日に `workout_sets` が1件でもある */
+            trained: boolean;
         };
     };
     responses: {
@@ -3823,6 +3864,35 @@ export interface operations {
                     };
                 };
             };
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getStreaks: {
+        parameters: {
+            query: {
+                /** @description JST の日付（ADR-0013） */
+                from: string;
+                /** @description JST の日付。`from` から最大 366 日 */
+                to: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK。`from`〜`to` の全日を日付の昇順で返す */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["StreakDay"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             422: components["responses"]["ValidationFailed"];
         };
     };
