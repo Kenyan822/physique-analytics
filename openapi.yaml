@@ -2167,8 +2167,13 @@ components:
         手入力か AI 推定か（docs/02-データモデル.md）。
         推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
         分析の確度を下げて扱う。
-      enum: [manual, ai_estimated]
-      x-enum-varnames: [Manual, AiEstimated]
+
+        `rough` は飲み会・外食などの**ざっくり入力**（要件 N-01）。kcal だけ入れて
+        PFC を P 20% / F 30% / C 50%（kcal 比）で按分したもの。**自分で計った
+        `manual` と混ぜない** —— 混ぜると推定の良し悪しを後から検証できない。
+        精度より、記録が残ることを優先する入口。
+      enum: [manual, ai_estimated, rough]
+      x-enum-varnames: [Manual, AiEstimated, Rough]
 
     Meal:
       allOf:
@@ -2236,7 +2241,10 @@ components:
           type: [integer, "null"]
           minimum: 0
           maximum: 10000
-          description: 省くと PFC から計算される（Atwater 係数 4/9/4）
+          description: |
+            省くと PFC から計算される（Atwater 係数 4/9/4）。
+            **`source: rough` で PFC を1つも送らないと、この kcal を P 20% / F 30% / C 50%
+            で按分して PFC を決める**（保存後に手で直せる）
         proteinG: { type: [number, "null"], minimum: 0, maximum: 1000 }
         fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
         carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }

@@ -69,6 +69,7 @@ func (e MealSlot) Valid() bool {
 const (
 	MealSourceAiEstimated MealSource = "ai_estimated"
 	MealSourceManual      MealSource = "manual"
+	MealSourceRough       MealSource = "rough"
 )
 
 // Valid indicates whether the value is a known member of the MealSource enum.
@@ -77,6 +78,8 @@ func (e MealSource) Valid() bool {
 	case MealSourceAiEstimated:
 		return true
 	case MealSourceManual:
+		return true
+	case MealSourceRough:
 		return true
 	default:
 		return false
@@ -772,6 +775,11 @@ type Meal struct {
 	// Source 手入力か AI 推定か（docs/02-データモデル.md）。
 	// 推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
 	// 分析の確度を下げて扱う。
+	//
+	// `rough` は飲み会・外食などの**ざっくり入力**（要件 N-01）。kcal だけ入れて
+	// PFC を P 20% / F 30% / C 50%（kcal 比）で按分したもの。**自分で計った
+	// `manual` と混ぜない** —— 混ぜると推定の良し悪しを後から検証できない。
+	// 精度より、記録が残ることを優先する入口。
 	Source MealSource `json:"source"`
 
 	// UpdatedAt 競合解決に使う（ADR-0014）
@@ -811,7 +819,9 @@ type MealInput struct {
 	// Id クライアント生成の UUID（冪等性のため）
 	Id *openapi_types.UUID `json:"id,omitempty"`
 
-	// Kcal 省くと PFC から計算される（Atwater 係数 4/9/4）
+	// Kcal 省くと PFC から計算される（Atwater 係数 4/9/4）。
+	// **`source: rough` で PFC を1つも送らないと、この kcal を P 20% / F 30% / C 50%
+	// で按分して PFC を決める**（保存後に手で直せる）
 	Kcal *int `json:"kcal,omitempty"`
 
 	// Name 任意。空白だけなら「無し」として扱う
@@ -825,6 +835,11 @@ type MealInput struct {
 	// Source 手入力か AI 推定か（docs/02-データモデル.md）。
 	// 推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
 	// 分析の確度を下げて扱う。
+	//
+	// `rough` は飲み会・外食などの**ざっくり入力**（要件 N-01）。kcal だけ入れて
+	// PFC を P 20% / F 30% / C 50%（kcal 比）で按分したもの。**自分で計った
+	// `manual` と混ぜない** —— 混ぜると推定の良し悪しを後から検証できない。
+	// 精度より、記録が残ることを優先する入口。
 	Source    *MealSource `json:"source,omitempty"`
 	UpdatedAt *time.Time  `json:"updatedAt,omitempty"`
 }
@@ -869,6 +884,11 @@ type MealSlot string
 // MealSource 手入力か AI 推定か（docs/02-データモデル.md）。
 // 推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
 // 分析の確度を下げて扱う。
+//
+// `rough` は飲み会・外食などの**ざっくり入力**（要件 N-01）。kcal だけ入れて
+// PFC を P 20% / F 30% / C 50%（kcal 比）で按分したもの。**自分で計った
+// `manual` と混ぜない** —— 混ぜると推定の良し悪しを後から検証できない。
+// 精度より、記録が残ることを優先する入口。
 type MealSource string
 
 // MealSuggestion defines model for MealSuggestion.
