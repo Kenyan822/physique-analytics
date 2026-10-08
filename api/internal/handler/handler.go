@@ -4,6 +4,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -322,6 +323,17 @@ func NewRouter(s openapi.StrictServerInterface) http.Handler {
 }
 
 func handleResponseError(w http.ResponseWriter, r *http.Request, err error) {
+	// **制約違反は送った側の問題。** 500 にすると原因が画面からも分からず、
+	// ログも内部エラーに埋もれる（#263）。個別に変換していない経路の受け皿
+	if status, title, detail, ok := constraintProblem(err); ok {
+		slog.WarnContext(r.Context(), "制約違反を返した",
+			slog.String("method", r.Method), slog.String("path", r.URL.Path),
+			slog.String("constraint", repository.ConstraintName(err)))
+		writeProblem(w, status, title, detail)
+
+		return
+	}
+
 	// 内部エラーの中身はログにだけ残す。接続先やクエリが応答に混ざるのを避ける
 	slog.ErrorContext(r.Context(), "ハンドラがエラーを返した",
 		slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.Any("error", err))
@@ -351,4 +363,26 @@ func writeProblem(w http.ResponseWriter, status int, title, detail string) {
 	if err := json.NewEncoder(w).Encode(p); err != nil {
 		slog.Error("problem の書き込みに失敗", slog.Any("error", err))
 	}
+}
+
+// constraintProblem は DB の制約違反を応答に直す。制約違反でなければ ok が false。
+//
+// detail には**制約名だけ**を出す。どの値が問題か分かれば足りる。
+// テーブルの列・SQL・送られた値は含めない（Postgres のメッセージをそのまま返さない）。
+func constraintProblem(err error) (status int, title, detail string, ok bool) {
+	name := repository.ConstraintName(err)
+
+	switch {
+	case repository.IsCheckViolation(err):
+		return http.StatusUnprocessableEntity, "入力が仕様に合わない",
+			fmt.Sprintf("値が許されていない（%s）", name), true
+	case repository.IsForeignKeyViolation(err):
+		return http.StatusUnprocessableEntity, "入力が仕様に合わない",
+			fmt.Sprintf("参照先が存在しない（%s）", name), true
+	case repository.IsUniqueViolation(err):
+		return http.StatusConflict, "既に存在する",
+			fmt.Sprintf("既に存在する（%s）", name), true
+	}
+
+	return 0, "", "", false
 }
