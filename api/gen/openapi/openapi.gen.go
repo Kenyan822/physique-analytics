@@ -1085,6 +1085,18 @@ type SessionExercisesInput struct {
 	ExerciseIds []openapi_types.UUID `json:"exerciseIds"`
 }
 
+// StreakDay defines model for StreakDay.
+type StreakDay struct {
+	Date openapi_types.Date `json:"date"`
+
+	// MealGoalMet P・F・C すべてが当日の目標の ±10% 以内なら true。**目標が引けない日は null**
+	// （false ではない）
+	MealGoalMet *bool `json:"mealGoalMet"`
+
+	// Trained その日に `workout_sets` が1件でもある
+	Trained bool `json:"trained"`
+}
+
 // SyncConflict push で適用されなかった変更。サーバ側の `updatedAt` の方が新しい（ADR-0014）。
 // クライアントは pull し直してから再送する。
 type SyncConflict struct {
@@ -1408,6 +1420,15 @@ type GetTodayRoutineParams struct {
 	Date *openapi_types.Date `form:"date,omitempty" json:"date,omitempty"`
 }
 
+// GetStreaksParams defines parameters for GetStreaks.
+type GetStreaksParams struct {
+	// From JST の日付（ADR-0013）
+	From openapi_types.Date `form:"from" json:"from"`
+
+	// To JST の日付。`from` から最大 366 日
+	To openapi_types.Date `form:"to" json:"to"`
+}
+
 // PullSyncParams defines parameters for PullSync.
 type PullSyncParams struct {
 	// UpdatedSince 前回同期時にサーバが返した `serverTime` を渡す
@@ -1688,6 +1709,9 @@ type ServerInterface interface {
 	// GetTodayRoutine 今日やる想定の種目
 	// (GET /v1/routines/today)
 	GetTodayRoutine(w http.ResponseWriter, r *http.Request, params GetTodayRoutineParams)
+	// GetStreaks 日別の達成フラグ（食事の目標・筋トレ）
+	// (GET /v1/streaks)
+	GetStreaks(w http.ResponseWriter, r *http.Request, params GetStreaksParams)
 	// PullSync 差分の取得
 	// (GET /v1/sync)
 	PullSync(w http.ResponseWriter, r *http.Request, params PullSyncParams)
@@ -3023,6 +3047,52 @@ func (siw *ServerInterfaceWrapper) GetTodayRoutine(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// GetStreaks operation middleware
+func (siw *ServerInterfaceWrapper) GetStreaks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetStreaksParams
+
+	// ------------- Required query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStreaks(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PullSync operation middleware
 func (siw *ServerInterfaceWrapper) PullSync(w http.ResponseWriter, r *http.Request) {
 
@@ -3760,6 +3830,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/sync", wrapper.PushSync)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/export/csv", wrapper.ExportCsv)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/import/csv", wrapper.ImportCsv)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/streaks", wrapper.GetStreaks)
 
 	return m
 }
@@ -6561,6 +6632,62 @@ func (response GetTodayRoutine200JSONResponse) VisitGetTodayRoutineResponse(w ht
 	return err
 }
 
+type GetStreaksRequestObject struct {
+	Params GetStreaksParams
+}
+
+type GetStreaksResponseObject interface {
+	VisitGetStreaksResponse(w http.ResponseWriter) error
+}
+
+type GetStreaks200JSONResponse struct {
+	Items []StreakDay `json:"items"`
+}
+
+func (response GetStreaks200JSONResponse) VisitGetStreaksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStreaks401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetStreaks401ApplicationProblemPlusJSONResponse) VisitGetStreaksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStreaks422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response GetStreaks422ApplicationProblemPlusJSONResponse) VisitGetStreaksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PullSyncRequestObject struct {
 	Params PullSyncParams
 }
@@ -7793,6 +7920,9 @@ type StrictServerInterface interface {
 	// GetTodayRoutine 今日やる想定の種目
 	// (GET /v1/routines/today)
 	GetTodayRoutine(ctx context.Context, request GetTodayRoutineRequestObject) (GetTodayRoutineResponseObject, error)
+	// GetStreaks 日別の達成フラグ（食事の目標・筋トレ）
+	// (GET /v1/streaks)
+	GetStreaks(ctx context.Context, request GetStreaksRequestObject) (GetStreaksResponseObject, error)
 	// PullSync 差分の取得
 	// (GET /v1/sync)
 	PullSync(ctx context.Context, request PullSyncRequestObject) (PullSyncResponseObject, error)
@@ -9327,6 +9457,32 @@ func (sh *strictHandler) GetTodayRoutine(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetTodayRoutineResponseObject); ok {
 		if err := validResponse.VisitGetTodayRoutineResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetStreaks operation middleware
+func (sh *strictHandler) GetStreaks(w http.ResponseWriter, r *http.Request, params GetStreaksParams) {
+	var request GetStreaksRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetStreaks(ctx, request.(GetStreaksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetStreaks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetStreaksResponseObject); ok {
+		if err := validResponse.VisitGetStreaksResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

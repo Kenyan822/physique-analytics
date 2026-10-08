@@ -133,6 +133,13 @@ type ManualTargetsRepository interface {
 	DeleteEntry(ctx context.Context, id uuid.UUID) error
 }
 
+// StreakRepository は日別の達成判定の元データを引く。
+//
+// **期間を数クエリで引く。** 1日ごとに引くと366日で往復が千を超える
+type StreakRepository interface {
+	Inputs(ctx context.Context, from, to time.Time) (repository.StreakInputs, error)
+}
+
 // PlanRepository は計画の設定へのアクセス（要件 P-01 / P-05）。
 type PlanRepository interface {
 	Get(ctx context.Context) (openapi.Plan, error)
@@ -228,6 +235,8 @@ type Server struct {
 	foodItems FoodItemRepository
 	// routines も任意。未設定なら「今日の想定」が出ないだけで記録はできる
 	routines RoutineRepository
+	// streaks も任意。未設定なら全日 null・未実施で返す
+	streaks StreakRepository
 }
 
 // WithFoodItems は食品マスタの置き場所を差す（要件 N-02）。
@@ -241,6 +250,13 @@ func (s *Server) WithFoodItems(r FoodItemRepository) *Server {
 // 既に多く、呼び出し側を全部直すことになる
 func (s *Server) WithRoutines(r RoutineRepository) *Server {
 	s.routines = r
+
+	return s
+}
+
+// WithStreaks は日別の達成判定の元データの置き場所を差す。
+func (s *Server) WithStreaks(r StreakRepository) *Server {
+	s.streaks = r
 
 	return s
 }

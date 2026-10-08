@@ -1662,6 +1662,49 @@ paths:
                     items: { $ref: "#/components/schemas/ImportError" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
 
+  /v1/streaks:
+    get:
+      operationId: getStreaks
+      tags: [nutrition]
+      summary: 日別の達成フラグ（食事の目標・筋トレ）
+      description: |
+        月カレンダーに印を出すための元データ。**記録が無い日も行として返す**
+        （カレンダーが歯抜けにならない）。
+
+        - `mealGoalMet`: P・F・C **すべて**がその日の目標の ±10% 以内なら true。
+          kcal は見ない（PFC から導けるので二重に判定しない）
+        - `trained`: その日に `workout_sets` が1件でもあれば true
+
+        **目標は「その日に有効だったもの」で判定する**（手動目標の履歴を
+        `starts_on <= 日付` で引く）。いまの目標で過去日を再計算すると、
+        目標を変えるたびにカレンダーが書き換わる。
+        **目標が引けない日は `mealGoalMet` が null。** 「未達」と「判定できない」を混ぜない。
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          description: JST の日付（ADR-0013）
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          description: JST の日付。`from` から最大 366 日
+      responses:
+        "200":
+          description: OK。`from`〜`to` の全日を日付の昇順で返す
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/StreakDay" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2768,6 +2811,20 @@ components:
             properties:
               field: { type: string }
               message: { type: string }
+
+    StreakDay:
+      type: object
+      required: [date, mealGoalMet, trained]
+      properties:
+        date: { type: string, format: date }
+        mealGoalMet:
+          type: [boolean, "null"]
+          description: |
+            P・F・C すべてが当日の目標の ±10% 以内なら true。**目標が引けない日は null**
+            （false ではない）
+        trained:
+          type: boolean
+          description: その日に `workout_sets` が1件でもある
 
   responses:
     BadRequest:
