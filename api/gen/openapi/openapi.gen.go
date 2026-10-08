@@ -4861,6 +4861,22 @@ func (response GetLastPerformance200JSONResponse) VisitGetLastPerformanceRespons
 	return err
 }
 
+type GetLastPerformance400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response GetLastPerformance400ApplicationProblemPlusJSONResponse) VisitGetLastPerformanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetLastPerformance404ApplicationProblemPlusJSONResponse struct {
 	NotFoundApplicationProblemPlusJSONResponse
 }
@@ -4873,22 +4889,6 @@ func (response GetLastPerformance404ApplicationProblemPlusJSONResponse) VisitGet
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type GetLastPerformance422ApplicationProblemPlusJSONResponse struct {
-	ValidationFailedApplicationProblemPlusJSONResponse
-}
-
-func (response GetLastPerformance422ApplicationProblemPlusJSONResponse) VisitGetLastPerformanceResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(422)
 	_, err := buf.WriteTo(w)
 	return err
 }
