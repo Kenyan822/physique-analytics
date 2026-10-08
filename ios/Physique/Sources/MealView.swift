@@ -44,7 +44,10 @@ struct MealView: View {
                 recorded
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .principal) { dateNav } }
+            .toolbar {
+                ToolbarItem(placement: .principal) { dateNav }
+                ToolbarItem(placement: .topBarTrailing) { unknownMacrosMenu }
+            }
             .dismissesKeyboardOnTap()
             .keyboardFocusBar(
                 focus: $focus, order: Field.allCases,
@@ -88,17 +91,74 @@ struct MealView: View {
         }
     }
 
-    /// ざっくり入力（要件 N-01 / #261）。
+    /// PFC が分からないときの入口（#262）。
     ///
-    /// **kcal だけ。** PFC は打たせない —— サーバが按分する。飲み会の最中に
-    /// 1品ずつ記録するのは無理で、記録しないとその日が丸ごと欠測になる
+    /// **Form に行を足さない。** 入力欄の近くに足すと記録ボタンが、
+    /// 下に足すとこれ自体が画面外に落ちる。どちらも実機と UI テストで踏んだ（#202）。
+    /// ツールバーなら行数に影響しない
+    private var unknownMacrosMenu: some View {
+        Menu {
+            Button {
+                focus = nil
+                pickingPhoto = true
+            } label: {
+                Label("写真から推定", systemImage: "camera")
+            }
+            .disabled(model.estimating)
+            .accessibilityIdentifier("estimateFromPhoto")
+
+            Button {
+                focus = nil
+                enteringRough = true
+            } label: {
+                Label("飲み会などをざっくり", systemImage: "wineglass")
+            }
+            .accessibilityIdentifier("enterRough")
+        } label: {
+            if model.estimating {
+                ProgressView().controlSize(.mini)
+            } else {
+                Image(systemName: "sparkles")
+            }
+        }
+        .accessibilityIdentifier("unknownMacros")
+    }
+
+    /// ざっくり入力（要件 N-01 / #261 / #262）。
+    ///
+    /// **kcal を直接聞かない。** 飲み会の kcal は本人にも分からない。
+    /// 答えられるのは「何をどれだけ飲み食いしたか」の方
     private var roughSheet: some View {
         NavigationStack {
             Form {
+                Section("飲んだ") {
+                    Stepper(value: Binding(
+                        get: { model.roughDrinks },
+                        set: { model.roughDrinks = max(0, $0) }
+                    ), in: 0...30) {
+                        HStack {
+                            Text("お酒")
+                            Spacer()
+                            Text("\(model.roughDrinks) 杯").monospacedDigit()
+                        }
+                    }
+                    .accessibilityIdentifier("roughDrinks")
+                }
+
+                Section("食べた") {
+                    Picker("量", selection: $model.roughMealSize) {
+                        ForEach(MealModel.RoughMealSize.allCases, id: \.self) { size in
+                            Text(size.label).tag(size)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("roughMealSize")
+                }
+
                 Section {
-                    LabeledContent("カロリー") {
+                    LabeledContent("だいたい") {
                         HStack(spacing: 4) {
-                            TextField("1200", text: $model.roughKcal)
+                            TextField("0", text: $model.roughKcal)
                                 .keyboardType(.numberPad)
                                 .multilineTextAlignment(.trailing)
                                 .accessibilityIdentifier("roughKcal")
@@ -106,7 +166,9 @@ struct MealView: View {
                         }
                     }
                 } footer: {
-                    Text("PFC は P20% / F30% / C50% で振り分けて記録する。あとから直せる")
+                    Text("お酒1杯を \(MealModel.kcalPerDrink)kcal として計算している。"
+                         + "**違うと思ったら直していい。** PFC は P20% / F30% / C50% "
+                         + "で振り分けて記録し、あとから直せる")
                 }
 
                 Section {
@@ -136,7 +198,7 @@ struct MealView: View {
                 }
             }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
     }
 
     // MARK: - 食品マスタ（#209）
@@ -600,42 +662,21 @@ struct MealView: View {
             }
 
             // **PFC の下、記録の上。** 選ぶ → 確認 → 記録 の順で下に進む。
-            // **1行に収める。** 行を増やすと記録ボタンがキーボードの下に落ちる（#202）
-            HStack(spacing: 0) {
-                Button {
-                    focus = nil
-                    showingFoodList = true
-                } label: {
-                    Text("マスタから選ぶ").frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+            // **ここは1行だけ。** 行を増やすと記録ボタンがキーボードの下に落ちる（#202）
+            Button {
+                focus = nil
+                showingFoodList = true
+            } label: {
+                HStack {
+                    Text("マスタから選ぶ")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption).foregroundStyle(.tertiary)
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("pickFromMaster")
-
-                // **初めて食べるものはマスタに無い。** そこを写真で埋める（要件 N-06）
-                Button {
-                    focus = nil
-                    pickingPhoto = true
-                } label: {
-                    Label(model.estimating ? "推定中…" : "写真から", systemImage: "camera")
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(model.estimating)
-                .accessibilityIdentifier("estimateFromPhoto")
-
-                // **飲み会は1品ずつ記録できない。** kcal だけで残す（要件 N-01）
-                Button {
-                    focus = nil
-                    enteringRough = true
-                } label: {
-                    Label("ざっくり", systemImage: "wineglass")
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .padding(.leading, 12)
-                .accessibilityIdentifier("enterRough")
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("pickFromMaster")
 
             Button {
                 focus = nil
@@ -648,8 +689,8 @@ struct MealView: View {
             .disabled(model.draft.isEmpty || model.isWorking)
             .accessibilityIdentifier("recordButton")
 
-            // **推定の根拠を出す。** 直すときの手がかりになる。推定値をそのまま
-            // 信じさせない。**記録ボタンより下に置く**（押し下げないため）
+            // **推定の根拠を出す。** 鵜呑みを防ぐ。出るのは推定した直後だけなので
+            // 常時 1 行増えるわけではない
             if let note = model.estimateNote {
                 Text(note).font(.caption).foregroundStyle(.secondary)
             }

@@ -66,7 +66,11 @@ final class LogModel {
     struct SetDraft: Identifiable, Hashable {
         /// クライアント生成の UUID。そのままセットの id になる（ADR-0014）
         let id: UUID
+        /// サーバ上の番号。**順序と同一性のための内部の値。**
+        /// 途中を消すと飛ぶので、そのまま画面に出さない
         var setNo: Int
+        /// 画面に出す番号。**常に 1 から連番**（#262）
+        var displayNo: Int = 0
         var weightText: String
         var repsText: String
         var rirText: String
@@ -109,6 +113,16 @@ final class LogModel {
 
         // **常に打てる行を1つ用意する。** 記録済みだけだと打つ場所が無い（実機で踏んだ）
         if !drafts.contains(where: { !$0.recorded }) { addSetRow() }
+
+        renumber()
+    }
+
+    /// 表示番号を 1 から振り直す（#262）。
+    ///
+    /// サーバ側で `set_no` を詰め直すと、消すたびに後続セット全部を PATCH する
+    /// ことになる。見た目の問題に書き込みを増やす価値はない
+    private func renumber() {
+        for i in drafts.indices { drafts[i].displayNo = i + 1 }
     }
 
     /// セットを1行足す。**直前の値を引き継ぐ。** 大半は「前と同じか少し増やす」
@@ -118,6 +132,7 @@ final class LogModel {
             id: UUID(), setNo: (drafts.map(\.setNo).max() ?? 0) + 1,
             weightText: prev?.weightText ?? "", repsText: prev?.repsText ?? "",
             rirText: prev?.rirText ?? "", recorded: false))
+        renumber()
     }
 
     /// 行を確定する。**欄から離れたときに呼ぶ。**
@@ -165,6 +180,7 @@ final class LogModel {
 
             return
         }
+
 
         // 送信待ちならキューから抜くだけでよい
         if queue.all().contains(where: { $0.id == id }) {

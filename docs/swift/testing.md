@@ -544,6 +544,27 @@ StaticText, identifier: 'setRow', label: 'kg'
 行そのものを引く必要が無いなら**付けない**。必要なら
 `.accessibilityElement(children: .contain)` を併用する。
 
+## Form に行を足す場所は「上」でも「下」でも駄目（#262）
+
+「写真から」「ざっくり」を入力セクションから別の場所に移すとき、2回失敗した。
+
+| 置き場所 | 何が起きたか |
+|---|---|
+| 記録ボタンより**下** | **その入口自体が画面外**に落ちて押せない |
+| 入力欄より**上** | 押し下げられて **`pickFromMaster` が押せない** |
+
+**Form の縦幅は有限なので、行を足す限り問題が移動するだけ。**
+行数に影響しない場所＝**ツールバー**に逃がした。
+
+```swift
+.toolbar {
+    ToolbarItem(placement: .principal) { dateNav }
+    ToolbarItem(placement: .topBarTrailing) { unknownMacrosMenu }  // Menu
+}
+```
+
+UI テストは `menu.tap()` を挟む。メニューの中身は開くまで木に出ない。
+
 ## 行を1つ足すと記録ボタンが押せなくなる（#253 で再発）
 
 食事の入力セクションに「写真から」を1行足したら、

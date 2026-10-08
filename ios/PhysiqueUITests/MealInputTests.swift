@@ -26,23 +26,39 @@ final class MealInputTests: XCTestCase {
     ///
     /// 写真を選ぶ先はシステムの UI なので、**押せるところまで**を見る。
     func test_写真からの入口が押せる() {
+        let menu = app.buttons["unknownMacros"]
+        XCTAssertTrue(menu.waitForExistence(timeout: UITimeout.slow), "メニューが出ること")
+        XCTAssertTrue(menu.isHittable, "押せる位置にあること")
+        menu.tap()
+
         let photo = app.buttons["estimateFromPhoto"]
-        XCTAssertTrue(photo.waitForExistence(timeout: UITimeout.slow), "写真からが出ること")
+        XCTAssertTrue(photo.waitForExistence(timeout: UITimeout.normal), "写真からが出ること")
         XCTAssertTrue(photo.isHittable, "押せる位置にあること")
     }
 
     /// #261。**飲み会は1品ずつ記録できない。** kcal だけで残す入口。
     func test_ざっくり入力で記録できる() {
+        // **ツールバーのメニューから開く**（#262）。Form に行を足さないため
+        let menu = app.buttons["unknownMacros"]
+        XCTAssertTrue(menu.waitForExistence(timeout: UITimeout.slow), "メニューが出ること")
+        XCTAssertTrue(menu.isHittable, "押せる位置にあること")
+        menu.tap()
+
         let rough = app.buttons["enterRough"]
-        XCTAssertTrue(rough.waitForExistence(timeout: UITimeout.slow), "ざっくりが出ること")
+        XCTAssertTrue(rough.waitForExistence(timeout: UITimeout.normal), "ざっくりが出ること")
         XCTAssertTrue(rough.isHittable, "押せる位置にあること")
         rough.tap()
 
+        // **kcal を直接聞かない。** 杯数と食事の量で答える（#262）
+        let drinks = app.steppers["roughDrinks"]
+        XCTAssertTrue(drinks.waitForExistence(timeout: UITimeout.normal), "杯数が出ること")
+        XCTAssertTrue(drinks.isHittable, "押せる位置にあること")
+        drinks.buttons.element(boundBy: 1).tap()
+
+        // 計算結果が出て、手で直せる
         let kcal = app.textFields["roughKcal"]
-        XCTAssertTrue(kcal.waitForExistence(timeout: UITimeout.normal), "kcal の欄が出ること")
-        XCTAssertTrue(kcal.isHittable, "打てる位置にあること")
-        kcal.tap()
-        kcal.typeText("1200")
+        XCTAssertTrue(kcal.exists, "計算結果が出ること")
+        XCTAssertEqual(kcal.value as? String, "150", "1杯ぶんが計算されること")
 
         // **キーボードに隠れない位置にあること**（#202 と同じ事故を防ぐ）
         let record = app.buttons["recordRough"]
