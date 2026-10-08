@@ -146,3 +146,22 @@ struct MealTotals: Sendable, Equatable {
         )
     }
 }
+
+/// 写真からの推定結果（要件 N-06 / #253）。
+///
+/// **そのまま保存されていない。** 編集できる下書きとして受け取り、
+/// 確認してから記録する（`internal/vision` の設計意図）。
+struct MealEstimate: Codable, Sendable {
+    let name: String
+    var qty: String?
+    var kcal: Int?
+    var proteinG: Double?
+    var fatG: Double?
+    var carbG: Double?
+    /// low / medium / high。量が分からないときは low
+    var confidence: String?
+    /// 推定の根拠。直すときの手がかりになる
+    var note: String?
+    /// 常に ai_estimated。**記録するときもこれを保つ**
+    let source: MealSource
+}

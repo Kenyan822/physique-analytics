@@ -22,6 +22,15 @@ final class MealInputTests: XCTestCase {
         app.launch()
     }
 
+    /// #253。**初めて食べるものはマスタに無い。** そこを写真で埋める入口。
+    ///
+    /// 写真を選ぶ先はシステムの UI なので、**押せるところまで**を見る。
+    func test_写真からの入口が押せる() {
+        let photo = app.buttons["estimateFromPhoto"]
+        XCTAssertTrue(photo.waitForExistence(timeout: 20), "写真からが出ること")
+        XCTAssertTrue(photo.isHittable, "押せる位置にあること")
+    }
+
     // MARK: - 目標
 
     func test_目標を保存して自動計算に戻せる() {

@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// 食事の記録（要件 N-01 / N-02 / N-05）。
@@ -16,6 +17,9 @@ struct MealView: View {
     /// 行き先は1つだけ。新規と編集の出し分けは `model.editingFoodID` が持つ
     private enum FoodEditorRoute: Hashable { case editor }
     @FocusState private var focus: Field?
+    /// 写真を選んでいる（#253）
+    @State private var pickingPhoto = false
+    @State private var photo: PhotosPickerItem?
 
     /// 入力欄の並び。**キーボードの「次へ」がこの順に送る**
     private enum Field: Int, CaseIterable {
@@ -65,6 +69,18 @@ struct MealView: View {
             .task { await model.loadManualTarget() }
             .task { await model.loadFoodItems() }
             .refreshable { await model.load() }
+            // **カメラではなくライブラリから選ぶ。** 撮影は標準の UI に任せる
+            .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
+            .onChange(of: photo) { _, item in
+                guard let item else { return }
+                Task {
+                    defer { photo = nil }
+                    guard let data = try? await item.loadTransferable(type: Data.self) else {
+                        return
+                    }
+                    await model.estimate(image: data, note: model.draft.qty)
+                }
+            }
         }
     }
 
@@ -528,21 +544,31 @@ struct MealView: View {
                     .accessibilityIdentifier("draftName")
             }
 
-            // **PFC の下、記録の上。** 選ぶ → 確認 → 記録 の順で下に進む
-            Button {
-                focus = nil
-                showingFoodList = true
-            } label: {
-                HStack {
-                    Text("マスタから選ぶ")
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption).foregroundStyle(.tertiary)
+            // **PFC の下、記録の上。** 選ぶ → 確認 → 記録 の順で下に進む。
+            // **1行に収める。** 行を増やすと記録ボタンがキーボードの下に落ちる（#202）
+            HStack(spacing: 0) {
+                Button {
+                    focus = nil
+                    showingFoodList = true
+                } label: {
+                    Text("マスタから選ぶ").frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("pickFromMaster")
+
+                // **初めて食べるものはマスタに無い。** そこを写真で埋める（要件 N-06）
+                Button {
+                    focus = nil
+                    pickingPhoto = true
+                } label: {
+                    Label(model.estimating ? "推定中…" : "写真から", systemImage: "camera")
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.estimating)
+                .accessibilityIdentifier("estimateFromPhoto")
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("pickFromMaster")
 
             Button {
                 focus = nil
@@ -554,6 +580,12 @@ struct MealView: View {
             .buttonStyle(.borderedProminent)
             .disabled(model.draft.isEmpty || model.isWorking)
             .accessibilityIdentifier("recordButton")
+
+            // **推定の根拠を出す。** 直すときの手がかりになる。推定値をそのまま
+            // 信じさせない。**記録ボタンより下に置く**（押し下げないため）
+            if let note = model.estimateNote {
+                Text(note).font(.caption).foregroundStyle(.secondary)
+            }
 
             // **編集中のエラーはここに出さない。** 直しているのは下の行なのに、
             // 上の「記録する」に赤字が出ると、どこで何が起きたか分からない
