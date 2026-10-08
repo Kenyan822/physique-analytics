@@ -224,3 +224,81 @@ struct EditSetTests {
         #expect(m.showError)
     }
 }
+
+/// 入力を1行に縮める（#251）。
+private let withLast = #"""
+{"exerciseId":"22222222-2222-2222-2222-222222222222","date":"2026-10-01","estimatedOneRm":102.5,
+ "sets":[
+  {"id":"88888888-0000-0000-0000-000000000001","sessionId":"66666666-6666-6666-6666-666666666666",
+   "exerciseId":"22222222-2222-2222-2222-222222222222","setNo":1,"weightKg":80,"reps":8,"rir":2},
+  {"id":"88888888-0000-0000-0000-000000000002","sessionId":"66666666-6666-6666-6666-666666666666",
+   "exerciseId":"22222222-2222-2222-2222-222222222222","setNo":2,"weightKg":80,"reps":7,"rir":1}]}
+"""#
+
+@Suite("1行の入力")
+@MainActor
+struct CompactInputTests {
+    @Test("RIR も文字列で持つ（空にできる）")
+    func rirIsText() async {
+        let (m, _) = await model(emptySession)
+
+        m.rirText = "2"
+        #expect(m.rir == 2)
+
+        // **空にできる。** 数値で持つと最後の1桁が消せない（#229）
+        m.rirText = ""
+        #expect(m.rir == nil)
+    }
+
+    @Test("読めない RIR は未入力あつかい")
+    func badRir() async {
+        let (m, _) = await model(emptySession)
+
+        m.rirText = "あ"
+
+        #expect(m.rir == nil)
+    }
+
+    @Test("**重量かレップが空なら記録できない**")
+    func cannotRecordWhenEmpty() async {
+        let (m, _) = await model(emptySession)
+        m.selectedExerciseId = bench
+
+        m.weightText = "80"; m.repsText = "8"
+        #expect(m.canRecord)
+
+        m.weightText = ""
+        #expect(!m.canRecord)
+
+        m.weightText = "80"; m.repsText = ""
+        #expect(!m.canRecord)
+    }
+
+    @Test("種目を選んでいなければ記録できない")
+    func needsExercise() async {
+        let (m, _) = await model(emptySession)
+        m.weightText = "80"; m.repsText = "8"
+
+        #expect(!m.canRecord)
+    }
+
+    @Test("**前回は日付とそのセッションの全セット**")
+    func lastSummary() async {
+        let (m, t) = await model(emptySession)
+        t.responses = [(Data(withLast.utf8), 200)]
+
+        await m.selectExercise(bench)
+
+        #expect(m.lastSummary == "10/1(木)  80×8 / 80×7")
+    }
+
+    @Test("初回なら nil")
+    func noLast() async {
+        let (m, t) = await model(emptySession)
+        t.responses = [(Data(#"{"exerciseId":"22222222-2222-2222-2222-222222222222"}"#.utf8), 200)]
+
+        await m.selectExercise(bench)
+
+        #expect(m.lastSummary == nil)
+    }
+}

@@ -56,19 +56,33 @@ final class LogModel {
     /// 数値に直しながら持つと、最後の1桁を消したときに戻る
     var weightText = "20"
     var repsText = "8"
-    var rir: Int? = 2
+    /// RIR も枠で打つ（#251）。**空にできる**ので文字列で持つ
+    var rirText = "2"
 
     /// 送るときの値。**読めなければ 0**
     var weightKg: Double { Double(weightText.trimmingCharacters(in: .whitespaces)) ?? 0 }
     var reps: Int { Int(repsText.trimmingCharacters(in: .whitespaces)) ?? 0 }
+    /// 読めなければ未入力。RIR は無くても記録できる
+    var rir: Int? { Int(rirText.trimmingCharacters(in: .whitespaces)) }
 
-    /// ± ボタン。**打つのと両方できるようにする**
-    func bumpWeight(_ delta: Double) {
-        weightText = numberText(max(0, weightKg + delta))
+    /// **空欄のまま記録させない。** 0kg × 0回 が残ると分析が狂う
+    var canRecord: Bool {
+        selectedExerciseId != nil
+            && Double(weightText.trimmingCharacters(in: .whitespaces)) != nil
+            && Int(repsText.trimmingCharacters(in: .whitespaces)) != nil
     }
 
-    func bumpReps(_ delta: Int) {
-        repsText = String(max(0, reps + delta))
+    /// 「10/1(木)  80×8 / 80×7」。**前回この種目をやったセッションの全セット**。
+    /// 直前の1セットではない（それは今日の記録として上に並んでいる）
+    var lastSummary: String? {
+        guard let date = last?.date, let sets = last?.sets, !sets.isEmpty else { return nil }
+
+        let body = sets
+            .sorted { $0.setNo < $1.setNo }
+            .map { "\(numberText($0.weightKg))×\($0.reps)" }
+            .joined(separator: " / ")
+
+        return "\(JST.displayString(from: date))  \(body)"
     }
 
     /// 種目を開く／閉じる。**同じ行を押したら閉じる**（#232）
@@ -302,7 +316,7 @@ final class LogModel {
                 let w = (top.weightKg / Self.weightStep).rounded() * Self.weightStep
                 weightText = numberText(w)
                 repsText = String(top.reps)
-                rir = top.rir
+                rirText = top.rir.map(String.init) ?? ""
             }
         } catch {
             report(error)

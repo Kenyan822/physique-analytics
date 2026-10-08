@@ -14,7 +14,7 @@ struct LogView: View {
     @FocusState private var focus: Field?
 
     /// 入力欄の並び。キーボードの「次へ」がこの順に送る
-    private enum Field: Int, CaseIterable { case weight, reps }
+    private enum Field: Int, CaseIterable { case weight, reps, rir }
 
     init(api: APIClient = APIClient(baseURL: AppConfig.apiBaseURL)) {
         _model = State(initialValue: LogModel(api: api))
@@ -203,6 +203,7 @@ struct LogView: View {
                 // **その行の下に開く。** 画面の一番下に入力欄があると、
                 // どの種目を打っているのか分からなくなる（#232）
                 if model.selectedExerciseId == row.exerciseId {
+                    lastLine
                     setList(for: row.exerciseId)
                     inlineEditor
                 }
@@ -296,96 +297,68 @@ struct LogView: View {
         return "\(w)kg × \(s.reps)回" + (s.rir.map { "  RIR\($0)" } ?? "")
     }
 
-    /// 開いた行の下に出す入力欄（#232）。
+    /// 開いた種目の下に出す入力（#232 / #251）。
     ///
-    /// **数字で打てる。** ± だけだと 80kg にするのに32回押すことになる。
-    @ViewBuilder
+    /// **記録済みの行と同じ並びにする。** 打った結果がそのまま上に積まれるので、
+    /// 何を打っているのかが一目で分かる。± ボタンと大きい記録ボタンは置かない
+    /// （ジムで1種目ぶんが1画面に収まらないとスクロールしながら打つことになる）。
     private var inlineEditor: some View {
-        VStack(spacing: 10) {
-            // **前回を目の前に置く。** 超えられるかをその場で決める（要件 T-09）
-            if model.loadingLast {
-                line("前回", "取得中…")
-            } else if model.last?.date != nil {
-                line(
-                    "前回",
-                    model.describeLastSets()
-                        + (model.last?.estimatedOneRm.map { String(format: "   1RM %.1f", $0) } ?? "")
-                )
-            } else {
-                line("前回", "この種目は初回")
-            }
+        HStack(spacing: 4) {
+            Text("\(model.nextSetNo)")
+                .font(.caption).foregroundStyle(.secondary)
+                .frame(width: 16, alignment: .trailing)
 
-            HStack(spacing: 8) {
-                Text("重量").font(.caption).foregroundStyle(.secondary).frame(width: 40, alignment: .leading)
-                Button { model.bumpWeight(-LogModel.weightStep) } label: {
-                    Image(systemName: "minus.circle")
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("weightMinus")
+            box($model.weightText, id: "weightInput", field: .weight, width: 50, pad: .decimalPad)
+            Text("kg").font(.caption).foregroundStyle(.secondary)
+            Text("×").font(.caption).foregroundStyle(.tertiary).padding(.horizontal, 2)
+            box($model.repsText, id: "repsInput", field: .reps, width: 40, pad: .numberPad)
+            Text("回").font(.caption).foregroundStyle(.secondary)
 
-                TextField("", text: $model.weightText)
-                    .keyboardType(.decimalPad)
-                    .multilineTextAlignment(.center)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 72)
-                    .focused($focus, equals: .weight)
-                    .accessibilityIdentifier("weightInput")
+            // RIR が無いと推定1RMが出せず進捗が測れない（openapi.yaml）。
+            // **空でも記録はできる**ので必須にはしない
+            Text("RIR").font(.caption).foregroundStyle(.secondary).padding(.leading, 6)
+            box($model.rirText, id: "rirInput", field: .rir, width: 32, pad: .numberPad)
 
-                Text("kg").font(.caption).foregroundStyle(.secondary)
-
-                Button { model.bumpWeight(LogModel.weightStep) } label: {
-                    Image(systemName: "plus.circle")
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("weightPlus")
-
-                Spacer()
-            }
-
-            HStack(spacing: 8) {
-                Text("レップ").font(.caption).foregroundStyle(.secondary).frame(width: 40, alignment: .leading)
-                Button { model.bumpReps(-1) } label: { Image(systemName: "minus.circle") }
-                    .buttonStyle(.plain)
-
-                TextField("", text: $model.repsText)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.center)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 72)
-                    .focused($focus, equals: .reps)
-                    .accessibilityIdentifier("repsInput")
-
-                Text("回").font(.caption).foregroundStyle(.secondary)
-
-                Button { model.bumpReps(1) } label: { Image(systemName: "plus.circle") }
-                    .buttonStyle(.plain)
-
-                Spacer()
-
-                // RIR が無いと推定1RMが出せず進捗が測れない（openapi.yaml）
-                Picker("RIR", selection: $model.rir) {
-                    Text("RIR —").tag(Int?.none)
-                    ForEach(0...10, id: \.self) { n in
-                        Text("RIR \(n)").tag(Int?.some(n))
-                    }
-                }
-                .pickerStyle(.menu)
-            }
+            Spacer(minLength: 4)
 
             Button {
                 focus = nil
                 Task { await model.record() }
             } label: {
-                Text(model.recording ? "記録中…" : "\(model.nextSetNo)セット目を記録")
-                    .bold().frame(maxWidth: .infinity)
+                Image(systemName: model.recording ? "ellipsis.circle" : "arrow.up.circle.fill")
+                    .font(.title3)
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(model.recording)
+            .buttonStyle(.plain)
+            .disabled(model.recording || !model.canRecord)
             .accessibilityIdentifier("recordSet")
         }
-        .padding(.vertical, 4)
     }
 
+    /// 数字の枠。**中央寄せ・固定幅**にして、記録済みの行と桁位置を揃える
+    private func box(
+        _ text: Binding<String>, id: String, field: Field, width: CGFloat,
+        pad: UIKeyboardType
+    ) -> some View {
+        TextField("", text: text)
+            .keyboardType(pad)
+            .multilineTextAlignment(.center)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: width)
+            .focused($focus, equals: field)
+            .accessibilityIdentifier(id)
+    }
+
+    /// 前回この種目をやったセッション（#251）。**超えられるかをその場で決める**
+    @ViewBuilder
+    private var lastLine: some View {
+        if model.loadingLast {
+            line("前回", "取得中…")
+        } else if let summary = model.lastSummary {
+            line("前回", summary)
+        } else {
+            line("前回", "この種目は初回")
+        }
+    }
 
     /// 記録済みセットを直すシート（#247）。
     ///
