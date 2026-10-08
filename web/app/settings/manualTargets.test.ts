@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { kcalFromMacros, toManualTargets } from "./manualTargets";
+import type { ManualTargetEntry } from "@/lib/api/client";
+
+import { entryStatuses, kcalFromMacros, toManualTargets } from "./manualTargets";
 
 describe("PFC から kcal を出す", () => {
   it("Atwater 係数 4/9/4", () => {
@@ -53,5 +55,45 @@ describe("入力を目標にする", () => {
   it("上限を超えたら null", () => {
     expect(toManualTargets({ proteinG: "1001", fatG: "70", carbG: "250" })).toBeNull();
     expect(toManualTargets({ proteinG: "180", fatG: "70", carbG: "2001" })).toBeNull();
+  });
+});
+
+describe("履歴の状態", () => {
+  const entry = (id: string, startsOn: string): ManualTargetEntry => ({
+    id,
+    startsOn,
+    proteinG: 180,
+    fatG: 70,
+    carbG: 250,
+    kcal: 2350,
+    createdAt: "2026-10-08T00:00:00+09:00",
+  });
+  // サーバは開始日の新しい順で返す
+  const entries = [
+    entry("future", "2026-11-01"),
+    entry("now", "2026-10-08"),
+    entry("old", "2026-10-01"),
+  ];
+
+  it("開始日が今日以前で最新の行が適用中", () => {
+    expect(entryStatuses(entries, "2026-10-10")).toEqual({
+      future: "scheduled",
+      now: "current",
+      old: "past",
+    });
+  });
+
+  it("開始日が今日なら、その行が適用中", () => {
+    expect(entryStatuses(entries, "2026-10-08").now).toBe("current");
+  });
+
+  it("全部未来なら適用中は無い（自動計算が使われる）", () => {
+    expect(Object.values(entryStatuses([entry("a", "2026-12-01")], "2026-10-08"))).toEqual([
+      "scheduled",
+    ]);
+  });
+
+  it("履歴が空なら空", () => {
+    expect(entryStatuses([], "2026-10-08")).toEqual({});
   });
 });

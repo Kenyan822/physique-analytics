@@ -5,10 +5,11 @@ import { todayJst } from "@/lib/jst";
 import { ContestEditor } from "./ContestEditor";
 import { SettingsForm } from "./SettingsForm";
 import { TargetEditor } from "./TargetEditor";
+import { TargetHistory } from "./TargetHistory";
 import { TemplateEditor } from "./TemplateEditor";
 import { savePlan } from "./actions";
 import { createContest, deleteContest } from "./contestActions";
-import { clearManualTargets, saveManualTargets } from "./targetActions";
+import { clearManualTargets, deleteTargetEntry, saveManualTargets } from "./targetActions";
 import { createTemplate, deleteTemplate, updateTemplate } from "./templateActions";
 
 export const metadata = { title: "設定 | physique" };
@@ -16,13 +17,14 @@ export const metadata = { title: "設定 | physique" };
 export default async function SettingsPage() {
   const api = serverApi();
   const today = todayJst();
-  const [plan, { items: templates }, { items: exercises }, { items: contests }, { targets }] =
+  const [plan, { items: templates }, { items: exercises }, { items: contests }, { targets }, { items: targetEntries }] =
     await Promise.all([
       api.getPlan(),
       api.listTemplates(),
       api.listExercises({}),
       api.listContests(),
       api.manualTargets(),
+      api.listManualTargetEntries(),
     ]);
 
   return (
@@ -57,6 +59,7 @@ export default async function SettingsPage() {
               save={saveManualTargets}
               clear={clearManualTargets}
             />
+            <TargetHistory entries={targetEntries} today={today} remove={deleteTargetEntry} />
             <SettingsForm plan={plan} today={today} savePlan={savePlan} />
           </div>
         </div>

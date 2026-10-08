@@ -23,7 +23,8 @@ func (s *Server) GetDailyTargets(ctx context.Context, req openapi.GetDailyTarget
 		deps.Measurements = s.body
 	}
 
-	manual, err := s.loadManualTargets(ctx)
+	// **その日の目標。** 現在の目標で計算すると、目標を変える前の日の達成が未達に見える
+	manual, err := s.loadManualTargets(ctx, req.Date.Time)
 	if err != nil {
 		return nil, err
 	}

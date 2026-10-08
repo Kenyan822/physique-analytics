@@ -615,13 +615,69 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 手で決めた摂取目標を返す（要件 N-05） */
+        /**
+         * いま（JST の今日）有効な、手で決めた摂取目標を返す（要件 N-05）
+         * @description 履歴（`/v1/targets/manual/entries`）のうち、今日に適用されている1件。
+         *     過去日の目標は `GET /v1/targets/{date}` がその日の履歴から引く
+         */
         get: operations["getManualTargets"];
-        /** 手で決めた摂取目標を保存する（要件 N-05） */
+        /**
+         * 今日からこの目標にする（要件 N-05）
+         * @description 履歴に `startsOn = 今日（JST）` の行を足す。**同じ日に何度送っても1行**
+         *     （上書き）。前の目標は履歴に残り、過去日はその値で評価される
+         */
         put: operations["putManualTargets"];
         post?: never;
-        /** 手で決めた摂取目標を消す。自動計算（A-02）に戻る */
+        /**
+         * 手動の目標をやめる。自動計算（A-02）に戻る
+         * @description **履歴ごと全部消える。** 1件だけ消すときは
+         *     `DELETE /v1/targets/manual/entries/{entryId}`
+         */
         delete: operations["deleteManualTargets"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/targets/manual/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 手動目標の履歴（適用開始日の新しい順） */
+        get: operations["listManualTargetEntries"];
+        put?: never;
+        /**
+         * 履歴に1件足す。未来の日付なら予約になる
+         * @description **同じ `startsOn` があれば上書き**する（`startsOn` は一意）
+         */
+        post: operations["createManualTargetEntry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/targets/manual/entries/{entryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entryId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * 履歴の1件を消す
+         * @description 消した期間は、1つ前の履歴の目標で評価される。**履歴が0件になった日は
+         *     自動計算（A-02）にフォールバックする**
+         */
+        delete: operations["deleteManualTargetEntry"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1452,8 +1508,7 @@ export interface components {
             components?: components["schemas"]["FoodItemComponent"][];
         };
         /**
-         * @description 手で決めた摂取目標（要件 N-05）。**期間で1つ**しか持たない ——
-         *     フェーズ単位で変えるもので、日ごとに持つのは過剰。
+         * @description 手で決めた摂取目標（要件 N-05）。履歴のうち、ある日に適用される1件。
          *     これがあるときは自動計算（A-02）より優先する
          */
         ManualTargets: {
@@ -1462,8 +1517,38 @@ export interface components {
             carbG: number;
             /** @description PFC から計算した値（Atwater 4/9/4）。**送っても無視する** */
             readonly kcal?: number | null;
+            /**
+             * Format: date
+             * @description この目標の適用開始日。**送っても無視する**（PUT は今日になる）
+             */
+            readonly startsOn?: string;
             /** Format: date-time */
             readonly updatedAt?: string;
+        };
+        ManualTargetEntryInput: {
+            name?: string | null;
+            /**
+             * Format: date
+             * @description この日から適用（JST の日付）。**active フラグは持たない** —— 開始日が最新の行がいまの目標
+             */
+            startsOn: string;
+            proteinG: number;
+            fatG: number;
+            carbG: number;
+        };
+        ManualTargetEntry: {
+            /** Format: uuid */
+            id: string;
+            name?: string | null;
+            /** Format: date */
+            startsOn: string;
+            proteinG: number;
+            fatG: number;
+            carbG: number;
+            /** @description PFC から計算した値（Atwater 4/9/4） */
+            kcal: number;
+            /** Format: date-time */
+            createdAt: string;
         };
         DailyTargets: {
             /** Format: date */
@@ -3073,6 +3158,77 @@ export interface operations {
                 content?: never;
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    listManualTargetEntries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["ManualTargetEntry"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createManualTargetEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualTargetEntryInput"];
+            };
+        };
+        responses: {
+            /** @description 追加した */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualTargetEntry"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteManualTargetEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 消した */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     getDailyTargets: {

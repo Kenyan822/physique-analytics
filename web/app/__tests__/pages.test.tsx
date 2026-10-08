@@ -24,6 +24,7 @@ const api = {
   listMeals: vi.fn(),
   dailyTargets: vi.fn(),
   manualTargets: vi.fn(),
+  listManualTargetEntries: vi.fn(),
   listMealSets: vi.fn(),
   listBloodTests: vi.fn(),
   listPhotos: vi.fn(),
@@ -84,6 +85,7 @@ function asEmptyDatabase() {
   api.dailyTargets.mockRejectedValue(unprocessable);
   // 手動の目標は未設定。自動計算（A-02）にフォールバックする状態
   api.manualTargets.mockResolvedValue({ targets: null });
+  api.listManualTargetEntries.mockResolvedValue({ items: [] });
   api.monthlyTargets.mockRejectedValue(unprocessable);
 
   // 写真は保存先が未設定

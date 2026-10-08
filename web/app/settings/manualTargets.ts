@@ -1,4 +1,4 @@
-import type { ManualTargets } from "@/lib/api/client";
+import type { ManualTargetEntry, ManualTargets } from "@/lib/api/client";
 
 /** 入力欄の中身。**数値に直しながら持たない**（「62.」で丸められて小数が打てない） */
 export type TargetDraft = {
@@ -43,4 +43,35 @@ function num(v: string, max: number): number | null {
   const n = Number(t);
 
   return Number.isFinite(n) && n >= 0 && n <= max ? n : null;
+}
+
+/** 履歴の1行が、いまどういう状態か */
+export type EntryStatus = "current" | "scheduled" | "past";
+
+/**
+ * 履歴の各行の状態を返す（キーは id）。
+ *
+ * **開始日が今日以前で最新の行が適用中。** サーバの
+ * `starts_on <= 日付 order by starts_on desc limit 1` と同じ規則。
+ * `entries` は開始日の新しい順（サーバが並べて返す）。
+ */
+export function entryStatuses(
+  entries: ManualTargetEntry[],
+  today: string,
+): Record<string, EntryStatus> {
+  const out: Record<string, EntryStatus> = {};
+  let currentFound = false;
+
+  for (const e of entries) {
+    if (e.startsOn > today) {
+      out[e.id] = "scheduled";
+    } else if (!currentFound) {
+      out[e.id] = "current";
+      currentFound = true;
+    } else {
+      out[e.id] = "past";
+    }
+  }
+
+  return out;
 }

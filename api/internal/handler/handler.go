@@ -121,9 +121,16 @@ type FoodItemRepository interface {
 //
 // **nil でもよい。** 未設定なら自動計算（A-02）だけが使われる
 type ManualTargetsRepository interface {
-	Get(ctx context.Context) (*openapi.ManualTargets, error)
+	// On は date に適用される目標。履歴が無い・date より前に始まる行が無ければ nil
+	On(ctx context.Context, date time.Time) (*openapi.ManualTargets, error)
+	// Put は今日（JST）から適用する目標として履歴に足す。同じ日なら上書き
 	Put(ctx context.Context, in openapi.ManualTargets) (openapi.ManualTargets, error)
+	// Delete は履歴を全部消す
 	Delete(ctx context.Context) error
+	List(ctx context.Context) ([]openapi.ManualTargetEntry, error)
+	Add(ctx context.Context, in openapi.ManualTargetEntryInput) (openapi.ManualTargetEntry, error)
+	// DeleteEntry は履歴の1件を消す。無ければ ErrNotFound
+	DeleteEntry(ctx context.Context, id uuid.UUID) error
 }
 
 // PlanRepository は計画の設定へのアクセス（要件 P-01 / P-05）。
