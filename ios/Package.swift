@@ -21,7 +21,7 @@ let package = Package(
                 "Info.plist", "PhysiqueApp.swift",
                 // UI と HealthKit は iOS 専用。macOS ビルドで落ちる
                 "LogView.swift", "BodyView.swift", "HealthKitSource.swift", "LoginView.swift", "MealView.swift",
-                "EditSetSheet.swift",
+                "StreakView.swift",
                 // CoreLocation は macOS にもあるが、権限の聞き方が違う。
                 // 判断は FoodPlaces / MealModel 側にあり、そちらはテストがある
                 "CoreLocationSource.swift",

@@ -521,6 +521,46 @@ if !tab.waitForExistence(timeout: 30) {
 static func moved(_ list: [Row], from source: IndexSet, to destination: Int) -> [Row]
 ```
 
+## 行に identifier を付けると子が引けなくなる（#256）
+
+`HStack` に `.accessibilityIdentifier` を付けると、**中の `TextField` までその
+identifier で上書きされる。**
+
+```swift
+HStack {
+    TextField("", text: $w).accessibilityIdentifier("weightInput")
+    TextField("", text: $r).accessibilityIdentifier("repsInput")
+}
+.accessibilityIdentifier("setRow")   // ✗ 子が全部 setRow になる
+```
+
+ツリーを見ると分かる。
+
+```
+TextField, identifier: 'setRow'      ← weightInput のつもりだった
+StaticText, identifier: 'setRow', label: 'kg'
+```
+
+行そのものを引く必要が無いなら**付けない**。必要なら
+`.accessibilityElement(children: .contain)` を併用する。
+
+## 行を1つ足すと記録ボタンが押せなくなる（#253 で再発）
+
+食事の入力セクションに「写真から」を1行足したら、
+`test_キーボードの上でもForm内でも記録できる` が落ちた。**記録ボタンが
+キーボードの下に落ちていた**（#202 で踏んだのと同じ事故）。
+
+このテストは `isHittable` だけでなく **押した結果まで**見ているので検出できた。
+
+```swift
+inForm.tap()
+XCTAssertTrue(app.staticTexts["30g"].waitForExistence(timeout: 5),
+              "Form の中の記録ボタンが本当に効くこと")
+```
+
+**入力セクションに行を足すときは1行に収める。** 2つの入口なら `HStack` に並べる。
+説明文は記録ボタンより**下**に置く。
+
 ## 入口ごとに1本足さない
 
 UI テストが 14本まで増え、**CI で約5分**かかるようになった（#227）。

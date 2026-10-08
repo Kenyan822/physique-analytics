@@ -24,9 +24,23 @@ enum MealSlot: String, Codable, CaseIterable, Sendable, Identifiable {
 }
 
 /// 手入力か AI 推定か。推定値の比率が高い週は分析の確度を下げて扱う
+/// 記録の出どころ。
+///
+/// **知らない値で落ちないようにする。** サーバが先に増やしたとき、
+/// 古いアプリが食事一覧を丸ごと読めなくなるのは割に合わない。
+/// 区分が分からない方がまし（#252 で実際に踏みかけた）。
 enum MealSource: String, Codable, Sendable {
     case manual
     case aiEstimated = "ai_estimated"
+    /// kcal だけ入れて按分した記録（要件 N-01 / #252）
+    case rough
+    /// サーバだけが知っている値
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = MealSource(rawValue: raw) ?? .unknown
+    }
 }
 
 struct Meal: Codable, Identifiable, Hashable, Sendable {
@@ -145,4 +159,23 @@ struct MealTotals: Sendable, Equatable {
             carbG: target.carbG - carbG
         )
     }
+}
+
+/// 写真からの推定結果（要件 N-06 / #253）。
+///
+/// **そのまま保存されていない。** 編集できる下書きとして受け取り、
+/// 確認してから記録する（`internal/vision` の設計意図）。
+struct MealEstimate: Codable, Sendable {
+    let name: String
+    var qty: String?
+    var kcal: Int?
+    var proteinG: Double?
+    var fatG: Double?
+    var carbG: Double?
+    /// low / medium / high。量が分からないときは low
+    var confidence: String?
+    /// 推定の根拠。直すときの手がかりになる
+    var note: String?
+    /// 常に ai_estimated。**記録するときもこれを保つ**
+    let source: MealSource
 }

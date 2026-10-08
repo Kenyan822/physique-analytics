@@ -116,10 +116,15 @@ struct APIClient: Sendable {
         return try await request(TodayRoutine.self, "GET", "v1/routines/today", query: q)
     }
 
-    func lastPerformance(exerciseId: UUID) async throws -> LastPerformance {
+    /// 前回の実施内容（要件 T-02）。
+    ///
+    /// **`before` を渡す。** 省くと今日を含めた最新が返り、
+    /// 「前回」に今打った値が出る（#257・実機で踏んだ）
+    func lastPerformance(exerciseId: UUID, before: String? = nil) async throws -> LastPerformance {
         try await request(
             LastPerformance.self, "GET",
-            "/v1/exercises/\(escape(exerciseId.uuidString))/last-performance"
+            "/v1/exercises/\(escape(exerciseId.uuidString))/last-performance",
+            query: before.map { [URLQueryItem(name: "before", value: $0)] } ?? []
         )
     }
 
@@ -173,6 +178,51 @@ struct APIClient: Sendable {
 
     func deleteSet(id: UUID) async throws {
         try await requestNoContent("DELETE", "/v1/workout-sets/\(escape(id.uuidString))")
+    }
+
+    /// 日別の達成フラグ（#248）。**記録が無い日も行として返る**
+    func streaks(from: String, to: String) async throws -> [StreakDay] {
+        struct Response: Decodable { let items: [StreakDay] }
+
+        return try await request(
+            Response.self, "GET", "/v1/streaks",
+            query: [.init(name: "from", value: from), .init(name: "to", value: to)]
+        ).items
+    }
+
+    /// 写真から PFC を推定する（要件 N-06 / #253）。
+    ///
+    /// **結果は保存されていない。** 編集できる下書きとして返る。
+    /// 鍵が未設定なら 503（課金は発生しない）
+    func estimateMeal(image: Data, note: String?) async throws -> MealEstimate {
+        let boundary = "physique-\(UUID().uuidString)"
+        var body = Data()
+
+        func append(_ s: String) { body.append(Data(s.utf8)) }
+
+        append("--\(boundary)\r\n")
+        append("Content-Disposition: form-data; name=\"image\"; filename=\"meal.jpg\"\r\n")
+        append("Content-Type: image/jpeg\r\n\r\n")
+        body.append(image)
+        append("\r\n")
+
+        // **量を添えると精度が大きく上がる**（写真だけでは食器のサイズが分からない）
+        if let note, !note.trimmingCharacters(in: .whitespaces).isEmpty {
+            append("--\(boundary)\r\n")
+            append("Content-Disposition: form-data; name=\"note\"\r\n\r\n")
+            append(note)
+            append("\r\n")
+        }
+        append("--\(boundary)--\r\n")
+
+        let data = try await sendMultipart(
+            "/v1/meals/estimate", boundary: boundary, body: body)
+
+        do {
+            return try JSONDecoder().decode(MealEstimate.self, from: data)
+        } catch {
+            throw APIError.decoding(error)
+        }
     }
 
     // MARK: - 食事（要件 N-01 / N-02 / N-05）
@@ -325,6 +375,43 @@ struct APIClient: Sendable {
 
     /// 送って本文をそのまま返す。**デコードしない** ——
     /// 204 のように本文が無い応答もあるため、解釈は呼ぶ側に任せる
+    /// multipart の送信（#253）。**JSON の経路と分ける。**
+    /// 本文の組み立て方が違うだけなので、エラーの扱いは同じにする
+    private func sendMultipart(
+        _ path: String, boundary: String, body: Data
+    ) async throws -> Data {
+        guard let url = URLComponents(
+            url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false
+        )?.url else {
+            throw APIError.transport(URLError(.badURL))
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        if let token = try await tokenProvider?() {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        req.setValue("multipart/form-data; boundary=\(boundary)",
+                     forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+
+        let (data, http): (Data, HTTPURLResponse)
+        do {
+            (data, http) = try await transport.send(req)
+        } catch let e as APIError {
+            throw e
+        } catch {
+            throw APIError.transport(error)
+        }
+
+        guard (200..<300).contains(http.statusCode) else {
+            let problem = try? JSONDecoder().decode(Problem.self, from: data)
+            throw APIError.http(status: http.statusCode, problem: problem, path: url.path)
+        }
+
+        return data
+    }
+
     private func sendRequest(
         _ method: String,
         _ path: String,

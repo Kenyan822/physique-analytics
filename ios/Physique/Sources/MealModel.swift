@@ -12,6 +12,25 @@ struct MealDraft: Sendable, Equatable {
     var name = ""
     var qty = ""
 
+    /// 推定結果を下書きにする（#253）。**そのまま保存しない**ので、
+    /// 全部を編集できる文字列に移す
+    init(estimate e: MealEstimate) {
+        name = e.name
+        qty = e.qty ?? ""
+        proteinG = MealDraft.text(e.proteinG)
+        fatG = MealDraft.text(e.fatG)
+        carbG = MealDraft.text(e.carbG)
+    }
+
+    init() {}
+
+    /// 値が無ければ空欄。0 と「分からない」を混ぜない
+    private static func text(_ v: Double?) -> String {
+        guard let v else { return "" }
+
+        return v == v.rounded() ? String(Int(v)) : String(v)
+    }
+
     /// **PFC が1つでも入っていれば記録できる。** 名前は任意
     var isEmpty: Bool {
         [proteinG, fatG, carbG, name].allSatisfy {
@@ -84,6 +103,11 @@ final class MealModel {
     private(set) var isWorking = false
 
     var draft = MealDraft()
+
+    /// 写真から推定している最中（#253）。**押しっぱなしを防ぐ**
+    private(set) var estimating = false
+    /// 推定の根拠。直すときの手がかりになるので出す
+    private(set) var estimateNote: String?
 
     /// 表示している日。**前日・翌日に移動できる**（#193）
     private(set) var date: String
@@ -565,6 +589,24 @@ final class MealModel {
         suggestions = []
     }
 
+    /// 写真から PFC を推定して下書きに入れる（要件 N-06 / #253）。
+    ///
+    /// **そのまま保存しない。** 下書きに入れるだけで、確認してから記録する。
+    /// 鍵が未設定なら 503 が返る —— 黙って失敗させず、理由を出す
+    func estimate(image: Data, note: String) async {
+        estimating = true
+        defer { estimating = false }
+
+        do {
+            let e = try await api.estimateMeal(image: image, note: note)
+            draft = MealDraft(estimate: e)
+            estimateNote = e.note
+        } catch {
+            estimateNote = nil
+            errorMessage = (error as? APIError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
     func record() async {
         guard !draft.isEmpty else { return }
         errorMessage = nil
@@ -578,6 +620,35 @@ final class MealModel {
             meals.append(created)
             // 続けて入れられるよう空に戻す。区分は据え置き
             draft = MealDraft()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "記録できない"
+        }
+    }
+
+    // MARK: - ざっくり入力（要件 N-01 / #261）
+
+    /// 飲み会などの kcal。**PFC は打たせない**
+    var roughKcal = ""
+
+    /// kcal だけで記録する。
+    ///
+    /// **PFC を送らない。** サーバが P 20% / F 30% / C 50% で按分する（#252）。
+    /// 1品ずつ記録できない日に、欠測にしないための入口。精度より記録が残ることを優先
+    func recordRough() async {
+        guard let kcal = Int(roughKcal.trimmingCharacters(in: .whitespaces)), kcal > 0 else {
+            errorMessage = "kcal を数字で入れる"
+
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            let created = try await api.createMeal(MealInput(
+                date: date, at: JST.timeString(), kcal: kcal, source: .rough))
+            meals.append(created)
+            roughKcal = ""
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "記録できない"
         }

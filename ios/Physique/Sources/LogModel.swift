@@ -47,29 +47,139 @@ final class LogModel {
     private(set) var logged: [PendingSet] = []
     private(set) var last: LastPerformance?
     private(set) var loadingLast = false
-    private(set) var recording = false
     private(set) var pendingMessage = ""
 
-    var selectedExerciseId: UUID?
+    var selectedExerciseId: UUID? {
+        didSet {
+            guard selectedExerciseId != oldValue else { return }
+            drafts = []
+            rebuildDrafts()
+        }
+    }
 
     /// **数値は文字列のまま持つ**（食事と同じ理由・#229）。
     /// 数値に直しながら持つと、最後の1桁を消したときに戻る
-    var weightText = "20"
-    var repsText = "8"
-    /// RIR も枠で打つ（#251）。**空にできる**ので文字列で持つ
-    var rirText = "2"
+    /// 開いている種目のセット（#256）。**記録済みも入力中も同じ行。**
+    ///
+    /// 確定ボタンを置かず、欄から離れた時点で保存する。ジムで「記録を押し忘れて
+    /// 1セット消えた」が起きないようにする。
+    struct SetDraft: Identifiable, Hashable {
+        /// クライアント生成の UUID。そのままセットの id になる（ADR-0014）
+        let id: UUID
+        var setNo: Int
+        var weightText: String
+        var repsText: String
+        var rirText: String
+        /// サーバに届いたか。false ならまだ送っていない行
+        var recorded: Bool
 
-    /// 送るときの値。**読めなければ 0**
-    var weightKg: Double { Double(weightText.trimmingCharacters(in: .whitespaces)) ?? 0 }
-    var reps: Int { Int(repsText.trimmingCharacters(in: .whitespaces)) ?? 0 }
-    /// 読めなければ未入力。RIR は無くても記録できる
-    var rir: Int? { Int(rirText.trimmingCharacters(in: .whitespaces)) }
+        var weightKg: Double? { Double(weightText.trimmingCharacters(in: .whitespaces)) }
+        var reps: Int? { Int(repsText.trimmingCharacters(in: .whitespaces)) }
+        var rir: Int? { Int(rirText.trimmingCharacters(in: .whitespaces)) }
 
-    /// **空欄のまま記録させない。** 0kg × 0回 が残ると分析が狂う
-    var canRecord: Bool {
-        selectedExerciseId != nil
-            && Double(weightText.trimmingCharacters(in: .whitespaces)) != nil
-            && Int(repsText.trimmingCharacters(in: .whitespaces)) != nil
+        /// **空欄のまま保存しない。** 0kg × 0回 が残ると分析が狂う
+        var isComplete: Bool { weightKg != nil && reps != nil }
+    }
+
+    private(set) var drafts: [SetDraft] = []
+
+    func setWeight(_ v: String, for id: UUID) { update(id) { $0.weightText = v } }
+    func setReps(_ v: String, for id: UUID) { update(id) { $0.repsText = v } }
+    func setRir(_ v: String, for id: UUID) { update(id) { $0.rirText = v } }
+
+    private func update(_ id: UUID, _ change: (inout SetDraft) -> Void) {
+        guard let i = drafts.firstIndex(where: { $0.id == id }) else { return }
+        change(&drafts[i])
+    }
+
+    /// 記録済みから行を組み直す。**打ちかけの行は残す**
+    func rebuildDrafts() {
+        guard let ex = selectedExerciseId else {
+            drafts = []
+
+            return
+        }
+
+        let unsaved = drafts.filter { !$0.recorded }
+        drafts = sets(of: ex).map { s in
+            SetDraft(id: s.id, setNo: s.setNo,
+                     weightText: numberText(s.weightKg), repsText: String(s.reps),
+                     rirText: s.rir.map(String.init) ?? "", recorded: true)
+        } + unsaved
+
+        // **常に打てる行を1つ用意する。** 記録済みだけだと打つ場所が無い（実機で踏んだ）
+        if !drafts.contains(where: { !$0.recorded }) { addSetRow() }
+    }
+
+    /// セットを1行足す。**直前の値を引き継ぐ。** 大半は「前と同じか少し増やす」
+    func addSetRow() {
+        let prev = drafts.last
+        drafts.append(SetDraft(
+            id: UUID(), setNo: (drafts.map(\.setNo).max() ?? 0) + 1,
+            weightText: prev?.weightText ?? "", repsText: prev?.repsText ?? "",
+            rirText: prev?.rirText ?? "", recorded: false))
+    }
+
+    /// 行を確定する。**欄から離れたときに呼ぶ。**
+    ///
+    /// 未記録なら記録、記録済みで値が変わっていれば直す。
+    /// **変わっていなければ何も送らない**（欄を移動するたびに往復しない）
+    func commitDraft(_ id: UUID) async {
+        guard let i = drafts.firstIndex(where: { $0.id == id }),
+              let exerciseId = selectedExerciseId else { return }
+        let d = drafts[i]
+        guard d.isComplete, let w = d.weightKg, let r = d.reps else { return }
+
+        if !d.recorded {
+            let item = PendingSet(
+                id: d.id, date: date, exerciseId: exerciseId, setNo: d.setNo,
+                weightKg: w, reps: r, rir: d.rir, queuedAt: Date())
+
+            // **積んだ時点で記録は確定。** 送信の成否は表示で伝えるだけにする
+            queue.push(item)
+            logged.append(item)
+            drafts[i].recorded = true
+            startRest(for: exerciseId)
+
+            await flush()
+            updatePendingMessage()
+
+            return
+        }
+
+        guard let saved = logged.first(where: { $0.id == id }),
+              saved.weightKg != w || saved.reps != r || saved.rir != d.rir else { return }
+
+        await updateSet(id: id, weightKg: w, reps: r, rir: d.rir)
+    }
+
+    /// 行を消す。
+    ///
+    /// **まだ送っていない行はサーバを叩かない。** 叩くと 404 になる（実機で踏んだ）
+    func deleteDraft(_ id: UUID) async {
+        guard let d = drafts.first(where: { $0.id == id }) else { return }
+
+        if !d.recorded {
+            drafts.removeAll { $0.id == id }
+            rebuildDrafts()
+
+            return
+        }
+
+        // 送信待ちならキューから抜くだけでよい
+        if queue.all().contains(where: { $0.id == id }) {
+            queue.remove(ids: [id])
+            logged.removeAll { $0.id == id }
+            drafts.removeAll { $0.id == id }
+            rebuildDrafts()
+            updatePendingMessage()
+
+            return
+        }
+
+        await deleteSet(id: id)
+        drafts.removeAll { $0.id == id }
+        rebuildDrafts()
     }
 
     /// 「10/1(木)  80×8 / 80×7」。**前回この種目をやったセッションの全セット**。
@@ -279,6 +389,7 @@ final class LogModel {
         routine = try? await api.todayRoutine(date: date)
 
         rebuildRows()
+        rebuildDrafts()
         updatePendingMessage()
     }
 
@@ -308,15 +419,19 @@ final class LogModel {
         defer { loadingLast = false }
 
         do {
-            let res = try await api.lastPerformance(exerciseId: id)
+            // **表示日より前**で引く。今日を含めると、今打った値が「前回」になる（#257）
+            let res = try await api.lastPerformance(exerciseId: id, before: date)
             last = res
             // **前回値をそのまま初期値にする（要件 T-02）。**
-            // ジムでの入力の大半は「前回と同じか少し増やす」
-            if let top = res.sets?.first {
+            // ジムでの入力の大半は「前回と同じか少し増やす」。
+            // 打ちかけが1行も無いときだけ（打った値を上書きしない）
+            // **まだ何も打っていない行にだけ入れる。** 打った値を上書きしない
+            if let top = res.sets?.first,
+               let i = drafts.firstIndex(where: { !$0.recorded && $0.weightText.isEmpty }) {
                 let w = (top.weightKg / Self.weightStep).rounded() * Self.weightStep
-                weightText = numberText(w)
-                repsText = String(top.reps)
-                rirText = top.rir.map(String.init) ?? ""
+                drafts[i].weightText = numberText(w)
+                drafts[i].repsText = String(top.reps)
+                drafts[i].rirText = top.rir.map(String.init) ?? ""
             }
         } catch {
             report(error)
@@ -325,33 +440,7 @@ final class LogModel {
 
     // MARK: - 記録
 
-    /// 次のセット番号。**件数ではなく最大値 + 1**。
-    /// 途中のセットを消したあとに件数で決めると、既存の番号と衝突する
-    var nextSetNo: Int {
-        guard let id = selectedExerciseId else { return 1 }
 
-        return (logged.filter { $0.exerciseId == id }.map(\.setNo).max() ?? 0) + 1
-    }
-
-    func record() async {
-        guard let exerciseId = selectedExerciseId else { return }
-        recording = true
-        defer { recording = false }
-
-        let item = PendingSet(
-            id: UUID(), date: date, exerciseId: exerciseId, setNo: nextSetNo,
-            weightKg: weightKg, reps: reps, rir: rir, queuedAt: Date()
-        )
-
-        // **積んだ時点で記録は確定。** 送信の成否は表示で伝えるだけにする。
-        // 「失敗したら入力し直し」では電波の悪いジムで使えない
-        queue.push(item)
-        logged.append(item)
-        startRest(for: exerciseId)
-
-        await flush()
-        updatePendingMessage()
-    }
 
     /// 溜まった記録を送る（要件 T-07）。
     // MARK: - 記録したセットを直す・消す（#247）

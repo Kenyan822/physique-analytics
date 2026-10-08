@@ -11,7 +11,7 @@ final class SmokeTests: XCTestCase {
 
         // **ログイン画面で止まる。** 偽の API を挿すのは次の段階
         XCTAssertTrue(
-            app.staticTexts["physique"].waitForExistence(timeout: 10),
+            app.staticTexts["physique"].waitForExistence(timeout: UITimeout.normal),
             "起動してログイン画面が出ること"
         )
     }

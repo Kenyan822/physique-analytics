@@ -9,12 +9,20 @@ struct LogView: View {
     @State private var addingExercise = false
     @State private var changingDay = false
     @State private var pickingDate = false
-    /// 直している記録済みセット（#247）
-    @State private var editing: PendingSet?
     @FocusState private var focus: Field?
 
-    /// 入力欄の並び。キーボードの「次へ」がこの順に送る
-    private enum Field: Int, CaseIterable { case weight, reps, rir }
+    /// 入力欄の位置。**行をまたいで移動できる**ように、どの行のどの欄かで持つ
+    private struct Field: Hashable {
+        enum Kind: Int, CaseIterable { case weight, reps, rir }
+
+        let set: UUID
+        let kind: Kind
+    }
+
+    /// キーボードの ↑↓ が送る順。行ごとに 重量 → レップ → RIR
+    private var fieldOrder: [Field] {
+        model.drafts.flatMap { d in Field.Kind.allCases.map { Field(set: d.id, kind: $0) } }
+    }
 
     init(api: APIClient = APIClient(baseURL: AppConfig.apiBaseURL)) {
         _model = State(initialValue: LogModel(api: api))
@@ -39,7 +47,13 @@ struct LogView: View {
             // **食事と同じ形**（#193 と揃える）。中央上部に置き、左右で1日ずつ
             .toolbar { ToolbarItem(placement: .principal) { dateNav } }
             .dismissesKeyboardOnTap()
-            .keyboardDoneButton()
+            // 食事と同じ（#229）。**行をまたいで ↑↓ で移動できる**
+            .keyboardFocusBar(focus: $focus, order: fieldOrder)
+            // **欄から離れたら保存する。** 確定ボタンを置かない（#256）
+            .onChange(of: focus) { old, _ in
+                guard let old else { return }
+                Task { await model.commitDraft(old.set) }
+            }
             .task { await model.load() }
             .onChange(of: model.selectedExerciseId) { _, id in
                 Task { await model.selectExercise(id) }
@@ -47,7 +61,6 @@ struct LogView: View {
             // **カテゴリ別に全種目。** 今日の想定に無いものをその日だけ足す（#232）
             .sheet(isPresented: $addingExercise) { addExerciseSheet }
             .sheet(isPresented: $changingDay) { changeDaySheet }
-            .sheet(item: $editing) { editSetSheet($0) }
             .alert("エラー", isPresented: $model.showError) {
                 Button("閉じる", role: .cancel) {}
             } message: {
@@ -204,8 +217,7 @@ struct LogView: View {
                 // どの種目を打っているのか分からなくなる（#232）
                 if model.selectedExerciseId == row.exerciseId {
                     lastLine
-                    setList(for: row.exerciseId)
-                    inlineEditor
+                    setRows(for: row.exerciseId)
                 }
             }
             .onMove { from, to in Task { await model.moveRows(from: from, to: to) } }
@@ -263,89 +275,86 @@ struct LogView: View {
         .contentShape(Rectangle())
     }
 
-    /// 記録済みのセット。**1セット = 1行。** 押すと直せる、左スワイプで消せる（#247）
+    /// セットの行（#247 / #251 / #256）。
+    ///
+    /// **記録済みも入力中も同じ行。** 確定ボタンを置かず、欄から離れた時点で
+    /// 保存する。ジムで「記録を押し忘れて1セット消えた」が起きないようにする。
     @ViewBuilder
-    private func setList(for exerciseId: UUID) -> some View {
-        ForEach(model.sets(of: exerciseId)) { s in
-            Button {
-                editing = s
-            } label: {
-                HStack(spacing: 10) {
-                    Text("\(s.setNo)")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .frame(width: 16, alignment: .trailing)
-                    Text(setLabel(s)).monospacedDigit()
-                    Spacer()
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.caption).foregroundStyle(.green)
-                }
-                .contentShape(Rectangle())
+    private func setRows(for exerciseId: UUID) -> some View {
+        ForEach(model.drafts) { d in
+            HStack(spacing: 4) {
+                Text("\(d.setNo)")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 16, alignment: .trailing)
+
+                box(d, .weight, width: 50, pad: .decimalPad)
+                Text("kg").font(.caption).foregroundStyle(.secondary)
+                Text("×").font(.caption).foregroundStyle(.tertiary).padding(.horizontal, 2)
+                box(d, .reps, width: 40, pad: .numberPad)
+                Text("回").font(.caption).foregroundStyle(.secondary)
+                Text("RIR").font(.caption).foregroundStyle(.secondary).padding(.leading, 6)
+                box(d, .rir, width: 32, pad: .numberPad)
+
+                Spacer(minLength: 4)
+
+                // 保存済みかどうかだけを示す。押すものではない
+                Image(systemName: d.recorded ? "checkmark.circle.fill" : "circle.dashed")
+                    .font(.caption)
+                    .foregroundStyle(d.recorded ? Color.green : Color.secondary.opacity(0.5))
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("loggedSet")
+            // **行に identifier を付けない。** 付けると子の TextField まで
+            // それで上書きされ、weightInput などが引けなくなる
             .swipeActions {
                 Button("削除", role: .destructive) {
-                    Task { await model.deleteSet(id: s.id) }
+                    Task { await model.deleteDraft(d.id) }
                 }
             }
         }
-    }
 
-    private func setLabel(_ s: PendingSet) -> String {
-        let w = s.weightKg == s.weightKg.rounded() ? String(Int(s.weightKg)) : String(s.weightKg)
-
-        return "\(w)kg × \(s.reps)回" + (s.rir.map { "  RIR\($0)" } ?? "")
-    }
-
-    /// 開いた種目の下に出す入力（#232 / #251）。
-    ///
-    /// **記録済みの行と同じ並びにする。** 打った結果がそのまま上に積まれるので、
-    /// 何を打っているのかが一目で分かる。± ボタンと大きい記録ボタンは置かない
-    /// （ジムで1種目ぶんが1画面に収まらないとスクロールしながら打つことになる）。
-    private var inlineEditor: some View {
-        HStack(spacing: 4) {
-            Text("\(model.nextSetNo)")
-                .font(.caption).foregroundStyle(.secondary)
-                .frame(width: 16, alignment: .trailing)
-
-            box($model.weightText, id: "weightInput", field: .weight, width: 50, pad: .decimalPad)
-            Text("kg").font(.caption).foregroundStyle(.secondary)
-            Text("×").font(.caption).foregroundStyle(.tertiary).padding(.horizontal, 2)
-            box($model.repsText, id: "repsInput", field: .reps, width: 40, pad: .numberPad)
-            Text("回").font(.caption).foregroundStyle(.secondary)
-
-            // RIR が無いと推定1RMが出せず進捗が測れない（openapi.yaml）。
-            // **空でも記録はできる**ので必須にはしない
-            Text("RIR").font(.caption).foregroundStyle(.secondary).padding(.leading, 6)
-            box($model.rirText, id: "rirInput", field: .rir, width: 32, pad: .numberPad)
-
-            Spacer(minLength: 4)
-
-            Button {
-                focus = nil
-                Task { await model.record() }
-            } label: {
-                Image(systemName: model.recording ? "ellipsis.circle" : "arrow.up.circle.fill")
-                    .font(.title3)
-            }
-            .buttonStyle(.plain)
-            .disabled(model.recording || !model.canRecord)
-            .accessibilityIdentifier("recordSet")
+        Button {
+            commitFocused()
+            model.addSetRow()
+        } label: {
+            Label("セットを足す", systemImage: "plus")
+                .font(.callout)
         }
+        .accessibilityIdentifier("addSet")
     }
 
-    /// 数字の枠。**中央寄せ・固定幅**にして、記録済みの行と桁位置を揃える
+    /// 数字の枠。**離れたら保存する**（確定ボタンを置かない）
     private func box(
-        _ text: Binding<String>, id: String, field: Field, width: CGFloat,
-        pad: UIKeyboardType
+        _ d: LogModel.SetDraft, _ kind: Field.Kind, width: CGFloat, pad: UIKeyboardType
     ) -> some View {
-        TextField("", text: text)
+        TextField("", text: binding(d, kind))
             .keyboardType(pad)
             .multilineTextAlignment(.center)
             .textFieldStyle(.roundedBorder)
             .frame(width: width)
-            .focused($focus, equals: field)
-            .accessibilityIdentifier(id)
+            .focused($focus, equals: Field(set: d.id, kind: kind))
+            .accessibilityIdentifier(identifier(kind))
+    }
+
+    private func binding(_ d: LogModel.SetDraft, _ kind: Field.Kind) -> Binding<String> {
+        switch kind {
+        case .weight: Binding(get: { d.weightText }, set: { model.setWeight($0, for: d.id) })
+        case .reps: Binding(get: { d.repsText }, set: { model.setReps($0, for: d.id) })
+        case .rir: Binding(get: { d.rirText }, set: { model.setRir($0, for: d.id) })
+        }
+    }
+
+    /// UI テストから引くため。**行が複数あるので firstMatch で使う**
+    private func identifier(_ kind: Field.Kind) -> String {
+        switch kind {
+        case .weight: "weightInput"
+        case .reps: "repsInput"
+        case .rir: "rirInput"
+        }
+    }
+
+    /// いま開いている行を保存する。欄を離れたときとキーボードを閉じたときに呼ぶ
+    private func commitFocused() {
+        guard let f = focus else { return }
+        Task { await model.commitDraft(f.set) }
     }
 
     /// 前回この種目をやったセッション（#251）。**超えられるかをその場で決める**
@@ -357,20 +366,6 @@ struct LogView: View {
             line("前回", summary)
         } else {
             line("前回", "この種目は初回")
-        }
-    }
-
-    /// 記録済みセットを直すシート（#247）。
-    ///
-    /// **その場で直さずシートにする。** 行の中に TextField を置くと、
-    /// 並べ替えのドラッグと取り合いになる
-    private func editSetSheet(_ s: PendingSet) -> some View {
-        EditSetSheet(set: s) { w, r, rir in
-            await model.updateSet(id: s.id, weightKg: w, reps: r, rir: rir)
-            editing = nil
-        } onDelete: {
-            await model.deleteSet(id: s.id)
-            editing = nil
         }
     }
 

@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// 食事の記録（要件 N-01 / N-02 / N-05）。
@@ -16,6 +17,12 @@ struct MealView: View {
     /// 行き先は1つだけ。新規と編集の出し分けは `model.editingFoodID` が持つ
     private enum FoodEditorRoute: Hashable { case editor }
     @FocusState private var focus: Field?
+    /// 写真を選んでいる（#253）
+    @State private var pickingPhoto = false
+    @State private var photo: PhotosPickerItem?
+    /// ざっくり入力（#261）。**シートにする** —— 入力セクションに行を足すと
+    /// 記録ボタンがキーボードの下に落ちる（#202 / #253）
+    @State private var enteringRough = false
 
     /// 入力欄の並び。**キーボードの「次へ」がこの順に送る**
     private enum Field: Int, CaseIterable {
@@ -65,7 +72,71 @@ struct MealView: View {
             .task { await model.loadManualTarget() }
             .task { await model.loadFoodItems() }
             .refreshable { await model.load() }
+            // **カメラではなくライブラリから選ぶ。** 撮影は標準の UI に任せる
+            .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
+            .sheet(isPresented: $enteringRough) { roughSheet }
+            .onChange(of: photo) { _, item in
+                guard let item else { return }
+                Task {
+                    defer { photo = nil }
+                    guard let data = try? await item.loadTransferable(type: Data.self) else {
+                        return
+                    }
+                    await model.estimate(image: data, note: model.draft.qty)
+                }
+            }
         }
+    }
+
+    /// ざっくり入力（要件 N-01 / #261）。
+    ///
+    /// **kcal だけ。** PFC は打たせない —— サーバが按分する。飲み会の最中に
+    /// 1品ずつ記録するのは無理で、記録しないとその日が丸ごと欠測になる
+    private var roughSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledContent("カロリー") {
+                        HStack(spacing: 4) {
+                            TextField("1200", text: $model.roughKcal)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .accessibilityIdentifier("roughKcal")
+                            Text("kcal").foregroundStyle(.secondary)
+                        }
+                    }
+                } footer: {
+                    Text("PFC は P20% / F30% / C50% で振り分けて記録する。あとから直せる")
+                }
+
+                Section {
+                    Button {
+                        Task {
+                            await model.recordRough()
+                            if model.errorMessage == nil { enteringRough = false }
+                        }
+                    } label: {
+                        Text(model.isWorking ? "記録中…" : "記録")
+                            .bold().frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isWorking)
+                    .accessibilityIdentifier("recordRough")
+
+                    if let e = model.errorMessage {
+                        Text(e).font(.caption).foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("ざっくり記録")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { enteringRough = false }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 
     // MARK: - 食品マスタ（#209）
@@ -528,21 +599,43 @@ struct MealView: View {
                     .accessibilityIdentifier("draftName")
             }
 
-            // **PFC の下、記録の上。** 選ぶ → 確認 → 記録 の順で下に進む
-            Button {
-                focus = nil
-                showingFoodList = true
-            } label: {
-                HStack {
-                    Text("マスタから選ぶ")
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .font(.caption).foregroundStyle(.tertiary)
+            // **PFC の下、記録の上。** 選ぶ → 確認 → 記録 の順で下に進む。
+            // **1行に収める。** 行を増やすと記録ボタンがキーボードの下に落ちる（#202）
+            HStack(spacing: 0) {
+                Button {
+                    focus = nil
+                    showingFoodList = true
+                } label: {
+                    Text("マスタから選ぶ").frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("pickFromMaster")
+
+                // **初めて食べるものはマスタに無い。** そこを写真で埋める（要件 N-06）
+                Button {
+                    focus = nil
+                    pickingPhoto = true
+                } label: {
+                    Label(model.estimating ? "推定中…" : "写真から", systemImage: "camera")
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(model.estimating)
+                .accessibilityIdentifier("estimateFromPhoto")
+
+                // **飲み会は1品ずつ記録できない。** kcal だけで残す（要件 N-01）
+                Button {
+                    focus = nil
+                    enteringRough = true
+                } label: {
+                    Label("ざっくり", systemImage: "wineglass")
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 12)
+                .accessibilityIdentifier("enterRough")
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("pickFromMaster")
 
             Button {
                 focus = nil
@@ -554,6 +647,12 @@ struct MealView: View {
             .buttonStyle(.borderedProminent)
             .disabled(model.draft.isEmpty || model.isWorking)
             .accessibilityIdentifier("recordButton")
+
+            // **推定の根拠を出す。** 直すときの手がかりになる。推定値をそのまま
+            // 信じさせない。**記録ボタンより下に置く**（押し下げないため）
+            if let note = model.estimateNote {
+                Text(note).font(.caption).foregroundStyle(.secondary)
+            }
 
             // **編集中のエラーはここに出さない。** 直しているのは下の行なのに、
             // 上の「記録する」に赤字が出ると、どこで何が起きたか分からない
