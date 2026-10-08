@@ -93,6 +93,7 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
     private var manualTargets: [String: Any]?
     private var foodItems: [[String: Any]] = []
     private var sessions: [[String: Any]] = []
+    private var addedExercises: [[String: Any]] = []
 
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let path = request.url?.path ?? ""
@@ -121,7 +122,19 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
         // MARK: 筋トレ（#232）
 
         case ("GET", let p) where p.hasSuffix("/v1/exercises"):
-            return (["items": Self.exercises], 200)
+            return (["items": Self.exercises + addedExercises], 200)
+
+        case ("POST", let p) where p.hasSuffix("/v1/exercises"):
+            var e = body
+            e["id"] = (body["id"] as? String) ?? UUID().uuidString.lowercased()
+            addedExercises.append(e)
+
+            return (e, 201)
+
+        case ("DELETE", let p) where p.contains("/v1/exercises/"):
+            addedExercises.removeAll { ($0["id"] as? String)?.lowercased() == lastPath(p).lowercased() }
+
+            return ([:], 204)
 
         case ("GET", let p) where p.contains("/last-performance"):
             // **前回のセッション**を返す。今日の記録は含めない（#257）
@@ -155,8 +168,10 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
         // その日の種目リストを全置換する（#242）
         case ("PUT", let p) where p.hasSuffix("/exercises"):
             let ids = (body["exerciseIds"] as? [String]) ?? []
+            // **登録したばかりの種目も引けるようにする。** ここから漏れると
+            // 全置換の応答に載らず、画面から行が消える
             let byId = Dictionary(uniqueKeysWithValues:
-                Self.exercises.map { ($0["id"] as? String ?? "", $0) })
+                (Self.exercises + addedExercises).map { ($0["id"] as? String ?? "", $0) })
             let items = ids.enumerated().compactMap { i, id -> [String: Any]? in
                 guard let e = byId[id] else { return nil }
 

@@ -155,6 +155,24 @@ struct APIClient: Sendable {
         )
     }
 
+    /// 種目マスタに足す（#264）。
+    ///
+    /// **既存の種目と同じものを別表記で足さない。** 時系列が分断される
+    /// （サーバが同名を 409 で弾く）
+    func createExercise(_ input: ExerciseInput) async throws -> Exercise {
+        try await request(Exercise.self, "POST", "/v1/exercises", body: input)
+    }
+
+    func updateExercise(id: UUID, _ input: ExerciseInput) async throws -> Exercise {
+        try await request(Exercise.self, "PATCH",
+                          "/v1/exercises/\(escape(id.uuidString))", body: input)
+    }
+
+    /// **論理削除。** 記録が参照しているので消し切らない
+    func deleteExercise(id: UUID) async throws {
+        try await requestNoContent("DELETE", "/v1/exercises/\(escape(id.uuidString))")
+    }
+
     /// その日の種目リストを全置換する（#242）。
     ///
     /// **追加・削除・並べ替えを分けない。** ドラッグ中の中間状態で順序が壊れる

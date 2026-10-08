@@ -271,6 +271,47 @@ final class LogModel {
         await persistRows(revertTo: before)
     }
 
+    /// 種目マスタに登録して、そのままその日のリストに足す（#264）。
+    ///
+    /// **登録してすぐ打てる。** 登録と「今日やる」を別操作にすると、
+    /// ジムで種目を思いついたときに2回探すことになる
+    func registerExercise(
+        name: String, muscleGroup: MuscleGroup, isCompound: Bool, defaultRestSec: Int? = nil
+    ) async {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            errorMessage = "名前を入れる"
+            showError = true
+
+            return
+        }
+
+        do {
+            let e = try await api.createExercise(ExerciseInput(
+                id: UUID(), name: trimmed, muscleGroup: muscleGroup,
+                isCompound: isCompound, defaultRestSec: defaultRestSec))
+            exercises.append(e)
+            await addExercise(e.id)
+        } catch {
+            report(error)
+        }
+    }
+
+    /// 種目マスタから消す（論理削除）。**記録は残る**
+    func removeExerciseFromMaster(_ id: UUID) async {
+        do {
+            try await api.deleteExercise(id: id)
+            exercises.removeAll { $0.id == id }
+            if rows.contains(where: { $0.exerciseId == id }) {
+                let before = rows
+                rows.removeAll { $0.exerciseId == id }
+                await persistRows(revertTo: before)
+            }
+        } catch {
+            report(error)
+        }
+    }
+
     /// 今日の想定に無い種目を足す。**末尾に入る**
     func addExercise(_ id: UUID) async {
         defer { selectedExerciseId = id }

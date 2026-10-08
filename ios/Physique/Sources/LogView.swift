@@ -9,6 +9,11 @@ struct LogView: View {
     @State private var addingExercise = false
     @State private var changingDay = false
     @State private var pickingDate = false
+    /// 種目マスタに登録する（#264）
+    @State private var registering = false
+    @State private var newExerciseName = ""
+    @State private var newExerciseGroup: MuscleGroup = .chest
+    @State private var newExerciseCompound = false
     @FocusState private var focus: Field?
 
     /// 入力欄の位置。**行をまたいで移動できる**ように、どの行のどの欄かで持つ
@@ -139,6 +144,12 @@ struct LogView: View {
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
+                                // **論理削除。** 記録は残る（#264）
+                                .swipeActions {
+                                    Button("消す", role: .destructive) {
+                                        Task { await model.removeExerciseFromMaster(e.id) }
+                                    }
+                                }
                             }
                         }
                     }
@@ -150,8 +161,72 @@ struct LogView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("閉じる") { addingExercise = false }
                 }
+                // **マスタに無い種目はここから登録する**（#264）。
+                // ジムで思いついたときに2回探さなくて済む
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("新規") { registering = true }
+                        .accessibilityIdentifier("openExerciseRegister")
+                }
+            }
+            .sheet(isPresented: $registering) { registerExerciseSheet }
+        }
+    }
+
+    /// 種目マスタに登録する（#264）。
+    ///
+    /// **登録したらその日のリストにも入って開く。** 登録と「今日やる」を
+    /// 別操作にすると、ジムで種目を思いついたときに2回探すことになる
+    private var registerExerciseSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledContent("名前") {
+                        TextField("ケーブルクロスオーバー", text: $newExerciseName)
+                            .multilineTextAlignment(.trailing)
+                            .accessibilityIdentifier("newExerciseName")
+                    }
+
+                    // **自由入力にしない。** 部位がずれると分析の部位別集計が壊れる
+                    Picker("部位", selection: $newExerciseGroup) {
+                        ForEach(MuscleGroup.allCases, id: \.self) { g in
+                            Text(g.rawValue).tag(g)
+                        }
+                    }
+                    .accessibilityIdentifier("newExerciseGroup")
+
+                    Toggle("多関節", isOn: $newExerciseCompound)
+                        .accessibilityIdentifier("newExerciseCompound")
+                } footer: {
+                    Text("多関節だとインターバルの既定が長くなる"
+                         + "（\(LogModel.compoundRestSec / 60)分 / \(LogModel.isolationRestSec)秒）。"
+                         + "**既にある種目を別表記で足さないこと。** 時系列が分断される")
+                }
+            }
+            .navigationTitle("種目を登録")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { registering = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("登録") {
+                        Task {
+                            await model.registerExercise(
+                                name: newExerciseName, muscleGroup: newExerciseGroup,
+                                isCompound: newExerciseCompound)
+                            if !model.showError {
+                                newExerciseName = ""
+                                registering = false
+                                addingExercise = false
+                            }
+                        }
+                    }
+                    .disabled(newExerciseName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .accessibilityIdentifier("saveExercise")
+                }
             }
         }
+        .presentationDetents([.medium])
     }
 
     /// Day を手でずらす（#232）。**予定が乱れた日に使う。**

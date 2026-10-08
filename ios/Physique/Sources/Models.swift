@@ -28,6 +28,17 @@ struct Exercise: Codable, Identifiable, Hashable, Sendable {
     var defaultRestSec: Int?
 }
 
+/// 種目を登録するときに送る内容（#264）。
+struct ExerciseInput: Codable, Sendable {
+    /// クライアント生成の UUID。再送が冪等になる
+    var id: UUID?
+    var name: String
+    var muscleGroup: MuscleGroup
+    var isCompound: Bool?
+    /// インターバルの既定。未指定なら多関節かどうかで決まる
+    var defaultRestSec: Int?
+}
+
 struct WorkoutSet: Codable, Identifiable, Hashable, Sendable {
     let id: UUID
     let sessionId: UUID
