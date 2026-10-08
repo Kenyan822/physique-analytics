@@ -92,6 +92,7 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
     private var meals: [[String: Any]] = []
     private var manualTargets: [String: Any]?
     private var foodItems: [[String: Any]] = []
+    private var sessions: [[String: Any]] = []
 
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let path = request.url?.path ?? ""
@@ -117,6 +118,43 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
         path: String, method: String, body: [String: Any]
     ) -> ([String: Any], Int) {
         switch (method, path) {
+        // MARK: 筋トレ（#232）
+
+        case ("GET", let p) where p.hasSuffix("/v1/exercises"):
+            return (["items": Self.exercises], 200)
+
+        case ("GET", let p) where p.contains("/last-performance"):
+            return (["exerciseId": lastPath(p, drop: 1), "sets": []], 200)
+
+        case ("GET", let p) where p.hasSuffix("/v1/routines/today"):
+            return (Self.routine, 200)
+
+        case ("GET", let p) where p.hasSuffix("/v1/workout-sessions"):
+            return (["items": sessions], 200)
+
+        case ("POST", let p) where p.hasSuffix("/v1/workout-sessions"):
+            var s = body
+            s["id"] = UUID().uuidString.lowercased()
+            s["sets"] = []
+            sessions.append(s)
+
+            return (s, 201)
+
+        case ("POST", let p) where p.hasSuffix("/sets"):
+            let sessionId = lastPath(p, drop: 1)
+            var set = body
+            set["id"] = (body["id"] as? String) ?? UUID().uuidString.lowercased()
+            set["sessionId"] = sessionId
+            if let i = sessions.firstIndex(where: { $0["id"] as? String == sessionId }) {
+                var sets = (sessions[i]["sets"] as? [[String: Any]]) ?? []
+                sets.append(set)
+                sessions[i]["sets"] = sets
+            }
+
+            return (set, 201)
+
+        // MARK: 食事
+
         case ("GET", let p) where p.hasSuffix("/v1/meals"):
             return (["items": meals], 200)
 
@@ -196,8 +234,13 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
         }
     }
 
-    private func lastPath(_ p: String) -> String {
-        String(p.split(separator: "/").last ?? "")
+    /// 末尾から `drop` 個手前のセグメント。`.../{id}/sets` の id を取るのに使う
+    private func lastPath(_ p: String, drop: Int = 0) -> String {
+        let parts = p.split(separator: "/")
+        let i = parts.count - 1 - drop
+        guard parts.indices.contains(i) else { return "" }
+
+        return String(parts[i])
     }
 
     private func kcal(from m: [String: Any]) -> Int {
@@ -229,6 +272,50 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
             "carbG": ((t["carbG"] as? Double) ?? 0) - sum("carbG"),
         ]
     }
+
+    // MARK: - 決め打ちのデータ
+
+    /// **id は固定。** 毎回作り直すと、開き直したときに選択が外れる
+    private static let ids = (1...6).map { String(format: "00000000-0000-4000-8000-%012d", $0) }
+
+    /// 部位で分かれていることを見るので、**最低2部位**入れる
+    private static var exercises: [[String: Any]] { [
+        ["id": ids[0], "name": "ベンチプレス", "muscleGroup": "胸", "isCompound": true],
+        ["id": ids[1], "name": "ダンベルフライ", "muscleGroup": "胸", "isCompound": false],
+        ["id": ids[2], "name": "スクワット", "muscleGroup": "大腿四頭", "isCompound": true],
+        ["id": ids[3], "name": "レッグエクステンション", "muscleGroup": "大腿四頭", "isCompound": false],
+    ] }
+
+    private static var routine: [String: Any] { [
+        "date": "2026-09-21",
+        "routineName": "テスト",
+        "todayOrder": 1,
+        "days": [
+            [
+                "dayOrder": 1, "templateId": ids[4], "templateName": "胸",
+                "items": [
+                    [
+                        "exerciseId": ids[0], "exerciseName": "ベンチプレス",
+                        "muscleGroup": "胸", "order": 1, "targetSets": 5,
+                        "targetRepsMin": 6, "targetRepsMax": 10,
+                    ],
+                    [
+                        "exerciseId": ids[1], "exerciseName": "ダンベルフライ",
+                        "muscleGroup": "胸", "order": 2, "targetSets": 3,
+                    ],
+                ],
+            ],
+            [
+                "dayOrder": 2, "templateId": ids[5], "templateName": "脚",
+                "items": [
+                    [
+                        "exerciseId": ids[2], "exerciseName": "スクワット",
+                        "muscleGroup": "大腿四頭", "order": 1, "targetSets": 4,
+                    ],
+                ],
+            ],
+        ],
+    ] }
 
     private func problem(_ detail: String) -> [String: Any] {
         ["type": "about:blank", "title": "目標を出せない", "status": 422, "detail": detail]
