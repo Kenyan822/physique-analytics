@@ -16,8 +16,8 @@ struct RoughMealTests {
     private func loaded() async -> (MealModel, FakeTransport) {
         let t = FakeTransport()
         t.responses = [
-            (Data(#"{"items":[]}"#.utf8), 200),   // listMeals
-            (Data(#"{"items":[]}"#.utf8), 200),   // meal-sets など
+            (Data(#"{"items":[]}"#.utf8), 200),
+            (Data(#"{"items":[]}"#.utf8), 200),
         ]
         let m = MealModel(api: APIClient(baseURL: base, transport: t), date: "2026-10-08")
         await m.load()
@@ -25,79 +25,95 @@ struct RoughMealTests {
         return (m, t)
     }
 
-    @Test("**kcal だけで記録できる**")
+    @Test("**杯数と食事の量から kcal を出す**")
+    func estimatesFromCounts() async {
+        let (m, _) = await loaded()
+
+        m.roughDrinks = 3
+        m.roughMealSize = .normal
+
+        // 酒 150 × 3 + 普通 600
+        #expect(m.roughKcal == "1050")
+    }
+
+    @Test("食事を摂っていなければ酒だけ")
+    func drinksOnly() async {
+        let (m, _) = await loaded()
+
+        m.roughDrinks = 2
+        m.roughMealSize = .none
+
+        #expect(m.roughKcal == "300")
+    }
+
+    @Test("**計算結果を手で直せる**")
+    func manualOverride() async {
+        let (m, _) = await loaded()
+        m.roughDrinks = 3
+        m.roughMealSize = .normal
+
+        m.roughKcal = "800"
+
+        // 直したあとに杯数を触らなければ、直した値が残る
+        #expect(m.roughKcal == "800")
+    }
+
+    @Test("直したあとに杯数を変えたら計算し直す")
+    func recalculates() async {
+        let (m, _) = await loaded()
+        m.roughDrinks = 3
+        m.roughMealSize = .normal
+        m.roughKcal = "800"
+
+        m.roughDrinks = 4
+
+        #expect(m.roughKcal == "1200")
+    }
+
+    @Test("杯数は0未満にならない")
+    func noNegative() async {
+        let (m, _) = await loaded()
+
+        m.roughDrinks = 0
+        m.bumpDrinks(-1)
+
+        #expect(m.roughDrinks == 0)
+    }
+
+    @Test("kcal だけで記録できる")
     func recordsKcalOnly() async {
         let (m, t) = await loaded()
         t.responses = [(Data(created.utf8), 201)]
 
-        m.roughKcal = "1200"
+        m.roughDrinks = 3
+        m.roughMealSize = .normal
         await m.recordRough()
 
         let req = try! #require(t.requests.last)
-        #expect(req.httpMethod == "POST")
-        #expect(req.url?.path == "/v1/meals")
-
         let body = try! JSONSerialization.jsonObject(with: req.httpBody!) as! [String: Any]
-        #expect(body["kcal"] as? Int == 1200)
+        #expect(body["kcal"] as? Int == 1050)
         #expect(body["source"] as? String == "rough")
         // **PFC は送らない。** サーバが按分する
         #expect(body["proteinG"] == nil)
-        #expect(body["fatG"] == nil)
-        #expect(body["carbG"] == nil)
-    }
-
-    @Test("按分された結果が一覧に出る")
-    func appearsInList() async {
-        let (m, t) = await loaded()
-        t.responses = [(Data(created.utf8), 201)]
-
-        m.roughKcal = "1200"
-        await m.recordRough()
-
-        #expect(m.meals.count == 1)
-        #expect(m.meals.first?.source == .rough)
-        #expect(m.meals.first?.proteinG == 60)
     }
 
     @Test("記録したら入力を空に戻す")
     func clears() async {
         let (m, t) = await loaded()
         t.responses = [(Data(created.utf8), 201)]
+        m.roughDrinks = 3
 
-        m.roughKcal = "1200"
         await m.recordRough()
 
-        #expect(m.roughKcal.isEmpty)
+        #expect(m.roughDrinks == 0)
+        #expect(m.roughMealSize == .none)
     }
 
-    @Test("**数字でなければ送らない**")
-    func rejectsNonNumber() async {
+    @Test("**0 kcal では送らない**")
+    func rejectsZero() async {
         let (m, t) = await loaded()
         let n = t.requests.count
 
-        m.roughKcal = "だいたい1200"
-        await m.recordRough()
-
-        #expect(t.requests.count == n)
-    }
-
-    @Test("空欄なら送らない")
-    func rejectsEmpty() async {
-        let (m, t) = await loaded()
-        let n = t.requests.count
-
-        m.roughKcal = ""
-        await m.recordRough()
-
-        #expect(t.requests.count == n)
-    }
-
-    @Test("0 以下なら送らない")
-    func rejectsNonPositive() async {
-        let (m, t) = await loaded()
-        let n = t.requests.count
-
-        m.roughKcal = "0"
         await m.recordRough()
 
         #expect(t.requests.count == n)

@@ -283,7 +283,7 @@ struct LogView: View {
     private func setRows(for exerciseId: UUID) -> some View {
         ForEach(model.drafts) { d in
             HStack(spacing: 4) {
-                Text("\(d.setNo)")
+                Text("\(d.displayNo)")
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(width: 16, alignment: .trailing)
 
@@ -296,12 +296,9 @@ struct LogView: View {
                 box(d, .rir, width: 32, pad: .numberPad)
 
                 Spacer(minLength: 4)
-
-                // 保存済みかどうかだけを示す。押すものではない
-                Image(systemName: d.recorded ? "checkmark.circle.fill" : "circle.dashed")
-                    .font(.caption)
-                    .foregroundStyle(d.recorded ? Color.green : Color.secondary.opacity(0.5))
             }
+            // **保存済みの印は出さない。** 欄から離れれば黙って保存される。
+            // 未送信が溜まっていれば画面上部の「未送信 N 件」で分かる（#262）
             // **行に identifier を付けない。** 付けると子の TextField まで
             // それで上書きされ、weightInput などが引けなくなる
             .swipeActions {

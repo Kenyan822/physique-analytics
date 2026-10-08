@@ -627,8 +627,54 @@ final class MealModel {
 
     // MARK: - ざっくり入力（要件 N-01 / #261）
 
-    /// 飲み会などの kcal。**PFC は打たせない**
-    var roughKcal = ""
+    /// 食事の量（#262）。**kcal は本人にも分からない。** 答えられる単位で聞く
+    enum RoughMealSize: String, CaseIterable, Sendable {
+        case none, light, normal, heavy
+
+        var label: String {
+            switch self {
+            case .none: "なし"
+            case .light: "軽め"
+            case .normal: "普通"
+            case .heavy: "がっつり"
+            }
+        }
+
+        var kcal: Int {
+            switch self {
+            case .none: 0
+            case .light: 300
+            case .normal: 600
+            case .heavy: 900
+            }
+        }
+    }
+
+    /// 酒1杯あたり。**ビール中ジョッキ / ハイボール / 日本酒1合**が概ねこのあたり。
+    /// どう決めても外れるので、**計算結果を手で直せる**ことの方を大事にする
+    static let kcalPerDrink = 150
+
+    /// 飲んだ杯数
+    var roughDrinks = 0 {
+        didSet { roughKcal = String(estimatedRoughKcal) }
+    }
+
+    /// 食べた量
+    var roughMealSize: RoughMealSize = .none {
+        didSet { roughKcal = String(estimatedRoughKcal) }
+    }
+
+    /// 杯数と食事の量から出した kcal
+    var estimatedRoughKcal: Int {
+        roughDrinks * Self.kcalPerDrink + roughMealSize.kcal
+    }
+
+    /// 送る kcal。**計算結果が入るが、手で直せる**
+    var roughKcal = "0"
+
+    func bumpDrinks(_ delta: Int) {
+        roughDrinks = max(0, roughDrinks + delta)
+    }
 
     /// kcal だけで記録する。
     ///
@@ -636,7 +682,7 @@ final class MealModel {
     /// 1品ずつ記録できない日に、欠測にしないための入口。精度より記録が残ることを優先
     func recordRough() async {
         guard let kcal = Int(roughKcal.trimmingCharacters(in: .whitespaces)), kcal > 0 else {
-            errorMessage = "kcal を数字で入れる"
+            errorMessage = "飲んだ杯数か食べた量を入れる"
 
             return
         }
@@ -648,7 +694,9 @@ final class MealModel {
             let created = try await api.createMeal(MealInput(
                 date: date, at: JST.timeString(), kcal: kcal, source: .rough))
             meals.append(created)
-            roughKcal = ""
+            roughDrinks = 0
+            roughMealSize = .none
+            roughKcal = "0"
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "記録できない"
         }

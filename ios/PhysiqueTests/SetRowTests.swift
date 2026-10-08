@@ -475,3 +475,38 @@ struct LastBeforeTests {
         #expect(url.query?.contains("before=2026-10-07") == true)
     }
 }
+
+/// 消したあとの表示番号（#262）。
+@Suite("セット番号は位置で振る")
+@MainActor
+struct SetNumberingTests {
+    private let set1 = UUID(uuidString: "77777777-0000-0000-0000-000000000001")!
+
+    @Test("**消しても 1 から連番**")
+    func renumbers() async {
+        let (m, t) = await model(sessionWithSets)
+        m.selectedExerciseId = bench
+        #expect(m.drafts.map(\.displayNo) == [1, 2, 3])
+        t.responses = [(Data("{}".utf8), 204)]
+
+        await m.deleteDraft(set1)
+
+        // サーバの set_no は 2 のままでよい。**画面は 1 から振り直す**
+        #expect(m.drafts.map(\.displayNo) == [1, 2])
+        #expect(m.drafts.first?.setNo == 2)
+    }
+
+    @Test("足した行も連番の続きになる")
+    func addKeepsSequence() async {
+        let (m, t) = await model(sessionWithSets)
+        m.selectedExerciseId = bench
+        t.responses = [(Data("{}".utf8), 204)]
+        await m.deleteDraft(set1)
+
+        m.addSetRow()
+
+        #expect(m.drafts.map(\.displayNo) == [1, 2, 3])
+        // 保存するときは衝突しない番号を使う
+        #expect(m.drafts.last?.setNo == 4)
+    }
+}
