@@ -124,7 +124,18 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
             return (["items": Self.exercises], 200)
 
         case ("GET", let p) where p.contains("/last-performance"):
-            return (["exerciseId": lastPath(p, drop: 1), "sets": []], 200)
+            // **前回のセッション**を返す。今日の記録は含めない（#257）
+            return ([
+                "exerciseId": lastPath(p, drop: 1),
+                "date": "2026-10-01",
+                "estimatedOneRm": 102.5,
+                "sets": [
+                    ["id": "88888888-0000-0000-0000-000000000001",
+                     "sessionId": "66666666-6666-6666-6666-666666666666",
+                     "exerciseId": lastPath(p, drop: 1),
+                     "setNo": 1, "weightKg": 80, "reps": 8, "rir": 2],
+                ],
+            ], 200)
 
         case ("GET", let p) where p.hasSuffix("/v1/routines/today"):
             return (Self.routine, 200)

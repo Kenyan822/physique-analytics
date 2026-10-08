@@ -440,3 +440,38 @@ struct DraftRowTests {
         #expect(m.drafts.count == 1)
     }
 }
+
+/// 「前回」に今日の値が出ていた（#257）。**表示日より前**で引く。
+@Suite("前回は表示日より前")
+@MainActor
+struct LastBeforeTests {
+    @Test("**before に表示日を渡す**")
+    func passesBefore() async {
+        let (m, t) = await model(emptySession)
+        t.responses = [(Data(#"{"exerciseId":"22222222-2222-2222-2222-222222222222"}"#.utf8), 200)]
+
+        await m.selectExercise(bench)
+
+        let url = try! #require(t.requests.last?.url)
+        #expect(url.path.hasSuffix("/last-performance"))
+        // 今日を含めると、今打った値が「前回」として出る
+        #expect(url.query?.contains("before=2026-10-08") == true)
+    }
+
+    @Test("日を移ったらその日より前で引く")
+    func followsDate() async {
+        let (m, t) = await model(emptySession)
+        t.responses = [
+            (Data(exercises.utf8), 200),
+            (Data(#"{"items":[]}"#.utf8), 200),
+            (Data(routine.utf8), 200),
+            (Data(#"{"exerciseId":"22222222-2222-2222-2222-222222222222"}"#.utf8), 200),
+        ]
+        await m.goToPreviousDay()
+
+        await m.selectExercise(bench)
+
+        let url = try! #require(t.requests.last?.url)
+        #expect(url.query?.contains("before=2026-10-07") == true)
+    }
+}

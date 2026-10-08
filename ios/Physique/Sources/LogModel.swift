@@ -419,7 +419,8 @@ final class LogModel {
         defer { loadingLast = false }
 
         do {
-            let res = try await api.lastPerformance(exerciseId: id)
+            // **表示日より前**で引く。今日を含めると、今打った値が「前回」になる（#257）
+            let res = try await api.lastPerformance(exerciseId: id, before: date)
             last = res
             // **前回値をそのまま初期値にする（要件 T-02）。**
             // ジムでの入力の大半は「前回と同じか少し増やす」。

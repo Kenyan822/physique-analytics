@@ -116,10 +116,15 @@ struct APIClient: Sendable {
         return try await request(TodayRoutine.self, "GET", "v1/routines/today", query: q)
     }
 
-    func lastPerformance(exerciseId: UUID) async throws -> LastPerformance {
+    /// 前回の実施内容（要件 T-02）。
+    ///
+    /// **`before` を渡す。** 省くと今日を含めた最新が返り、
+    /// 「前回」に今打った値が出る（#257・実機で踏んだ）
+    func lastPerformance(exerciseId: UUID, before: String? = nil) async throws -> LastPerformance {
         try await request(
             LastPerformance.self, "GET",
-            "/v1/exercises/\(escape(exerciseId.uuidString))/last-performance"
+            "/v1/exercises/\(escape(exerciseId.uuidString))/last-performance",
+            query: before.map { [URLQueryItem(name: "before", value: $0)] } ?? []
         )
     }
 
