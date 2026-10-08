@@ -63,6 +63,7 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 | [routine-cycle.md](routine-cycle.md) | **巡回するルーティン**。状態を持たずに「今日は何日目か」を導く。`%` の符号 |
 | [replace-all.md](replace-all.md) | **全置換の PUT**。`Begin` の無い層で1文の CTE にする、`[]string` + `::uuid[]`、nil スライスと空配列、FK 違反を 422 にする |
 | [versioned-lookup.md](versioned-lookup.md) | **適用開始日つきの履歴を引く**。`date` 列に `time.Time` を渡す落とし穴、`on conflict (列)` の upsert、`Rows.Close` |
+| [streak-calendar.md](streak-calendar.md) | **期間の判定を「引く・突き合わせる」に分ける**。`*bool` で「未達」と「判定できない」を分ける、浮動小数の境界、`Rows` を同時に開けない |
 
 ## 想定しているトピック
 
