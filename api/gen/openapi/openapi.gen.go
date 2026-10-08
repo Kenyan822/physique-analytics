@@ -1037,6 +1037,27 @@ type RoutineDayItem struct {
 	TargetSets    int         `json:"targetSets"`
 }
 
+// SessionExercise defines model for SessionExercise.
+type SessionExercise struct {
+	ExerciseId   openapi_types.UUID `json:"exerciseId"`
+	ExerciseName string             `json:"exerciseName"`
+	ItemOrder    int                `json:"itemOrder"`
+
+	// MuscleGroup 部位。肩は前部/中部/後部、背中は広背筋/僧帽筋に分ける
+	MuscleGroup MuscleGroup `json:"muscleGroup"`
+}
+
+// SessionExercises defines model for SessionExercises.
+type SessionExercises struct {
+	Items []SessionExercise `json:"items"`
+}
+
+// SessionExercisesInput defines model for SessionExercisesInput.
+type SessionExercisesInput struct {
+	// ExerciseIds 並び順がそのまま itemOrder（1 から連番）になる。重複は不可
+	ExerciseIds []openapi_types.UUID `json:"exerciseIds"`
+}
+
 // SyncConflict push で適用されなかった変更。サーバ側の `updatedAt` の方が新しい（ADR-0014）。
 // クライアントは pull し直してから再送する。
 type SyncConflict struct {
@@ -1127,7 +1148,11 @@ type WorkoutSession struct {
 	Date openapi_types.Date `json:"date"`
 
 	// DeletedAt 論理削除。物理削除しない（ADR-0014）
-	DeletedAt  *time.Time          `json:"deletedAt,omitempty"`
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	// Exercises その日の種目リスト（並び順）。**空 = まだ触っていない**ので、
+	// クライアントはルーティンの並びにフォールバックする（#242）。
+	Exercises  []SessionExercise   `json:"exercises"`
 	Id         openapi_types.UUID  `json:"id"`
 	Note       *string             `json:"note,omitempty"`
 	Sets       []WorkoutSet        `json:"sets"`
@@ -1469,6 +1494,9 @@ type CreateWorkoutSessionJSONRequestBody = WorkoutSessionInput
 // UpdateWorkoutSessionJSONRequestBody defines body for UpdateWorkoutSession for application/json ContentType.
 type UpdateWorkoutSessionJSONRequestBody UpdateWorkoutSessionJSONBody
 
+// ReplaceSessionExercisesJSONRequestBody defines body for ReplaceSessionExercises for application/json ContentType.
+type ReplaceSessionExercisesJSONRequestBody = SessionExercisesInput
+
 // CreateWorkoutSetJSONRequestBody defines body for CreateWorkoutSet for application/json ContentType.
 type CreateWorkoutSetJSONRequestBody = WorkoutSetInput
 
@@ -1678,6 +1706,9 @@ type ServerInterface interface {
 	// UpdateWorkoutSession セッションの更新
 	// (PATCH /v1/workout-sessions/{sessionId})
 	UpdateWorkoutSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
+	// ReplaceSessionExercises その日の種目リストを全置換する
+	// (PUT /v1/workout-sessions/{sessionId}/exercises)
+	ReplaceSessionExercises(w http.ResponseWriter, r *http.Request, sessionId SessionId)
 	// CreateWorkoutSet セットの追加
 	// (POST /v1/workout-sessions/{sessionId}/sets)
 	CreateWorkoutSet(w http.ResponseWriter, r *http.Request, sessionId SessionId)
@@ -3338,6 +3369,32 @@ func (siw *ServerInterfaceWrapper) UpdateWorkoutSession(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// ReplaceSessionExercises operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceSessionExercises(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceSessionExercises(w, r, sessionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateWorkoutSet operation middleware
 func (siw *ServerInterfaceWrapper) CreateWorkoutSet(w http.ResponseWriter, r *http.Request) {
 
@@ -3547,6 +3604,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/workout-sessions/{sessionId}", wrapper.DeleteWorkoutSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workout-sessions/{sessionId}", wrapper.GetWorkoutSession)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/workout-sessions/{sessionId}", wrapper.UpdateWorkoutSession)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/workout-sessions/{sessionId}/exercises", wrapper.ReplaceSessionExercises)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workout-sessions/{sessionId}/sets", wrapper.CreateWorkoutSet)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/workout-sets/{setId}", wrapper.DeleteWorkoutSet)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/workout-sets/{setId}", wrapper.UpdateWorkoutSet)
@@ -7146,6 +7204,61 @@ func (response UpdateWorkoutSession409ApplicationProblemPlusJSONResponse) VisitU
 	return err
 }
 
+type ReplaceSessionExercisesRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	Body      *ReplaceSessionExercisesJSONRequestBody
+}
+
+type ReplaceSessionExercisesResponseObject interface {
+	VisitReplaceSessionExercisesResponse(w http.ResponseWriter) error
+}
+
+type ReplaceSessionExercises200JSONResponse SessionExercises
+
+func (response ReplaceSessionExercises200JSONResponse) VisitReplaceSessionExercisesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceSessionExercises404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceSessionExercises404ApplicationProblemPlusJSONResponse) VisitReplaceSessionExercisesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceSessionExercises422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceSessionExercises422ApplicationProblemPlusJSONResponse) VisitReplaceSessionExercisesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateWorkoutSetRequestObject struct {
 	SessionId SessionId `json:"sessionId"`
 	Body      *CreateWorkoutSetJSONRequestBody
@@ -7491,6 +7604,9 @@ type StrictServerInterface interface {
 	// UpdateWorkoutSession セッションの更新
 	// (PATCH /v1/workout-sessions/{sessionId})
 	UpdateWorkoutSession(ctx context.Context, request UpdateWorkoutSessionRequestObject) (UpdateWorkoutSessionResponseObject, error)
+	// ReplaceSessionExercises その日の種目リストを全置換する
+	// (PUT /v1/workout-sessions/{sessionId}/exercises)
+	ReplaceSessionExercises(ctx context.Context, request ReplaceSessionExercisesRequestObject) (ReplaceSessionExercisesResponseObject, error)
 	// CreateWorkoutSet セットの追加
 	// (POST /v1/workout-sessions/{sessionId}/sets)
 	CreateWorkoutSet(ctx context.Context, request CreateWorkoutSetRequestObject) (CreateWorkoutSetResponseObject, error)
@@ -9409,6 +9525,39 @@ func (sh *strictHandler) UpdateWorkoutSession(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateWorkoutSessionResponseObject); ok {
 		if err := validResponse.VisitUpdateWorkoutSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReplaceSessionExercises operation middleware
+func (sh *strictHandler) ReplaceSessionExercises(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
+	var request ReplaceSessionExercisesRequestObject
+
+	request.SessionId = sessionId
+
+	var body ReplaceSessionExercisesJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceSessionExercises(ctx, request.(ReplaceSessionExercisesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceSessionExercises")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceSessionExercisesResponseObject); ok {
+		if err := validResponse.VisitReplaceSessionExercisesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

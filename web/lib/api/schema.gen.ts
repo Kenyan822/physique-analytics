@@ -112,6 +112,32 @@ export interface paths {
         patch: operations["updateWorkoutSession"];
         trace?: never;
     };
+    "/v1/workout-sessions/{sessionId}/exercises": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * その日の種目リストを全置換する
+         * @description 並び順ごと全置換する（T-01 / #242）。追加・削除・並べ替えを個別の
+         *     エンドポイントに分けないのは、ドラッグ中の中間状態で順序が壊れるため。
+         *
+         *     セットを記録済みの種目をリストから外すと、記録が宙に浮くので 422 を返す。
+         *     同じ種目の重複、存在しない種目も 422。
+         */
+        put: operations["replaceSessionExercises"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workout-sessions/{sessionId}/sets": {
         parameters: {
             query?: never;
@@ -1050,6 +1076,25 @@ export interface components {
             templateId?: string | null;
             note?: string | null;
             sets: components["schemas"]["WorkoutSet"][];
+            /**
+             * @description その日の種目リスト（並び順）。**空 = まだ触っていない**ので、
+             *     クライアントはルーティンの並びにフォールバックする（#242）。
+             */
+            exercises: components["schemas"]["SessionExercise"][];
+        };
+        SessionExercise: {
+            /** Format: uuid */
+            exerciseId: string;
+            exerciseName: string;
+            muscleGroup: components["schemas"]["MuscleGroup"];
+            itemOrder: number;
+        };
+        SessionExercises: {
+            items: components["schemas"]["SessionExercise"][];
+        };
+        SessionExercisesInput: {
+            /** @description 並び順がそのまま itemOrder（1 から連番）になる。重複は不可 */
+            exerciseIds: string[];
         };
         WorkoutSessionInput: {
             /**
@@ -2034,6 +2079,34 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    replaceSessionExercises: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionExercisesInput"];
+            };
+        };
+        responses: {
+            /** @description 置換後のリスト */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionExercises"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
         };
     };
     createWorkoutSet: {

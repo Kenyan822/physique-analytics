@@ -61,6 +61,7 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 | [interfaces.md](interfaces.md) | nil ポインタと interface、使う側での定義、共通化の判断 |
 | [numeric.md](numeric.md) | 定数と引数の切り分け、`*float64` で「未測定」を表す、従属変数のクランプ |
 | [routine-cycle.md](routine-cycle.md) | **巡回するルーティン**。状態を持たずに「今日は何日目か」を導く。`%` の符号 |
+| [replace-all.md](replace-all.md) | **全置換の PUT**。`Begin` の無い層で1文の CTE にする、`[]string` + `::uuid[]`、nil スライスと空配列、FK 違反を 422 にする |
 
 ## 想定しているトピック
 

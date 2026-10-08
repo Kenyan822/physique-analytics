@@ -263,6 +263,33 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/workout-sessions/{sessionId}/exercises:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    put:
+      operationId: replaceSessionExercises
+      tags: [workouts]
+      summary: その日の種目リストを全置換する
+      description: |
+        並び順ごと全置換する（T-01 / #242）。追加・削除・並べ替えを個別の
+        エンドポイントに分けないのは、ドラッグ中の中間状態で順序が壊れるため。
+
+        セットを記録済みの種目をリストから外すと、記録が宙に浮くので 422 を返す。
+        同じ種目の重複、存在しない種目も 422。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionExercisesInput" }
+      responses:
+        "200":
+          description: 置換後のリスト
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionExercises" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
   /v1/workout-sessions/{sessionId}/sets:
     parameters:
       - $ref: "#/components/parameters/SessionId"
@@ -1770,7 +1797,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/Timestamps"
         - type: object
-          required: [id, date, sets]
+          required: [id, date, sets, exercises]
           properties:
             id: { type: string, format: uuid }
             date:
@@ -1782,6 +1809,38 @@ components:
             sets:
               type: array
               items: { $ref: "#/components/schemas/WorkoutSet" }
+            exercises:
+              type: array
+              description: |
+                その日の種目リスト（並び順）。**空 = まだ触っていない**ので、
+                クライアントはルーティンの並びにフォールバックする（#242）。
+              items: { $ref: "#/components/schemas/SessionExercise" }
+
+    SessionExercise:
+      type: object
+      required: [exerciseId, exerciseName, muscleGroup, itemOrder]
+      properties:
+        exerciseId: { type: string, format: uuid }
+        exerciseName: { type: string }
+        muscleGroup: { $ref: "#/components/schemas/MuscleGroup" }
+        itemOrder: { type: integer, minimum: 1 }
+
+    SessionExercises:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SessionExercise" }
+
+    SessionExercisesInput:
+      type: object
+      required: [exerciseIds]
+      properties:
+        exerciseIds:
+          type: array
+          description: 並び順がそのまま itemOrder（1 から連番）になる。重複は不可
+          items: { type: string, format: uuid }
 
     WorkoutSessionInput:
       type: object

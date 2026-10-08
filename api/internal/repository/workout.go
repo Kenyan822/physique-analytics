@@ -146,6 +146,10 @@ func (r *Workout) GetSession(ctx context.Context, id uuid.UUID) (openapi.Workout
 	if err != nil {
 		return openapi.WorkoutSession{}, err
 	}
+	s.Exercises, err = r.listSessionExercises(ctx, id)
+	if err != nil {
+		return openapi.WorkoutSession{}, err
+	}
 
 	return s, nil
 }
@@ -191,6 +195,10 @@ func (r *Workout) ListSessions(ctx context.Context, f SessionFilter) ([]openapi.
 		if err != nil {
 			return nil, err
 		}
+		sessions[i].Exercises, err = r.listSessionExercises(ctx, sessions[i].Id)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return sessions, nil
@@ -231,6 +239,10 @@ func (r *Workout) UpdateSession(ctx context.Context, id uuid.UUID, up SessionUpd
 	}
 
 	s.Sets, err = r.listSets(ctx, id)
+	if err != nil {
+		return openapi.WorkoutSession{}, err
+	}
+	s.Exercises, err = r.listSessionExercises(ctx, id)
 	if err != nil {
 		return openapi.WorkoutSession{}, err
 	}
@@ -395,6 +407,7 @@ func scanSession(r row) (openapi.WorkoutSession, error) {
 		s.DeletedAt = &jst
 	}
 	s.Sets = []openapi.WorkoutSet{}
+	s.Exercises = []openapi.SessionExercise{}
 
 	return s, nil
 }
@@ -484,4 +497,119 @@ func (r *Workout) LastPerformance(ctx context.Context, exerciseID uuid.UUID) (La
 	}
 
 	return out, nil
+}
+
+// ErrInvalid は送られた内容が仕様に合わないことを表す（HTTP では 422）。
+var ErrInvalid = errors.New("入力が仕様に合わない")
+
+// ReplaceSessionExercises はその日の種目リストを並び順ごと全置換する（T-01 / #242）。
+//
+// 追加・削除・並べ替えを分けないのは、ドラッグ中の中間状態で順序が壊れるため。
+// セットを記録済みの種目を外す指定は ErrInvalid。記録が宙に浮く。
+func (r *Workout) ReplaceSessionExercises(ctx context.Context, sessionID uuid.UUID, exerciseIDs []uuid.UUID) ([]openapi.SessionExercise, error) {
+	// **`any($1)` に []uuid.UUID を渡さない。** QueryExecModeExec では pgx が
+	// 要素の型を解決できない（routine.go の LastForExercises と同じ）。
+	// 空でも nil にしない。nil は NULL になり、`<> all(NULL)` が全行を落とす
+	list := make([]string, 0, len(exerciseIDs))
+	seen := make(map[uuid.UUID]struct{}, len(exerciseIDs))
+	for _, id := range exerciseIDs {
+		if _, dup := seen[id]; dup {
+			return nil, fmt.Errorf("種目 %s が重複している: %w", id, ErrInvalid)
+		}
+		seen[id] = struct{}{}
+		list = append(list, id.String())
+	}
+
+	var exists bool
+	const qs = `select exists (select 1 from workout_sessions where id = $1 and deleted_at is null)`
+	if err := r.db.QueryRow(ctx, qs, sessionID).Scan(&exists); err != nil {
+		return nil, fmt.Errorf("セッションを確認できない: %w", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("セッション %s: %w", sessionID, ErrNotFound)
+	}
+
+	// 外部キー違反のままだと 500 になるので、先に引いて 422 にする
+	var known int
+	const qe = `select count(*) from exercises where id = any($1::uuid[]) and deleted_at is null`
+	if err := r.db.QueryRow(ctx, qe, list).Scan(&known); err != nil {
+		return nil, fmt.Errorf("種目を確認できない: %w", err)
+	}
+	if known != len(list) {
+		return nil, fmt.Errorf("存在しない種目が含まれている: %w", ErrInvalid)
+	}
+
+	const qd = `
+		select distinct exercise_id from workout_sets
+		where session_id = $1 and deleted_at is null and exercise_id <> all($2::uuid[])`
+
+	rows, err := r.db.Query(ctx, qd, sessionID, list)
+	if err != nil {
+		return nil, fmt.Errorf("記録済みの種目を確認できない: %w", err)
+	}
+	defer rows.Close()
+
+	var recorded []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("記録済みの種目を読めない: %w", err)
+		}
+		recorded = append(recorded, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("記録済みの種目を読めない: %w", err)
+	}
+	rows.Close()
+	if len(recorded) > 0 {
+		return nil, fmt.Errorf("セットを記録済みの種目は外せない: %v: %w", recorded, ErrInvalid)
+	}
+
+	// **1文で書く。** トランザクションを持たない（DBTX に Begin が無い）ので、
+	// 消してから入れる2文だと、間で失敗したときにリストが空になる。
+	// delete は insert の前のスナップショットを見るので、残す種目は消えない
+	const qw = `
+		with upsert as (
+			insert into session_exercises (session_id, exercise_id, item_order)
+			select $1, t.id, t.ord
+			from unnest($2::uuid[]) with ordinality as t(id, ord)
+			on conflict (session_id, exercise_id) do update set item_order = excluded.item_order
+		)
+		delete from session_exercises
+		where session_id = $1 and exercise_id <> all($2::uuid[])`
+
+	if _, err := r.db.Exec(ctx, qw, sessionID, list); err != nil {
+		return nil, fmt.Errorf("種目リストを保存できない: %w", err)
+	}
+
+	return r.listSessionExercises(ctx, sessionID)
+}
+
+func (r *Workout) listSessionExercises(ctx context.Context, sessionID uuid.UUID) ([]openapi.SessionExercise, error) {
+	const q = `
+		select se.exercise_id, e.name, e.muscle_group, se.item_order
+		from session_exercises se
+			join exercises e on e.id = se.exercise_id
+		where se.session_id = $1
+		order by se.item_order`
+
+	rows, err := r.db.Query(ctx, q, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("種目リストを引けない: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]openapi.SessionExercise, 0, 8)
+	for rows.Next() {
+		var it openapi.SessionExercise
+		if err := rows.Scan(&it.ExerciseId, &it.ExerciseName, &it.MuscleGroup, &it.ItemOrder); err != nil {
+			return nil, fmt.Errorf("種目リストを読めない: %w", err)
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("種目リストを読めない: %w", err)
+	}
+
+	return items, nil
 }
