@@ -11,8 +11,9 @@ struct PendingSet: Codable, Identifiable, Equatable, Sendable {
     let date: String
     let exerciseId: UUID
     let setNo: Int
-    let weightKg: Double
-    let reps: Int
+    /// 送信後に直せる（#247）。キューに積んだままのものは直さない
+    var weightKg: Double
+    var reps: Int
     var rir: Int?
     /// 積んだ時刻。順序の確認に使う
     let queuedAt: Date

@@ -504,6 +504,23 @@ if !tab.waitForExistence(timeout: 30) {
 **grep や head で切らずに全部ファイルに落として見る**こと。
 切った結果、肝心の `TabBar` が表示範囲の外にあって2回見落とした。
 
+## 並べ替えのドラッグは UI テストで見ない（#247）
+
+`press(forDuration:thenDragTo:)` は `Form` / `List` の中で不安定で、**落ちても
+製品の問題か XCUITest の問題か判別できない。** 判別できないテストは、赤を無視する
+習慣を作るだけなので持たない。
+
+代わりに:
+
+- **並び替えのロジック**は `swift test` で見る。`move(fromOffsets:toOffset:)` は
+  SwiftUI の拡張なので、モデル側に自前で持つとテストできる
+- **UI テストで見るのは「行が出るか・押せるか」まで**
+
+```swift
+// PhysiqueCore は SwiftUI に依存しない（swift test で回すため）
+static func moved(_ list: [Row], from source: IndexSet, to destination: Int) -> [Row]
+```
+
 ## 入口ごとに1本足さない
 
 UI テストが 14本まで増え、**CI で約5分**かかるようになった（#227）。

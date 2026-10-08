@@ -44,6 +44,18 @@ struct WorkoutSession: Codable, Identifiable, Hashable, Sendable {
     let date: String
     var note: String?
     var sets: [WorkoutSet]
+    /// その日の種目リスト。**空 = まだ触っていない**のでルーティンに従う（#242）
+    var exercises: [SessionExercise]?
+}
+
+/// その日の種目リストの1行（#242）。
+struct SessionExercise: Codable, Identifiable, Hashable, Sendable {
+    var id: UUID { exerciseId }
+
+    let exerciseId: UUID
+    let exerciseName: String
+    let muscleGroup: MuscleGroup
+    let itemOrder: Int
 }
 
 /// 前回の実施内容（要件 T-02）。入力速度を決める最重要データ。
