@@ -316,12 +316,31 @@ jobs:
       # 「タップ領域が無い」のような、実機でしか出ない種類だけを対象にしている。
       #
       # シミュレータを起動するので数分かかる。対象を広げない。
+      # **端末名を決め打ちしない。** ランナーのイメージが変わると
+      # 「iPhone 17 が無い」で落ちる（実際に踏んだ）。使える iPhone を実行時に選ぶ
+      - name: シミュレータを選ぶ
+        if: steps.changed.outputs.ios == 'true'
+        id: sim
+        run: |
+          set -o pipefail
+          udid=$(xcrun simctl list devices available \
+            | grep -oE 'iPhone [^(]*\([0-9A-F-]{36}\)' \
+            | grep -oE '[0-9A-F-]{36}' \
+            | tail -1)
+          if [ -z "$udid" ]; then
+            echo '使える iPhone シミュレータが無い' >&2
+            xcrun simctl list devices available >&2
+            exit 1
+          fi
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices available | grep "$udid"
+
       - name: UI テスト（シミュレータ）
         if: steps.changed.outputs.ios == 'true'
         run: |
           set -o pipefail
           xcodebuild test -project Physique.xcodeproj -scheme Physique \
-            -destination 'platform=iOS Simulator,name=iPhone 17' \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
             -derivedDataPath "$RUNNER_TEMP/dd" \
             -resultBundlePath "$RUNNER_TEMP/result.xcresult" \
             | xcbeautify

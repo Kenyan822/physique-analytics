@@ -625,6 +625,35 @@ final class MealModel {
         }
     }
 
+    // MARK: - ざっくり入力（要件 N-01 / #261）
+
+    /// 飲み会などの kcal。**PFC は打たせない**
+    var roughKcal = ""
+
+    /// kcal だけで記録する。
+    ///
+    /// **PFC を送らない。** サーバが P 20% / F 30% / C 50% で按分する（#252）。
+    /// 1品ずつ記録できない日に、欠測にしないための入口。精度より記録が残ることを優先
+    func recordRough() async {
+        guard let kcal = Int(roughKcal.trimmingCharacters(in: .whitespaces)), kcal > 0 else {
+            errorMessage = "kcal を数字で入れる"
+
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            let created = try await api.createMeal(MealInput(
+                date: date, at: JST.timeString(), kcal: kcal, source: .rough))
+            meals.append(created)
+            roughKcal = ""
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "記録できない"
+        }
+    }
+
     func delete(_ meal: Meal) async {
         do {
             try await api.deleteMeal(id: meal.id)

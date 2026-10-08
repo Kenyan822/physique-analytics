@@ -20,6 +20,9 @@ struct MealView: View {
     /// 写真を選んでいる（#253）
     @State private var pickingPhoto = false
     @State private var photo: PhotosPickerItem?
+    /// ざっくり入力（#261）。**シートにする** —— 入力セクションに行を足すと
+    /// 記録ボタンがキーボードの下に落ちる（#202 / #253）
+    @State private var enteringRough = false
 
     /// 入力欄の並び。**キーボードの「次へ」がこの順に送る**
     private enum Field: Int, CaseIterable {
@@ -71,6 +74,7 @@ struct MealView: View {
             .refreshable { await model.load() }
             // **カメラではなくライブラリから選ぶ。** 撮影は標準の UI に任せる
             .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
+            .sheet(isPresented: $enteringRough) { roughSheet }
             .onChange(of: photo) { _, item in
                 guard let item else { return }
                 Task {
@@ -82,6 +86,57 @@ struct MealView: View {
                 }
             }
         }
+    }
+
+    /// ざっくり入力（要件 N-01 / #261）。
+    ///
+    /// **kcal だけ。** PFC は打たせない —— サーバが按分する。飲み会の最中に
+    /// 1品ずつ記録するのは無理で、記録しないとその日が丸ごと欠測になる
+    private var roughSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledContent("カロリー") {
+                        HStack(spacing: 4) {
+                            TextField("1200", text: $model.roughKcal)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .accessibilityIdentifier("roughKcal")
+                            Text("kcal").foregroundStyle(.secondary)
+                        }
+                    }
+                } footer: {
+                    Text("PFC は P20% / F30% / C50% で振り分けて記録する。あとから直せる")
+                }
+
+                Section {
+                    Button {
+                        Task {
+                            await model.recordRough()
+                            if model.errorMessage == nil { enteringRough = false }
+                        }
+                    } label: {
+                        Text(model.isWorking ? "記録中…" : "記録")
+                            .bold().frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isWorking)
+                    .accessibilityIdentifier("recordRough")
+
+                    if let e = model.errorMessage {
+                        Text(e).font(.caption).foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("ざっくり記録")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { enteringRough = false }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 
     // MARK: - 食品マスタ（#209）
@@ -568,6 +623,18 @@ struct MealView: View {
                 .buttonStyle(.plain)
                 .disabled(model.estimating)
                 .accessibilityIdentifier("estimateFromPhoto")
+
+                // **飲み会は1品ずつ記録できない。** kcal だけで残す（要件 N-01）
+                Button {
+                    focus = nil
+                    enteringRough = true
+                } label: {
+                    Label("ざっくり", systemImage: "wineglass")
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 12)
+                .accessibilityIdentifier("enterRough")
             }
 
             Button {

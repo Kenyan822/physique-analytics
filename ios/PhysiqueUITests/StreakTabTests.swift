@@ -17,17 +17,17 @@ final class StreakTabTests: XCTestCase {
     func test_継続タブを開いて月を戻せる() {
         // **タブは identifier を持たない。** label で引く（docs/swift/testing.md）
         let tab = app.tabBars.buttons["継続"]
-        XCTAssertTrue(tab.waitForExistence(timeout: 30), "継続タブが出ること")
+        XCTAssertTrue(tab.waitForExistence(timeout: UITimeout.slow), "継続タブが出ること")
         XCTAssertTrue(tab.isHittable, "押せる位置にあること")
         tab.tap()
 
         XCTAssertTrue(
-            app.otherElements["streakCalendar"].waitForExistence(timeout: 10),
+            app.otherElements["streakCalendar"].waitForExistence(timeout: UITimeout.normal),
             "カレンダーが出ること"
         )
 
         let prev = app.buttons["prevMonth"]
-        XCTAssertTrue(prev.waitForExistence(timeout: 5), "前の月が出ること")
+        XCTAssertTrue(prev.waitForExistence(timeout: UITimeout.normal), "前の月が出ること")
         XCTAssertTrue(prev.isHittable, "押せる位置にあること")
 
         // **未来には進めない**
