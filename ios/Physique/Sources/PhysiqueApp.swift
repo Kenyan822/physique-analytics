@@ -79,6 +79,8 @@ private struct MainTabs: View {
                 .tabItem { Label("記録", systemImage: "dumbbell") }
             BodyView(api: api, health: HealthKitSource())
                 .tabItem { Label("体組成", systemImage: "figure") }
+            StreakView(api: api)
+                .tabItem { Label("継続", systemImage: "flame") }
             SettingsView(auth: auth)
                 .tabItem { Label("設定", systemImage: "gearshape") }
         }

@@ -183,6 +183,10 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
 
             return (set, 201)
 
+        // 日別の達成（#248）。from〜to の全日を返す
+        case ("GET", let p) where p.hasSuffix("/v1/streaks"):
+            return (["items": Self.streakDays], 200)
+
         // MARK: 食事
 
         case ("GET", let p) where p.hasSuffix("/v1/meals"):
@@ -261,6 +265,17 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
 
         default:
             return (["items": []], 200)
+        }
+    }
+
+    /// 判定できない日（null）も混ぜる。**未達と見分けられるか**を見たい
+    private static var streakDays: [[String: Any]] {
+        (1...28).map { d in
+            [
+                "date": String(format: "2026-10-%02d", d),
+                "mealGoalMet": d % 5 == 0 ? NSNull() : (d % 3 != 0),
+                "trained": d % 2 == 0,
+            ]
         }
     }
 

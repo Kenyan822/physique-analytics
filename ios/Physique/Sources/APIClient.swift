@@ -175,6 +175,16 @@ struct APIClient: Sendable {
         try await requestNoContent("DELETE", "/v1/workout-sets/\(escape(id.uuidString))")
     }
 
+    /// 日別の達成フラグ（#248）。**記録が無い日も行として返る**
+    func streaks(from: String, to: String) async throws -> [StreakDay] {
+        struct Response: Decodable { let items: [StreakDay] }
+
+        return try await request(
+            Response.self, "GET", "/v1/streaks",
+            query: [.init(name: "from", value: from), .init(name: "to", value: to)]
+        ).items
+    }
+
     // MARK: - 食事（要件 N-01 / N-02 / N-05）
 
     func listMeals(from: String, to: String) async throws -> [Meal] {
