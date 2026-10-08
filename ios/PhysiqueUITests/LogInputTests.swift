@@ -113,6 +113,35 @@ final class LogInputTests: XCTestCase {
         )
     }
 
+    /// #264。**マスタに無い種目をその場で登録して、すぐ打てる**ところまで。
+    func test_種目をマスタに登録してそのまま使える() {
+        let add = app.buttons["addExercise"]
+        XCTAssertTrue(add.waitForExistence(timeout: UITimeout.slow), "種目を足すが出ること")
+        add.tap()
+
+        let register = app.buttons["openExerciseRegister"]
+        XCTAssertTrue(register.waitForExistence(timeout: UITimeout.normal), "新規が出ること")
+        XCTAssertTrue(register.isHittable, "押せる位置にあること")
+        register.tap()
+
+        let name = app.textFields["newExerciseName"]
+        XCTAssertTrue(name.waitForExistence(timeout: UITimeout.normal), "名前の欄が出ること")
+        XCTAssertTrue(name.isHittable, "打てる位置にあること")
+        name.tap()
+        name.typeText("ケーブルクロスオーバー")
+
+        // **キーボードに隠れない位置にあること**（#202）
+        let save = app.buttons["saveExercise"]
+        XCTAssertTrue(save.isHittable, "登録が押せること")
+        save.tap()
+
+        // **登録したらそのまま打てる**（行が増えて開く）
+        XCTAssertTrue(
+            app.textFields["weightInput"].firstMatch.waitForExistence(timeout: UITimeout.normal),
+            "登録した種目で入力が開くこと"
+        )
+    }
+
     func test_Dayを手でずらせる() {
         let change = app.buttons["changeDay"]
         XCTAssertTrue(change.waitForExistence(timeout: UITimeout.slow), "変更が出ること")
