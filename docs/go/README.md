@@ -66,6 +66,7 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 | [streak-calendar.md](streak-calendar.md) | **期間の判定を「引く・突き合わせる」に分ける**。`*bool` で「未達」と「判定できない」を分ける、浮動小数の境界、`Rows` を同時に開けない |
 | [optional-query.md](optional-query.md) | **任意のクエリ**。`$n::date is null or ...` で SQL を1本に保つ、nil ポインタが NULL になる、不正な値は生成コードが 400 にする |
 | [rounding-invariant.md](rounding-invariant.md) | **丸めても壊れない不変条件を、丸め方で守る**。誤差を1か所に集める、有限入力は全数テスト、`math.Round` と Python の `round` の違い |
+| [constraint-violation.md](constraint-violation.md) | **制約違反を 500 にしない**。`errors.As` で `PgError` を SQLSTATE で判別、応答を作る1か所で受ける、detail は制約名だけ、実際に違反を起こすテスト |
 
 ## 想定しているトピック
 
