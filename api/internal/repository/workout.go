@@ -449,7 +449,11 @@ type LastPerformanceResult struct {
 //
 // 入力速度を決める最重要機能なので、1クエリで取る。
 // 論理削除されたセッション・セットは対象外。
-func (r *Workout) LastPerformance(ctx context.Context, exerciseID uuid.UUID) (LastPerformanceResult, error) {
+//
+// before が指定されたら、その日**を含まず**それより前で最新のセッションを引く。
+// 今日のセッションを開いている画面が、今日打った値を「前回」と取り違えないため（#257）。
+// nil なら今日を含めて最新。
+func (r *Workout) LastPerformance(ctx context.Context, exerciseID uuid.UUID, before *openapi_types.Date) (LastPerformanceResult, error) {
 	// 直近の実施日を先に決めてから、その日のセットを引く。
 	// 「最新のセット N 件」にすると、日をまたいだセットが混ざる
 	const q = `
@@ -458,6 +462,7 @@ func (r *Workout) LastPerformance(ctx context.Context, exerciseID uuid.UUID) (La
 			from workout_sessions ws
 			join workout_sets s on s.session_id = ws.id and s.deleted_at is null
 			where s.exercise_id = $1 and ws.deleted_at is null
+			  and ($2::date is null or ws.date < $2::date)
 			order by ws.date desc, ws.created_at desc
 			limit 1
 		)
@@ -467,7 +472,7 @@ func (r *Workout) LastPerformance(ctx context.Context, exerciseID uuid.UUID) (La
 		where s.exercise_id = $1 and s.deleted_at is null
 		order by s.set_no`
 
-	rows, err := r.db.Query(ctx, q, exerciseID)
+	rows, err := r.db.Query(ctx, q, exerciseID, dateOrNil(before))
 	if err != nil {
 		return LastPerformanceResult{}, fmt.Errorf("前回値を引けない: %w", err)
 	}
