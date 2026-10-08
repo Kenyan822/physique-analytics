@@ -62,6 +62,7 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 | [numeric.md](numeric.md) | 定数と引数の切り分け、`*float64` で「未測定」を表す、従属変数のクランプ |
 | [routine-cycle.md](routine-cycle.md) | **巡回するルーティン**。状態を持たずに「今日は何日目か」を導く。`%` の符号 |
 | [replace-all.md](replace-all.md) | **全置換の PUT**。`Begin` の無い層で1文の CTE にする、`[]string` + `::uuid[]`、nil スライスと空配列、FK 違反を 422 にする |
+| [versioned-lookup.md](versioned-lookup.md) | **適用開始日つきの履歴を引く**。`date` 列に `time.Time` を渡す落とし穴、`on conflict (列)` の upsert、`Rows.Close` |
 
 ## 想定しているトピック
 
