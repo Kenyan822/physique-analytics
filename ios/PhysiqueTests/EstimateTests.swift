@@ -100,3 +100,26 @@ struct EstimateDraftTests {
         #expect(d.carbG.isEmpty)
     }
 }
+
+/// サーバが増やした `source` を iOS が知らないと、**一覧のデコードで落ちる**（#252）。
+@Suite("source の増加に耐える")
+struct MealSourceTests {
+    @Test("ざっくり入力を読める")
+    func rough() throws {
+        let json = #"{"id":"11111111-1111-1111-1111-111111111111","date":"2026-10-08","source":"rough"}"#
+
+        let m = try JSONDecoder().decode(Meal.self, from: Data(json.utf8))
+
+        #expect(m.source == .rough)
+    }
+
+    @Test("**知らない値でも落ちない**")
+    func unknown() throws {
+        let json = #"{"id":"11111111-1111-1111-1111-111111111111","date":"2026-10-08","source":"これから足される値"}"#
+
+        let m = try JSONDecoder().decode(Meal.self, from: Data(json.utf8))
+
+        // 一覧が丸ごと読めなくなるより、区分が分からない方がまし
+        #expect(m.source == .unknown)
+    }
+}
