@@ -2,18 +2,20 @@ import Foundation
 
 /// API が返したエラー。
 enum APIError: Error, LocalizedError {
-    case http(status: Int, problem: Problem?)
+    /// path は**どこで起きたかを画面に出すため**。
+    /// サーバの detail だけだと「invalid format」のように、
+    /// 何のリクエストか分からないまま詰まる（実機で踏んだ）
+    case http(status: Int, problem: Problem?, path: String = "")
     case transport(Error)
     case decoding(Error)
 
     var errorDescription: String? {
         switch self {
-        case let .http(status, problem):
-            // 何が起きたかが1行で分かるようにする
-            if let p = problem {
-                return p.detail ?? p.title
-            }
-            return "HTTP \(status)"
+        case let .http(status, problem, path):
+            // 何が起きたかが1行で分かるようにする。**どこで起きたかも**
+            let what = problem.map { $0.detail ?? $0.title } ?? "HTTP \(status)"
+
+            return path.isEmpty ? what : "\(what)（\(path) / \(status)）"
         case let .transport(e):
             return "通信できない: \(e.localizedDescription)"
         case let .decoding(e):
@@ -23,7 +25,7 @@ enum APIError: Error, LocalizedError {
 
     /// 「既にある」= 送信は届いたが応答が失われた。再送しても意味がない
     var isAlreadyRecorded: Bool {
-        guard case let .http(status, problem) = self else { return false }
+        guard case let .http(status, problem, _) = self else { return false }
         guard status == 409 || status == 422 else { return false }
 
         let text = (problem?.detail ?? "") + (problem?.title ?? "")
@@ -104,6 +106,16 @@ struct APIClient: Sendable {
     }
 
     /// 前回の実施内容（要件 T-02）。
+    /// 今日やる想定の種目（要件 T-01 / #232）。
+    ///
+    /// **前回値も一緒に返る。** 行ごとに `lastPerformance` を叩くと
+    /// 画面を開くたびに種目数ぶんの往復になる
+    func todayRoutine(date: String? = nil) async throws -> TodayRoutine {
+        let q = date.map { [URLQueryItem(name: "date", value: $0)] } ?? []
+
+        return try await request(TodayRoutine.self, "GET", "v1/routines/today", query: q)
+    }
+
     func lastPerformance(exerciseId: UUID) async throws -> LastPerformance {
         try await request(
             LastPerformance.self, "GET",
@@ -257,8 +269,12 @@ struct APIClient: Sendable {
 
     // MARK: - 内部
 
+    /// `-._~` は RFC 3986 の unreserved。**逃がさない。**
+    /// UUID のハイフンまで `%2D` になると、ログもエラー文も読めなくなる
+    private static let pathSafe = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+
     private func escape(_ s: String) -> String {
-        s.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? s
+        s.addingPercentEncoding(withAllowedCharacters: Self.pathSafe) ?? s
     }
 
     /// 本文を返さない経路（204）。読もうとすると decoding で落ちる
@@ -328,7 +344,10 @@ struct APIClient: Sendable {
             // problem+json で返ってこないこともある（LB の 502 など）。
             // そこで落ちるとエラーの原因が「解釈できない」にすり替わる
             let problem = try? JSONDecoder().decode(Problem.self, from: data)
-            throw APIError.http(status: http.statusCode, problem: problem)
+            throw APIError.http(
+                status: http.statusCode, problem: problem,
+                path: url.path
+            )
         }
 
         return data

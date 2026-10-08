@@ -473,6 +473,37 @@ XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
 まず「利用者はこれを押せるのか」を考える。
 
 
+## タブは SF Symbol 名で引けない（#232）
+
+`.tabItem { Label("記録", systemImage: "dumbbell") }` のタブボタンは、
+**accessibility identifier を持たない。** label が「記録」になる。
+
+```swift
+app.buttons["dumbbell"]          // ✗ 一致しない
+app.tabBars.buttons["記録"]       // ○
+```
+
+厄介なのは `app.buttons["dumbbell"]` が**たまに通ってしまう**こと。レイアウト途中の
+一時的な状態で別の要素に当たるため、同じコードで通ったり落ちたりする。
+半日これを「シミュレータの不調」「マシンの負荷」と誤診した。
+
+## 落ちた理由が分からないときは UI ツリーを出す
+
+`waitForExistence` が false を返すだけでは、**要素が無いのか、アプリが落ちたのか、
+別の画面にいるのか**が区別できない。木を出すと一発で分かる。
+
+```swift
+let tab = app.tabBars.buttons["記録"]
+if !tab.waitForExistence(timeout: 30) {
+    print("DBG state=\(app.state.rawValue)")   // 4 = フォアグラウンドで動作中
+    print("DBG tree=\(app.debugDescription)")
+}
+```
+
+`app.state` でクラッシュかどうかが切り分けられる。木は 180 行ほど出るので、
+**grep や head で切らずに全部ファイルに落として見る**こと。
+切った結果、肝心の `TabBar` が表示範囲の外にあって2回見落とした。
+
 ## 入口ごとに1本足さない
 
 UI テストが 14本まで増え、**CI で約5分**かかるようになった（#227）。
