@@ -2314,7 +2314,14 @@ export interface operations {
     };
     getLastPerformance: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description この日**を含まず**、それより前で最新のセッションを返す（#257）。
+                 *     今日のセッションを開いている画面が、今日打った値を「前回」と
+                 *     取り違えないための指定。省略時は今日を含めて最新。
+                 */
+                before?: string;
+            };
             header?: never;
             path: {
                 exerciseId: components["parameters"]["ExerciseId"];
@@ -2334,15 +2341,16 @@ export interface operations {
                         exerciseId: string;
                         /**
                          * Format: date
-                         * @description 前回実施日。未実施なら null
+                         * @description 前回実施日。未実施（before 指定時は、それより前が無い）なら null
                          */
                         date?: string | null;
                         sets?: components["schemas"]["WorkoutSet"][];
-                        /** @description 前回の推定1RM（Epley + RIR補正） */
+                        /** @description 前回の推定1RM（Epley + RIR補正）。返したセッションのセットから計算する */
                         estimatedOneRm?: number | null;
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             404: components["responses"]["NotFound"];
         };
     };

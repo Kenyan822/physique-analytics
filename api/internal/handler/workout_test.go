@@ -24,6 +24,7 @@ type stubWorkouts struct {
 
 	replaced       []openapi.SessionExercise
 	gotExerciseIDs []uuid.UUID
+	gotBefore      *openapi_types.Date
 	replaceErr     error
 
 	gotFilter   *repository.SessionFilter
@@ -297,7 +298,8 @@ func TestDeleteWorkoutSet_204(t *testing.T) {
 	}
 }
 
-func (s *stubWorkouts) LastPerformance(_ context.Context, _ uuid.UUID) (repository.LastPerformanceResult, error) {
+func (s *stubWorkouts) LastPerformance(_ context.Context, _ uuid.UUID, before *openapi_types.Date) (repository.LastPerformanceResult, error) {
+	s.gotBefore = before
 	return s.last, s.listErr
 }
 

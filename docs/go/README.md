@@ -64,6 +64,7 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 | [replace-all.md](replace-all.md) | **全置換の PUT**。`Begin` の無い層で1文の CTE にする、`[]string` + `::uuid[]`、nil スライスと空配列、FK 違反を 422 にする |
 | [versioned-lookup.md](versioned-lookup.md) | **適用開始日つきの履歴を引く**。`date` 列に `time.Time` を渡す落とし穴、`on conflict (列)` の upsert、`Rows.Close` |
 | [streak-calendar.md](streak-calendar.md) | **期間の判定を「引く・突き合わせる」に分ける**。`*bool` で「未達」と「判定できない」を分ける、浮動小数の境界、`Rows` を同時に開けない |
+| [optional-query.md](optional-query.md) | **任意のクエリ**。`$n::date is null or ...` で SQL を1本に保つ、nil ポインタが NULL になる、不正な値は生成コードが 400 にする |
 
 ## 想定しているトピック
 

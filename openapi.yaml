@@ -349,6 +349,15 @@ paths:
       description: |
         要件 T-02（前回値のデフォルト表示）のためのエンドポイント。
         入力速度を決める最重要機能であり、1リクエストで取得できるようにする。
+      parameters:
+        - name: before
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: |
+            この日**を含まず**、それより前で最新のセッションを返す（#257）。
+            今日のセッションを開いている画面が、今日打った値を「前回」と
+            取り違えないための指定。省略時は今日を含めて最新。
       responses:
         "200":
           description: OK
@@ -362,14 +371,15 @@ paths:
                   date:
                     type: [string, "null"]
                     format: date
-                    description: 前回実施日。未実施なら null
+                    description: 前回実施日。未実施（before 指定時は、それより前が無い）なら null
                   sets:
                     type: array
                     items: { $ref: "#/components/schemas/WorkoutSet" }
                   estimatedOneRm:
                     type: [number, "null"]
-                    description: 前回の推定1RM（Epley + RIR補正）
+                    description: 前回の推定1RM（Epley + RIR補正）。返したセッションのセットから計算する
         "404": { $ref: "#/components/responses/NotFound" }
+        "400": { $ref: "#/components/responses/BadRequest" }
 
   /v1/routines/today:
     get:

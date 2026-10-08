@@ -1311,6 +1311,14 @@ type ListExercisesParams struct {
 	IncludeDeleted *IncludeDeleted `form:"includeDeleted,omitempty" json:"includeDeleted,omitempty"`
 }
 
+// GetLastPerformanceParams defines parameters for GetLastPerformance.
+type GetLastPerformanceParams struct {
+	// Before この日**を含まず**、それより前で最新のセッションを返す（#257）。
+	// 今日のセッションを開いている画面が、今日打った値を「前回」と
+	// 取り違えないための指定。省略時は今日を含めて最新。
+	Before *openapi_types.Date `form:"before,omitempty" json:"before,omitempty"`
+}
+
 // ExportCsvParams defines parameters for ExportCsv.
 type ExportCsvParams struct {
 	Resource ExportCsvParamsResource `form:"resource" json:"resource"`
@@ -1612,7 +1620,7 @@ type ServerInterface interface {
 	UpdateExercise(w http.ResponseWriter, r *http.Request, exerciseId ExerciseId)
 	// GetLastPerformance 前回の実施内容
 	// (GET /v1/exercises/{exerciseId}/last-performance)
-	GetLastPerformance(w http.ResponseWriter, r *http.Request, exerciseId ExerciseId)
+	GetLastPerformance(w http.ResponseWriter, r *http.Request, exerciseId ExerciseId, params GetLastPerformanceParams)
 	// ExportCsv CSV エクスポート
 	// (GET /v1/export/csv)
 	ExportCsv(w http.ResponseWriter, r *http.Request, params ExportCsvParams)
@@ -2231,8 +2239,24 @@ func (siw *ServerInterfaceWrapper) GetLastPerformance(w http.ResponseWriter, r *
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetLastPerformanceParams
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetLastPerformance(w, r, exerciseId)
+		siw.Handler.GetLastPerformance(w, r, exerciseId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4808,6 +4832,7 @@ func (response UpdateExercise409ApplicationProblemPlusJSONResponse) VisitUpdateE
 
 type GetLastPerformanceRequestObject struct {
 	ExerciseId ExerciseId `json:"exerciseId"`
+	Params     GetLastPerformanceParams
 }
 
 type GetLastPerformanceResponseObject interface {
@@ -4815,10 +4840,10 @@ type GetLastPerformanceResponseObject interface {
 }
 
 type GetLastPerformance200JSONResponse struct {
-	// Date 前回実施日。未実施なら null
+	// Date 前回実施日。未実施（before 指定時は、それより前が無い）なら null
 	Date *openapi_types.Date `json:"date,omitempty"`
 
-	// EstimatedOneRm 前回の推定1RM（Epley + RIR補正）
+	// EstimatedOneRm 前回の推定1RM（Epley + RIR補正）。返したセッションのセットから計算する
 	EstimatedOneRm *float32           `json:"estimatedOneRm,omitempty"`
 	ExerciseId     openapi_types.UUID `json:"exerciseId"`
 	Sets           *[]WorkoutSet      `json:"sets,omitempty"`
@@ -4848,6 +4873,22 @@ func (response GetLastPerformance404ApplicationProblemPlusJSONResponse) VisitGet
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetLastPerformance422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response GetLastPerformance422ApplicationProblemPlusJSONResponse) VisitGetLastPerformanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -8537,10 +8578,11 @@ func (sh *strictHandler) UpdateExercise(w http.ResponseWriter, r *http.Request, 
 }
 
 // GetLastPerformance operation middleware
-func (sh *strictHandler) GetLastPerformance(w http.ResponseWriter, r *http.Request, exerciseId ExerciseId) {
+func (sh *strictHandler) GetLastPerformance(w http.ResponseWriter, r *http.Request, exerciseId ExerciseId, params GetLastPerformanceParams) {
 	var request GetLastPerformanceRequestObject
 
 	request.ExerciseId = exerciseId
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.GetLastPerformance(ctx, request.(GetLastPerformanceRequestObject))
