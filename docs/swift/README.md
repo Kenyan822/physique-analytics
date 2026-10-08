@@ -38,21 +38,21 @@ Go 側は [docs/go/](../go/)。
                     ┌─────┴─────┐
               LoginView      MainTabs
                                 │
-                    ┌───────┬───┴───┬────────┐
-                 LogView  MealView BodyView SettingsView
-                    │        │        │
-                 LogModel MealModel BodyModel     ← @Observable @MainActor
-                    │        │        │
-                    └────────┼────────┘
-                             │
-                        APIClient                  ← struct / Sendable
-                             │
-                   ┌─────────┴─────────┐
-              tokenProvider        HTTPTransport
-                   │                    │
-               AuthModel            URLSession
-                   │
-        AuthClient ─┴─ SessionStore（Keychain）
+      ┌────────┬────────┼─────────┬──────────┐
+  LogView  MealView  BodyView StreakView SettingsView
+      │        │        │         │
+  LogModel MealModel BodyModel StreakModel      ← @Observable @MainActor
+      │        │        │         │
+      └────────┴────┬───┴─────────┘
+                    │
+                APIClient                        ← struct / Sendable
+                    │
+          ┌─────────┴─────────┐
+     tokenProvider        HTTPTransport
+          │                    │
+      AuthModel            URLSession
+          │
+AuthClient ┴─ SessionStore（Keychain）
 ```
 
 **画面 → モデル → APIClient** の一方向。モデルは `View` を知らない。
