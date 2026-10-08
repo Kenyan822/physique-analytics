@@ -693,17 +693,44 @@ type Macros struct {
 	ProteinG float32 `json:"proteinG"`
 }
 
-// ManualTargets 手で決めた摂取目標（要件 N-05）。**期間で1つ**しか持たない ——
-// フェーズ単位で変えるもので、日ごとに持つのは過剰。
+// ManualTargetEntry defines model for ManualTargetEntry.
+type ManualTargetEntry struct {
+	CarbG     float32            `json:"carbG"`
+	CreatedAt time.Time          `json:"createdAt"`
+	FatG      float32            `json:"fatG"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// Kcal PFC から計算した値（Atwater 4/9/4）
+	Kcal     int                `json:"kcal"`
+	Name     *string            `json:"name,omitempty"`
+	ProteinG float32            `json:"proteinG"`
+	StartsOn openapi_types.Date `json:"startsOn"`
+}
+
+// ManualTargetEntryInput defines model for ManualTargetEntryInput.
+type ManualTargetEntryInput struct {
+	CarbG    float32 `json:"carbG"`
+	FatG     float32 `json:"fatG"`
+	Name     *string `json:"name,omitempty"`
+	ProteinG float32 `json:"proteinG"`
+
+	// StartsOn この日から適用（JST の日付）。**active フラグは持たない** —— 開始日が最新の行がいまの目標
+	StartsOn openapi_types.Date `json:"startsOn"`
+}
+
+// ManualTargets 手で決めた摂取目標（要件 N-05）。履歴のうち、ある日に適用される1件。
 // これがあるときは自動計算（A-02）より優先する
 type ManualTargets struct {
 	CarbG float32 `json:"carbG"`
 	FatG  float32 `json:"fatG"`
 
 	// Kcal PFC から計算した値（Atwater 4/9/4）。**送っても無視する**
-	Kcal      *int       `json:"kcal,omitempty"`
-	ProteinG  float32    `json:"proteinG"`
-	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
+	Kcal     *int    `json:"kcal,omitempty"`
+	ProteinG float32 `json:"proteinG"`
+
+	// StartsOn この目標の適用開始日。**送っても無視する**（PUT は今日になる）
+	StartsOn  *openapi_types.Date `json:"startsOn,omitempty"`
+	UpdatedAt *time.Time          `json:"updatedAt,omitempty"`
 }
 
 // Meal defines model for Meal.
@@ -1482,6 +1509,9 @@ type PushSyncJSONRequestBody PushSyncJSONBody
 // PutManualTargetsJSONRequestBody defines body for PutManualTargets for application/json ContentType.
 type PutManualTargetsJSONRequestBody = ManualTargets
 
+// CreateManualTargetEntryJSONRequestBody defines body for CreateManualTargetEntry for application/json ContentType.
+type CreateManualTargetEntryJSONRequestBody = ManualTargetEntryInput
+
 // CreateTemplateJSONRequestBody defines body for CreateTemplate for application/json ContentType.
 type CreateTemplateJSONRequestBody = TemplateInput
 
@@ -1664,15 +1694,24 @@ type ServerInterface interface {
 	// PushSync ローカルの変更を一括送信
 	// (POST /v1/sync)
 	PushSync(w http.ResponseWriter, r *http.Request)
-	// DeleteManualTargets 手で決めた摂取目標を消す。自動計算（A-02）に戻る
+	// DeleteManualTargets 手動の目標をやめる。自動計算（A-02）に戻る
 	// (DELETE /v1/targets/manual)
 	DeleteManualTargets(w http.ResponseWriter, r *http.Request)
-	// GetManualTargets 手で決めた摂取目標を返す（要件 N-05）
+	// GetManualTargets いま（JST の今日）有効な、手で決めた摂取目標を返す（要件 N-05）
 	// (GET /v1/targets/manual)
 	GetManualTargets(w http.ResponseWriter, r *http.Request)
-	// PutManualTargets 手で決めた摂取目標を保存する（要件 N-05）
+	// PutManualTargets 今日からこの目標にする（要件 N-05）
 	// (PUT /v1/targets/manual)
 	PutManualTargets(w http.ResponseWriter, r *http.Request)
+	// ListManualTargetEntries 手動目標の履歴（適用開始日の新しい順）
+	// (GET /v1/targets/manual/entries)
+	ListManualTargetEntries(w http.ResponseWriter, r *http.Request)
+	// CreateManualTargetEntry 履歴に1件足す。未来の日付なら予約になる
+	// (POST /v1/targets/manual/entries)
+	CreateManualTargetEntry(w http.ResponseWriter, r *http.Request)
+	// DeleteManualTargetEntry 履歴の1件を消す
+	// (DELETE /v1/targets/manual/entries/{entryId})
+	DeleteManualTargetEntry(w http.ResponseWriter, r *http.Request, entryId openapi_types.UUID)
 	// GetDailyTargets その日の摂取目標と残量
 	// (GET /v1/targets/{date})
 	GetDailyTargets(w http.ResponseWriter, r *http.Request, date openapi_types.Date)
@@ -3073,6 +3112,60 @@ func (siw *ServerInterfaceWrapper) PutManualTargets(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// ListManualTargetEntries operation middleware
+func (siw *ServerInterfaceWrapper) ListManualTargetEntries(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListManualTargetEntries(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateManualTargetEntry operation middleware
+func (siw *ServerInterfaceWrapper) CreateManualTargetEntry(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateManualTargetEntry(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteManualTargetEntry operation middleware
+func (siw *ServerInterfaceWrapper) DeleteManualTargetEntry(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entryId" -------------
+	var entryId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entryId", r.PathValue("entryId"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entryId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteManualTargetEntry(w, r, entryId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetDailyTargets operation middleware
 func (siw *ServerInterfaceWrapper) GetDailyTargets(w http.ResponseWriter, r *http.Request) {
 
@@ -3642,6 +3735,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/targets/manual", wrapper.DeleteManualTargets)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/targets/manual", wrapper.GetManualTargets)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/targets/manual", wrapper.PutManualTargets)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/targets/manual/entries", wrapper.ListManualTargetEntries)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/targets/manual/entries", wrapper.CreateManualTargetEntry)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/targets/manual/entries/{entryId}", wrapper.DeleteManualTargetEntry)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/targets/{date}", wrapper.GetDailyTargets)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/blood-tests", wrapper.ListBloodTests)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/blood-tests", wrapper.CreateBloodTest)
@@ -6664,6 +6760,147 @@ func (response PutManualTargets422ApplicationProblemPlusJSONResponse) VisitPutMa
 	return err
 }
 
+type ListManualTargetEntriesRequestObject struct {
+}
+
+type ListManualTargetEntriesResponseObject interface {
+	VisitListManualTargetEntriesResponse(w http.ResponseWriter) error
+}
+
+type ListManualTargetEntries200JSONResponse struct {
+	Items []ManualTargetEntry `json:"items"`
+}
+
+func (response ListManualTargetEntries200JSONResponse) VisitListManualTargetEntriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListManualTargetEntries401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListManualTargetEntries401ApplicationProblemPlusJSONResponse) VisitListManualTargetEntriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualTargetEntryRequestObject struct {
+	Body *CreateManualTargetEntryJSONRequestBody
+}
+
+type CreateManualTargetEntryResponseObject interface {
+	VisitCreateManualTargetEntryResponse(w http.ResponseWriter) error
+}
+
+type CreateManualTargetEntry201JSONResponse ManualTargetEntry
+
+func (response CreateManualTargetEntry201JSONResponse) VisitCreateManualTargetEntryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualTargetEntry401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateManualTargetEntry401ApplicationProblemPlusJSONResponse) VisitCreateManualTargetEntryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualTargetEntry422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateManualTargetEntry422ApplicationProblemPlusJSONResponse) VisitCreateManualTargetEntryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteManualTargetEntryRequestObject struct {
+	EntryId openapi_types.UUID `json:"entryId"`
+}
+
+type DeleteManualTargetEntryResponseObject interface {
+	VisitDeleteManualTargetEntryResponse(w http.ResponseWriter) error
+}
+
+type DeleteManualTargetEntry204Response struct {
+}
+
+func (response DeleteManualTargetEntry204Response) VisitDeleteManualTargetEntryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteManualTargetEntry401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteManualTargetEntry401ApplicationProblemPlusJSONResponse) VisitDeleteManualTargetEntryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteManualTargetEntry404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteManualTargetEntry404ApplicationProblemPlusJSONResponse) VisitDeleteManualTargetEntryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetDailyTargetsRequestObject struct {
 	Date openapi_types.Date `json:"date"`
 }
@@ -7562,15 +7799,24 @@ type StrictServerInterface interface {
 	// PushSync ローカルの変更を一括送信
 	// (POST /v1/sync)
 	PushSync(ctx context.Context, request PushSyncRequestObject) (PushSyncResponseObject, error)
-	// DeleteManualTargets 手で決めた摂取目標を消す。自動計算（A-02）に戻る
+	// DeleteManualTargets 手動の目標をやめる。自動計算（A-02）に戻る
 	// (DELETE /v1/targets/manual)
 	DeleteManualTargets(ctx context.Context, request DeleteManualTargetsRequestObject) (DeleteManualTargetsResponseObject, error)
-	// GetManualTargets 手で決めた摂取目標を返す（要件 N-05）
+	// GetManualTargets いま（JST の今日）有効な、手で決めた摂取目標を返す（要件 N-05）
 	// (GET /v1/targets/manual)
 	GetManualTargets(ctx context.Context, request GetManualTargetsRequestObject) (GetManualTargetsResponseObject, error)
-	// PutManualTargets 手で決めた摂取目標を保存する（要件 N-05）
+	// PutManualTargets 今日からこの目標にする（要件 N-05）
 	// (PUT /v1/targets/manual)
 	PutManualTargets(ctx context.Context, request PutManualTargetsRequestObject) (PutManualTargetsResponseObject, error)
+	// ListManualTargetEntries 手動目標の履歴（適用開始日の新しい順）
+	// (GET /v1/targets/manual/entries)
+	ListManualTargetEntries(ctx context.Context, request ListManualTargetEntriesRequestObject) (ListManualTargetEntriesResponseObject, error)
+	// CreateManualTargetEntry 履歴に1件足す。未来の日付なら予約になる
+	// (POST /v1/targets/manual/entries)
+	CreateManualTargetEntry(ctx context.Context, request CreateManualTargetEntryRequestObject) (CreateManualTargetEntryResponseObject, error)
+	// DeleteManualTargetEntry 履歴の1件を消す
+	// (DELETE /v1/targets/manual/entries/{entryId})
+	DeleteManualTargetEntry(ctx context.Context, request DeleteManualTargetEntryRequestObject) (DeleteManualTargetEntryResponseObject, error)
 	// GetDailyTargets その日の摂取目標と残量
 	// (GET /v1/targets/{date})
 	GetDailyTargets(ctx context.Context, request GetDailyTargetsRequestObject) (GetDailyTargetsResponseObject, error)
@@ -9217,6 +9463,87 @@ func (sh *strictHandler) PutManualTargets(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutManualTargetsResponseObject); ok {
 		if err := validResponse.VisitPutManualTargetsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListManualTargetEntries operation middleware
+func (sh *strictHandler) ListManualTargetEntries(w http.ResponseWriter, r *http.Request) {
+	var request ListManualTargetEntriesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListManualTargetEntries(ctx, request.(ListManualTargetEntriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListManualTargetEntries")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListManualTargetEntriesResponseObject); ok {
+		if err := validResponse.VisitListManualTargetEntriesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateManualTargetEntry operation middleware
+func (sh *strictHandler) CreateManualTargetEntry(w http.ResponseWriter, r *http.Request) {
+	var request CreateManualTargetEntryRequestObject
+
+	var body CreateManualTargetEntryJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateManualTargetEntry(ctx, request.(CreateManualTargetEntryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateManualTargetEntry")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateManualTargetEntryResponseObject); ok {
+		if err := validResponse.VisitCreateManualTargetEntryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteManualTargetEntry operation middleware
+func (sh *strictHandler) DeleteManualTargetEntry(w http.ResponseWriter, r *http.Request, entryId openapi_types.UUID) {
+	var request DeleteManualTargetEntryRequestObject
+
+	request.EntryId = entryId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteManualTargetEntry(ctx, request.(DeleteManualTargetEntryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteManualTargetEntry")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteManualTargetEntryResponseObject); ok {
+		if err := validResponse.VisitDeleteManualTargetEntryResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

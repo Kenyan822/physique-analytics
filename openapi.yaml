@@ -1014,7 +1014,10 @@ paths:
   /v1/targets/manual:
     get:
       operationId: getManualTargets
-      summary: 手で決めた摂取目標を返す（要件 N-05）
+      summary: いま（JST の今日）有効な、手で決めた摂取目標を返す（要件 N-05）
+      description: |
+        履歴（`/v1/targets/manual/entries`）のうち、今日に適用されている1件。
+        過去日の目標は `GET /v1/targets/{date}` がその日の履歴から引く
       tags: [nutrition]
       responses:
         "200":
@@ -1032,7 +1035,10 @@ paths:
 
     put:
       operationId: putManualTargets
-      summary: 手で決めた摂取目標を保存する（要件 N-05）
+      summary: 今日からこの目標にする（要件 N-05）
+      description: |
+        履歴に `startsOn = 今日（JST）` の行を足す。**同じ日に何度送っても1行**
+        （上書き）。前の目標は履歴に残り、過去日はその値で評価される
       tags: [nutrition]
       requestBody:
         required: true
@@ -1050,11 +1056,71 @@ paths:
 
     delete:
       operationId: deleteManualTargets
-      summary: 手で決めた摂取目標を消す。自動計算（A-02）に戻る
+      summary: 手動の目標をやめる。自動計算（A-02）に戻る
+      description: |
+        **履歴ごと全部消える。** 1件だけ消すときは
+        `DELETE /v1/targets/manual/entries/{entryId}`
       tags: [nutrition]
       responses:
         "204": { description: 消した。設定が無くても 204 }
         "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/targets/manual/entries:
+    get:
+      operationId: listManualTargetEntries
+      summary: 手動目標の履歴（適用開始日の新しい順）
+      tags: [nutrition]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ManualTargetEntry" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    post:
+      operationId: createManualTargetEntry
+      summary: 履歴に1件足す。未来の日付なら予約になる
+      description: |
+        **同じ `startsOn` があれば上書き**する（`startsOn` は一意）
+      tags: [nutrition]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ManualTargetEntryInput" }
+      responses:
+        "201":
+          description: 追加した
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ManualTargetEntry" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/targets/manual/entries/{entryId}:
+    parameters:
+      - name: entryId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      operationId: deleteManualTargetEntry
+      summary: 履歴の1件を消す
+      description: |
+        消した期間は、1つ前の履歴の目標で評価される。**履歴が0件になった日は
+        自動計算（A-02）にフォールバックする**
+      tags: [nutrition]
+      responses:
+        "204": { description: 消した }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/targets/{date}:
     parameters:
@@ -2316,8 +2382,7 @@ components:
       type: object
       required: [proteinG, fatG, carbG]
       description: |
-        手で決めた摂取目標（要件 N-05）。**期間で1つ**しか持たない ——
-        フェーズ単位で変えるもので、日ごとに持つのは過剰。
+        手で決めた摂取目標（要件 N-05）。履歴のうち、ある日に適用される1件。
         これがあるときは自動計算（A-02）より優先する
       properties:
         proteinG: { type: number, minimum: 0, maximum: 1000 }
@@ -2327,7 +2392,43 @@ components:
           type: [integer, "null"]
           readOnly: true
           description: PFC から計算した値（Atwater 4/9/4）。**送っても無視する**
+        startsOn:
+          type: string
+          format: date
+          readOnly: true
+          description: この目標の適用開始日。**送っても無視する**（PUT は今日になる）
         updatedAt: { type: string, format: date-time, readOnly: true }
+
+    ManualTargetEntryInput:
+      type: object
+      required: [startsOn, proteinG, fatG, carbG]
+      properties:
+        name:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 100
+        startsOn:
+          type: string
+          format: date
+          description: この日から適用（JST の日付）。**active フラグは持たない** —— 開始日が最新の行がいまの目標
+        proteinG: { type: number, minimum: 0, maximum: 1000 }
+        fatG: { type: number, minimum: 0, maximum: 1000 }
+        carbG: { type: number, minimum: 0, maximum: 2000 }
+
+    ManualTargetEntry:
+      type: object
+      required: [id, startsOn, proteinG, fatG, carbG, kcal, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: [string, "null"] }
+        startsOn: { type: string, format: date }
+        proteinG: { type: number }
+        fatG: { type: number }
+        carbG: { type: number }
+        kcal:
+          type: integer
+          description: PFC から計算した値（Atwater 4/9/4）
+        createdAt: { type: string, format: date-time }
 
     DailyTargets:
       type: object
