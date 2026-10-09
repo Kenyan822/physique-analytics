@@ -14,6 +14,8 @@ struct LogView: View {
     @State private var newExerciseName = ""
     @State private var newExerciseGroup: MuscleGroup = .chest
     @State private var newExerciseCompound = false
+    /// 種目の絞り込み（#288）
+    @State private var exerciseQuery = ""
     @FocusState private var focus: Field?
 
     /// 入力欄の位置。**行をまたいで移動できる**ように、どの行のどの欄かで持つ
@@ -124,37 +126,25 @@ struct LogView: View {
     private var addExerciseSheet: some View {
         NavigationStack {
             List {
-                ForEach(MuscleGroup.allCases, id: \.self) { g in
-                    let items = model.exercises.filter { $0.muscleGroup == g }
+                // **大分類は6つ**（#288）。13の見出しが並ぶと目的の種目まで遠い。
+                // `MuscleGroup` 自体は13のまま —— 分析がそれを前提にしている
+                ForEach(MuscleArea.allCases, id: \.self) { area in
+                    let items = ExerciseFilter.apply(model.exercises, query: exerciseQuery)
+                        .filter { MuscleArea.of($0.muscleGroup) == area }
                     if !items.isEmpty {
-                        Section(g.rawValue) {
-                            ForEach(items) { e in
-                                Button {
-                                    addingExercise = false
-                                    Task { await model.addExercise(e.id) }
-                                } label: {
-                                    HStack {
-                                        Text(e.name)
-                                        if model.isDoneToday(e.id) {
-                                            Image(systemName: "checkmark.circle.fill")
-                                                .font(.caption).foregroundStyle(.green)
-                                        }
-                                        Spacer()
-                                    }
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                                // **論理削除。** 記録は残る（#264）
-                                .swipeActions {
-                                    Button("消す", role: .destructive) {
-                                        Task { await model.removeExerciseFromMaster(e.id) }
-                                    }
-                                }
-                            }
+                        Section(area.label) {
+                            ForEach(sorted(items)) { e in exerciseRow(e) }
                         }
                     }
                 }
+
+                if ExerciseFilter.apply(model.exercises, query: exerciseQuery).isEmpty {
+                    Text("「\(exerciseQuery)」に当たる種目が無い。右上の「新規」で登録できる")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
+            // **49種目から探すなら、畳むより打って絞る方が速い**（#288）
+            .searchable(text: $exerciseQuery, prompt: "種目名・部位")
             .navigationTitle("種目を足す")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -172,6 +162,46 @@ struct LogView: View {
         }
     }
 
+    /// 大分類の中は**細かい部位の順**に並べる。肩前部 → 肩中部 → 肩後部 のように
+    private func sorted(_ items: [Exercise]) -> [Exercise] {
+        let order = MuscleGroup.allCases.enumerated()
+            .reduce(into: [MuscleGroup: Int]()) { $0[$1.element] = $1.offset }
+
+        return items.sorted {
+            (order[$0.muscleGroup] ?? 0, $0.name) < (order[$1.muscleGroup] ?? 0, $1.name)
+        }
+    }
+
+    private func exerciseRow(_ e: Exercise) -> some View {
+        Button {
+            addingExercise = false
+            Task { await model.addExercise(e.id) }
+        } label: {
+            HStack {
+                Text(e.name)
+                if model.isDoneToday(e.id) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption).foregroundStyle(.green)
+                }
+                Spacer()
+                // **細かい部位を添える。** 畳んでも、どこに入るかは見えたまま
+                Text(e.muscleGroup.rawValue)
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // **名前で引けるようにする。** 付けないとラベルが行の中身
+        // （名前・部位）を繋いだ1つの文字列になり、UI テストから引けない
+        .accessibilityLabel(e.name)
+        // **論理削除。** 記録は残る（#264）
+        .swipeActions {
+            Button("消す", role: .destructive) {
+                Task { await model.removeExerciseFromMaster(e.id) }
+            }
+        }
+    }
+
     /// 種目マスタに登録する（#264）。
     ///
     /// **登録したらその日のリストにも入って開く。** 登録と「今日やる」を
@@ -186,12 +216,18 @@ struct LogView: View {
                             .accessibilityIdentifier("newExerciseName")
                     }
 
-                    // **自由入力にしない。** 部位がずれると分析の部位別集計が壊れる
+                    // **自由入力にしない。** 部位がずれると分析の部位別集計が壊れる。
+                    // 13から選ぶので、大分類で区切って探しやすくする（#288）
                     Picker("部位", selection: $newExerciseGroup) {
-                        ForEach(MuscleGroup.allCases, id: \.self) { g in
-                            Text(g.rawValue).tag(g)
+                        ForEach(MuscleArea.allCases, id: \.self) { area in
+                            Section(area.label) {
+                                ForEach(area.groups, id: \.self) { g in
+                                    Text(g.rawValue).tag(g)
+                                }
+                            }
                         }
                     }
+                    .pickerStyle(.navigationLink)
                     .accessibilityIdentifier("newExerciseGroup")
 
                     Toggle("多関節", isOn: $newExerciseCompound)

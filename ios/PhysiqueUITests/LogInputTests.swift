@@ -57,9 +57,24 @@ final class LogInputTests: XCTestCase {
             app.navigationBars["種目を足す"].waitForExistence(timeout: UITimeout.normal),
             "一覧が開くこと"
         )
-        // **カテゴリ別。** ご要望の「カテゴリ別に全部開いている」はここ
+        // **見出しは6つの大分類**（#288）。13並ぶと目的の種目まで遠い
         XCTAssertTrue(app.staticTexts["胸"].exists, "部位で分かれていること")
-        XCTAssertTrue(app.staticTexts["大腿四頭"].exists, "別の部位も出ること")
+        XCTAssertTrue(app.staticTexts["脚"].exists, "大分類で畳まれていること")
+        // **細かい部位は行に残る。** 分析は13部位前提なので見えなくしない
+        XCTAssertTrue(app.staticTexts["大腿四頭"].exists, "細かい部位が行に出ること")
+
+        // **打って絞れる。** 49種目なら畳むよりこちらが速い
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: UITimeout.normal), "検索が出ること")
+        XCTAssertTrue(search.isHittable, "打てる位置にあること")
+        search.tap()
+        search.typeText("スクワット")
+
+        XCTAssertTrue(app.buttons["スクワット"].waitForExistence(timeout: UITimeout.normal),
+                      "絞れること")
+        // **シートの裏に居ない種目で見る。** ベンチプレスは下のルーティンにも
+        // 並んでいるので、消えたかどうかを判定できない
+        XCTAssertFalse(app.buttons["レッグエクステンション"].exists, "絞り込みで消えること")
     }
 
     /// #232 で踏んだ事故。足しても画面に何も起きなかった
