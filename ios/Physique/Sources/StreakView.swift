@@ -41,6 +41,13 @@ struct StreakView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .principal) { monthNav } }
             .task { await model.load() }
+            // **カレンダーから降りられる**（#276）。日を押すとその日の中身が出る
+            .sheet(isPresented: Binding(
+                get: { model.picked != nil },
+                set: { if !$0 { model.closePicked() } }
+            )) {
+                if let d = model.picked { daySheet(d) }
+            }
             .alert("エラー", isPresented: $model.showError) {
                 Button("閉じる", role: .cancel) {}
             } message: {
@@ -94,9 +101,20 @@ struct StreakView: View {
     }
 
     private func cell(_ n: Int) -> some View {
-        let d = model.day(model.date(ofDay: n))
+        let date = model.date(ofDay: n)
+        let d = model.day(date)
 
-        return VStack(spacing: 2) {
+        return Button {
+            Task { await model.pick(date) }
+        } label: {
+            cellBody(n, d)
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("streakDay")
+    }
+
+    private func cellBody(_ n: Int, _ d: StreakDay?) -> some View {
+        VStack(spacing: 2) {
             Text("\(n)").font(.caption2).monospacedDigit()
             HStack(spacing: 2) {
                 // **判定できない日は薄いグレー。** 未達と見分けられるようにする
@@ -105,6 +123,80 @@ struct StreakView: View {
             }
         }
         .frame(height: 34)
+        .contentShape(Rectangle())
+    }
+
+    /// その日の中身（#276）。**なぜ未達だったかまで出す**
+    private func daySheet(_ d: DayDetail) -> some View {
+        NavigationStack {
+            Form {
+                Section("食事") {
+                    macroRow("実績", d.meals.consumed)
+                    if let t = d.meals.target {
+                        macroRow("目標", t)
+                    } else {
+                        Text("この日の目標が決まっていない")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+
+                    // **未達の理由を出す。** 「✗」だけでは何を直せばいいか分からない
+                    ForEach(d.meals.reasons, id: \.self) { r in
+                        Label(r, systemImage: "exclamationmark.triangle")
+                            .font(.caption).foregroundStyle(.orange)
+                    }
+                    if d.meals.goalMet == true {
+                        Label("達成", systemImage: "checkmark.circle.fill")
+                            .font(.caption).foregroundStyle(.green)
+                    }
+                }
+
+                Section("筋トレ") {
+                    if let w = d.workout {
+                        LabeledContent(w.templateName) {
+                            Text("\(w.setCount)セット").monospacedDigit()
+                        }
+                        ForEach(w.exercises ?? []) { e in
+                            LabeledContent(e.exerciseName) {
+                                Text(e.topWeightKg.map { "\(numberText($0))kg × \(e.setCount)" }
+                                     ?? "\(e.setCount)セット")
+                                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                            }
+                        }
+                    } else {
+                        Text("記録なし").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("体組成") {
+                    if let b = d.body, b.weightKg != nil || b.bodyFatPct != nil {
+                        if let w = b.weightKg {
+                            LabeledContent("体重") { Text("\(numberText(w))kg").monospacedDigit() }
+                        }
+                        if let f = b.bodyFatPct {
+                            LabeledContent("体脂肪率") { Text("\(numberText(f))%").monospacedDigit() }
+                        }
+                    } else {
+                        Text("記録なし").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle(JST.displayString(from: d.date))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { model.closePicked() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func macroRow(_ title: String, _ m: Macros) -> some View {
+        LabeledContent(title) {
+            Text("P\(numberText(Double(m.proteinG))) F\(numberText(Double(m.fatG))) "
+                 + "C\(numberText(Double(m.carbG)))  \(Int(m.kcal))kcal")
+                .font(.caption).monospacedDigit()
+        }
     }
 
     @ViewBuilder

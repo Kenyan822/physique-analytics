@@ -210,6 +210,23 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
             return (set, 201)
 
         // 日別の達成（#248）。from〜to の全日を返す
+        // その日1日ぶん（#276）。**未達の理由まで返す**
+        case ("GET", let p) where p.contains("/v1/days/"):
+            return ([
+                "date": lastPath(p),
+                "meals": [
+                    "consumed": ["kcal": 1820, "proteinG": 150, "fatG": 60, "carbG": 200],
+                    "target": ["kcal": 2110, "proteinG": 180, "fatG": 70, "carbG": 250],
+                    "goalMet": false,
+                    "shortfall": ["kcal": -290, "proteinG": -30, "fatG": -10, "carbG": -50],
+                ],
+                "workout": [
+                    "templateName": "胸", "dayOrder": 1, "setCount": 12,
+                    "exercises": [["exerciseName": "ベンチプレス", "setCount": 5, "topWeightKg": 80]],
+                ],
+                "body": ["weightKg": 72.4, "bodyFatPct": 13.2],
+            ], 200)
+
         case ("GET", let p) where p.hasSuffix("/v1/streaks"):
             return (["items": Self.streakDays], 200)
 

@@ -95,6 +95,35 @@ final class StreakModel {
         return n
     }
 
+    // MARK: - 日を選んで中身を見る（#276）
+
+    /// 開いている日の詳細。nil なら閉じている
+    private(set) var picked: DayDetail?
+    private(set) var pickingDay = false
+
+    /// カレンダーの日を押したときに引く。
+    ///
+    /// **未来は開かない。** 記録のしようがない日を見ても意味が無い
+    func pick(_ date: String) async {
+        guard date <= today else { return }
+
+        pickingDay = true
+        defer { pickingDay = false }
+
+        do {
+            picked = try await api.day(date)
+        } catch {
+            // **開かない。** 中身が無いシートが出るより、理由が出る方がよい
+            picked = nil
+            errorMessage = (error as? APIError)?.errorDescription ?? error.localizedDescription
+            showError = true
+        }
+    }
+
+    func closePicked() {
+        picked = nil
+    }
+
     // MARK: - 読み込み
 
     func load() async {
