@@ -119,3 +119,69 @@ struct StreakModelTests {
         #expect(m.mealStreak == 1)
     }
 }
+
+/// カレンダーの日をタップして中身を見る（#276）。
+@Suite("日をタップして開く")
+@MainActor
+struct DayPickTests {
+    private let detail = #"""
+    {"date":"2026-10-03",
+     "meals":{"consumed":{"kcal":1820,"proteinG":150,"fatG":60,"carbG":200},
+              "target":{"kcal":2110,"proteinG":180,"fatG":70,"carbG":250},
+              "goalMet":false,
+              "shortfall":{"kcal":-290,"proteinG":-30,"fatG":-10,"carbG":-50}}}
+    """#
+
+    private func loaded() async -> (StreakModel, FakeTransport) {
+        let t = FakeTransport()
+        t.responses = [(Data(#"{"items":[]}"#.utf8), 200)]
+        let m = StreakModel(api: APIClient(baseURL: base, transport: t), today: "2026-10-09")
+        await m.load()
+
+        return (m, t)
+    }
+
+    @Test("日を選ぶとその日を引く")
+    func picks() async {
+        let (m, t) = await loaded()
+        t.responses = [(Data(detail.utf8), 200)]
+
+        await m.pick("2026-10-03")
+
+        #expect(m.picked?.date == "2026-10-03")
+        #expect(try! #require(t.requests.last?.url).path == "/v1/days/2026-10-03")
+    }
+
+    @Test("**未来の日は開かない**")
+    func noFuture() async {
+        let (m, t) = await loaded()
+        let n = t.requests.count
+
+        await m.pick("2026-10-20")
+
+        #expect(t.requests.count == n)
+        #expect(m.picked == nil)
+    }
+
+    @Test("閉じられる")
+    func closes() async {
+        let (m, t) = await loaded()
+        t.responses = [(Data(detail.utf8), 200)]
+        await m.pick("2026-10-03")
+
+        m.closePicked()
+
+        #expect(m.picked == nil)
+    }
+
+    @Test("**失敗しても画面は閉じない**")
+    func keepsOpenOnFailure() async {
+        let (m, t) = await loaded()
+        t.responses = [(Data(#"{"type":"about:blank","title":"無い","status":404}"#.utf8), 404)]
+
+        await m.pick("2026-10-03")
+
+        #expect(m.picked == nil)
+        #expect(m.showError)
+    }
+}

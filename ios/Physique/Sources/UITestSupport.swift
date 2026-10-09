@@ -38,6 +38,24 @@ enum UITestSupport {
     /// **本物の CoreLocation を挿さない。** システムのダイアログが出ると
     /// テストから押せない。決め打ちの場所を返す（要件 N-08）
     static func makeLocation() -> LocationSource { StubLocation() }
+
+    /// **本物の HealthKit を挿さない。** 同じ理由。
+    /// CI の素のシミュレータで権限ダイアログに当たり、テストが落ちた
+    static func makeHealth() -> HealthSource { StubHealth() }
+}
+
+/// いつでも許可して、体重を1件返す偽物。
+///
+/// **取り込みの判断は `HealthSync` のテストが見ている**ので、
+/// ここは「押したら結果が出る」ことを確かめるぶんだけあればよい
+private struct StubHealth: HealthSource {
+    func requestAuthorization() async throws {}
+
+    func samples(for kind: HealthKind, from: Date, to: Date) async throws -> [HealthSample] {
+        guard kind == .bodyMass else { return [] }
+
+        return [HealthSample(kind: .bodyMass, date: Date(), value: 72.4)]
+    }
 }
 
 /// いつでも許可して、決まった場所を返す偽物。
@@ -210,6 +228,24 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
             return (set, 201)
 
         // 日別の達成（#248）。from〜to の全日を返す
+        // その日1日ぶん（#276）。**未達の理由まで返す**
+        case ("GET", let p) where p.contains("/v1/days/"):
+            return ([
+                "date": lastPath(p),
+                "meals": [
+                    "consumed": ["kcal": 1820, "proteinG": 150, "fatG": 60, "carbG": 200],
+                    "target": ["kcal": 2110, "proteinG": 180, "fatG": 70, "carbG": 250],
+                    "goalMet": false,
+                    // **kcal は無い**（サーバは MacroDiff を返す）
+                    "shortfall": ["proteinG": -30, "fatG": -10, "carbG": -50],
+                ],
+                "workout": [
+                    "templateName": "胸", "dayOrder": 1, "setCount": 12,
+                    "exercises": [["exerciseName": "ベンチプレス", "setCount": 5, "topWeightKg": 80]],
+                ],
+                "body": ["weightKg": 72.4, "bodyFatPct": 13.2],
+            ], 200)
+
         case ("GET", let p) where p.hasSuffix("/v1/streaks"):
             return (["items": Self.streakDays], 200)
 

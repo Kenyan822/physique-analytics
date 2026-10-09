@@ -582,6 +582,47 @@ XCTAssertTrue(app.staticTexts["30g"].waitForExistence(timeout: 5),
 **入力セクションに行を足すときは1行に収める。** 2つの入口なら `HStack` に並べる。
 説明文は記録ボタンより**下**に置く。
 
+## シートの中からシートを開くテストは待ちを挟む（#276）
+
+`test_種目をマスタに登録してそのまま使える` が CI で**2回、別の箇所で**落ちた。
+どちらもローカルでは緑。
+
+| 落ちた場所 | 原因 |
+|---|---|
+| 登録後の入力欄 | シートが2枚閉じる途中を見ていた |
+| 登録画面の名前欄 | シートの中からシートが開き切る前に見ていた |
+
+**要素そのものではなく、画面が開いた／閉じたことを先に待つ。**
+
+```swift
+// 開く
+XCTAssertTrue(app.navigationBars["種目を登録"].waitForExistence(timeout: UITimeout.slow))
+// 閉じる
+XCTAssertTrue(app.navigationBars["種目を足す"].waitForNonExistence(timeout: UITimeout.slow))
+```
+
+`waitForNonExistence` を使う。`expectation(for:evaluatedWith:)` は
+`XCTestCase` が `Sendable` でないため Swift 6 で警告になる。
+
+## システムのダイアログが出るものは全部偽物を挿す（#288）
+
+CoreLocation は最初からそうしていたが、**HealthKit を挿し忘れていた。**
+手元のシミュレータは過去に許可済みで通り、**CI の素のシミュレータでだけ落ちた。**
+
+```swift
+private var health: HealthSource {
+    #if DEBUG
+    if UITestSupport.isActive { return UITestSupport.makeHealth() }
+    #endif
+    return HealthKitSource()
+}
+```
+
+判断は `HealthSync` のテストが見ているので、偽物は「1件返す」程度でよい。
+UI テストで見るのは**押したら結果が出るか**だけ。
+
+**手元で通って CI で落ちたら、まずシステム権限を疑う。**
+
 ## 入口ごとに1本足さない
 
 UI テストが 14本まで増え、**CI で約5分**かかるようになった（#227）。

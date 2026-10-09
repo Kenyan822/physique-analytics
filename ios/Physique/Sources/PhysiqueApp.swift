@@ -66,6 +66,17 @@ private struct MainTabs: View {
         return CoreLocationSource()
     }
 
+    /// HealthKit（要件 B-01 / B-09）。**UI テストでは本物を挿さない** ——
+    /// 位置情報と同じで、システムのダイアログが出るとテストから押せない。
+    /// CI の素のシミュレータでこれを踏んだ
+    private var health: HealthSource {
+        #if DEBUG
+        if UITestSupport.isActive { return UITestSupport.makeHealth() }
+        #endif
+
+        return HealthKitSource()
+    }
+
     var body: some View {
         // **食事を先頭にする。** 開く頻度が違う —— 食事は1日4〜6回、
         // トレーニングは週3〜5回。起動直後に出る画面が食事である方が、
@@ -77,7 +88,7 @@ private struct MainTabs: View {
                 .tabItem { Label("食事", systemImage: "fork.knife") }
             LogView(api: api)
                 .tabItem { Label("記録", systemImage: "dumbbell") }
-            BodyView(api: api, health: HealthKitSource())
+            BodyView(api: api, health: health)
                 .tabItem { Label("体組成", systemImage: "figure") }
             StreakView(api: api)
                 .tabItem { Label("継続", systemImage: "flame") }

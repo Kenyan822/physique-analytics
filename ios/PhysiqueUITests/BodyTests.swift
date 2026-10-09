@@ -30,6 +30,20 @@ final class BodyTests: XCTestCase {
         XCTAssertTrue(fwd.isEnabled, "戻ったら進めること")
     }
 
+    /// 実機で「押しても反応しない」と言われた件。**押した結果が見えるところまで**見る
+    func test_AppleHealthを押すと結果が出る() {
+        let sync = app.buttons["syncHealth"]
+        XCTAssertTrue(sync.waitForExistence(timeout: UITimeout.normal), "取り込みが出ること")
+        XCTAssertTrue(sync.isHittable, "押せる位置にあること")
+        sync.tap()
+
+        // **押したボタンのすぐ下に出る。** 画面の一番下だと見えない
+        XCTAssertTrue(
+            app.staticTexts["bodyMessage"].waitForExistence(timeout: UITimeout.slow),
+            "押した結果が出ること"
+        )
+    }
+
     /// #277。既定は首とウエストだけ。残りは畳む
     func test_周囲長は既定で2つだけ出て開ける() {
         XCTAssertTrue(app.staticTexts["首"].waitForExistence(timeout: UITimeout.normal),

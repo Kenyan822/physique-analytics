@@ -198,6 +198,14 @@ struct APIClient: Sendable {
         try await requestNoContent("DELETE", "/v1/workout-sets/\(escape(id.uuidString))")
     }
 
+    /// その日1日ぶんの要約（#276）。
+    ///
+    /// **1回で取る。** 食事・筋トレ・体組成を別々に叩くと、カレンダーの日を
+    /// 押すたびに3往復する
+    func day(_ date: String) async throws -> DayDetail {
+        try await request(DayDetail.self, "GET", "/v1/days/\(escape(date))")
+    }
+
     /// 日別の達成フラグ（#248）。**記録が無い日も行として返る**
     func streaks(from: String, to: String) async throws -> [StreakDay] {
         struct Response: Decodable { let items: [StreakDay] }

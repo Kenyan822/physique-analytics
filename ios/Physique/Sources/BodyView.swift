@@ -21,12 +21,6 @@ struct BodyView: View {
                 compositionSection
                 fatigueSection
                 measurementSection
-
-                if let message = model.message {
-                    Section {
-                        Text(message).font(.footnote).foregroundStyle(.secondary)
-                    }
-                }
             }
             .navigationBarTitleDisplayMode(.inline)
             // **食事・記録と同じ形**（#193 / #232 と揃える・#275）
@@ -93,6 +87,11 @@ struct BodyView: View {
     /// 一度通したあとは画面を開くたびに黙って取り込む（#274）。
     @ViewBuilder
     private var healthSection: some View {
+        if !model.canSyncHealth, let message = model.message {
+            // HealthKit が無い端末でも、保存の結果は出す
+            Section { Text(message).font(.footnote).foregroundStyle(.secondary) }
+        }
+
         if model.canSyncHealth {
             Section {
                 Button(label(for: model)) {
@@ -100,6 +99,13 @@ struct BodyView: View {
                 }
                 .disabled(model.isSaving)
                 .accessibilityIdentifier("syncHealth")
+
+                // **押したボタンのすぐ下に出す。** 画面の一番下に出していたので、
+                // 押しても何も起きないように見えていた
+                if let message = model.message {
+                    Text(message).font(.footnote).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("bodyMessage")
+                }
             } footer: {
                 Text(model.healthGranted
                      ? "開くたびに自動で取り込む。押すと今すぐ取り込む"
