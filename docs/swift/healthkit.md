@@ -12,7 +12,8 @@
 let raw = q.quantity.doubleValue(for: .percent())   // 20% なら 0.2
 ```
 
-体脂肪率をそのまま保存すると **0.2%** になる。実際に本番へ 0.2 が入った（#291）。
+体脂肪率をそのまま保存すると**割合のまま**入る。桁が 1/100 になるので、
+一桁の % として見える。実際に本番へ割合のまま入った（#291）。
 
 ```swift
 /// 取り出す単位。**ここを間違えると静かに桁がずれる。**
@@ -72,7 +73,14 @@ codesign -d --entitlements - path/to/Physique.app
 ### 読み取り専用なら `NSHealthUpdateUsageDescription` を書かない
 
 `toShare: []` で要求しているので、要るのは `NSHealthShareUsageDescription` だけ。
-書き込みの説明文を足すと、要求していない権限の確認が出る。
+
+**Info.plist のキーは権限を要求しない。** 確認のシートを出すのは
+`requestAuthorization(toShare:read:)` の引数であって、使用目的の文ではない。
+キーは「要求するなら説明が要る」という側の決まりで、書いておけば勝手に聞きに行く、
+というものではない。
+
+読み取りだけなら `NSHealthUpdateUsageDescription` を省けるかどうかは、Apple の文書に
+明記が無い。ここでは**使わないキーは置かない**という理由で外してある。
 
 ## 読み取り権限が下りたかは問い合わせられない
 
@@ -82,7 +90,10 @@ codesign -d --entitlements - path/to/Physique.app
 これは仕様で、**アプリが「この人はこのデータを隠した」と知れてしまうのを防いでいる**。
 拒否されたときは「データが無い」のと区別がつかない形で空が返る。
 
-結果、「もう許可をもらったか」はアプリ側で覚えるしかない。
+結果、アプリ側で覚えられるのは「**もう要求を出したか**」だけになる。
+
+`requestAuthorization` がエラー無く返っても、**読めるとは限らない。**
+シートが出て閉じた、以上のことは分からない。下のフラグ名は実態より強い。
 
 ```swift
 private(set) var healthGranted: Bool {
@@ -101,7 +112,7 @@ init(api: APIClient, health: HealthSource? = nil, defaults: UserDefaults = .stan
 ## シミュレータでは検証にならない
 
 HealthKit はシミュレータだとデータが空なので、本物を挿しても何も取れない。
-加えて **UI テストでは本物を挿してはいけない** —— システムの確認ダイアログが出て、
+加えて **UI テストでは本物を挿してはいけない。** システムの確認ダイアログが出て、
 テストから押せなくなる。CI の素のシミュレータでこれを踏んだ。
 
 そのため `HealthSource` を protocol にして、取り込みの判断（`HealthSync`）だけを
