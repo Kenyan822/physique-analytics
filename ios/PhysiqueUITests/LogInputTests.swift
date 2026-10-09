@@ -135,9 +135,17 @@ final class LogInputTests: XCTestCase {
         XCTAssertTrue(save.isHittable, "登録が押せること")
         save.tap()
 
+        // **シートが2枚閉じる。** 閉じ終わるのを待たずに見ると、
+        // 遅い環境（CI）で過渡状態を踏む
+        let sheet = app.navigationBars["種目を足す"]
+        XCTAssertTrue(
+            sheet.waitForNonExistence(timeout: UITimeout.slow),
+            "一覧が閉じること"
+        )
+
         // **登録したらそのまま打てる**（行が増えて開く）
         XCTAssertTrue(
-            app.textFields["weightInput"].firstMatch.waitForExistence(timeout: UITimeout.normal),
+            app.textFields["weightInput"].firstMatch.waitForExistence(timeout: UITimeout.slow),
             "登録した種目で入力が開くこと"
         )
     }
