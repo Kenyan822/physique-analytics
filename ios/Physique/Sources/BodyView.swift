@@ -133,17 +133,31 @@ struct BodyView: View {
     }
 
     private var compositionSection: some View {
-        Section("体組成") {
+        Section {
             NumberRow(
                 label: "体重", unit: "kg", value: $model.weightKg,
-                previous: model.previousWeightKg, max: 300
+                previous: model.previousWeightKg, max: 300,
+                readOnly: model.healthGranted
             )
-            NumberRow(label: "体脂肪率", unit: "%", value: $model.bodyfatPct, previous: nil, max: 70)
+            NumberRow(
+                label: "体脂肪率", unit: "%", value: $model.bodyfatPct,
+                previous: nil, max: 70,
+                readOnly: model.healthGranted
+            )
 
-            Button(model.isSaving ? "保存中…" : "体組成を保存") {
-                Task { await model.saveDaily(date: model.date) }
+            // 取り込んでいる間は保存する必要が無い
+            if !model.healthGranted {
+                Button(model.isSaving ? "保存中…" : "体組成を保存") {
+                    Task { await model.saveDaily(date: model.date) }
+                }
+                .disabled(model.isSaving)
             }
-            .disabled(model.isSaving)
+        } header: {
+            Text("体組成")
+        } footer: {
+            if model.healthGranted {
+                Text("Apple Health から取り込んだ値。手では入れない")
+            }
         }
     }
 
@@ -205,6 +219,8 @@ private struct NumberRow: View {
     @Binding var value: Double?
     let previous: Double?
     let max: Double
+    /// 取り込んだ値は手で入れない（#288）
+    var readOnly = false
 
     @State private var text = ""
 
@@ -213,7 +229,7 @@ private struct NumberRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
                 HStack(spacing: 6) {
-                    Text(previous.map { "前回 \($0)\(unit)" } ?? "前回なし")
+                    Text(previous.map { "前回 \(bodyText($0))\(unit)" } ?? "前回なし")
                     if let diff = formatDiff(current: value, previous: previous) {
                         Text(diff).foregroundStyle(Color.accentColor)
                     }
@@ -224,17 +240,23 @@ private struct NumberRow: View {
 
             Spacer()
 
-            TextField(previous.map { "\($0)" } ?? "—", text: $text)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 90)
-                .onChange(of: text) { _, new in
-                    // 空にしたら未入力に戻す。0 を入れたことにしない
-                    value = new.trimmingCharacters(in: .whitespaces).isEmpty
-                        ? nil
-                        : parseNumber(new).map { Swift.min($0, max) }
-                }
-                .onAppear { text = value.map { "\($0)" } ?? "" }
+            if readOnly {
+                Text(value.map(bodyText) ?? "—")
+                    .monospacedDigit()
+                    .foregroundStyle(value == nil ? .tertiary : .primary)
+            } else {
+                TextField(previous.map(bodyText) ?? "—", text: $text)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 90)
+                    .onChange(of: text) { _, new in
+                        // 空にしたら未入力に戻す。0 を入れたことにしない
+                        value = new.trimmingCharacters(in: .whitespaces).isEmpty
+                            ? nil
+                            : parseNumber(new).map { Swift.min($0, max) }
+                    }
+                    .onAppear { text = value.map(bodyText) ?? "" }
+            }
 
             Text(unit).font(.caption).foregroundStyle(.secondary)
         }

@@ -278,3 +278,24 @@ struct BodyDateNavTests {
         #expect(m.date == "2026-10-09")
     }
 }
+
+@Suite("体組成の数値表示")
+struct BodyNumberTextTests {
+    @Test("小数第1位までにする")
+    func rounds() {
+        // HealthKit の値は 72.40000000000001 のように来る
+        #expect(bodyText(72.40000000000001) == "72.4")
+        #expect(bodyText(13.249999999) == "13.2")
+    }
+
+    @Test("整数は小数点を出さない")
+    func integer() {
+        #expect(bodyText(72) == "72")
+        #expect(bodyText(72.0) == "72")
+    }
+
+    @Test("第2位以下は丸める")
+    func truncates() {
+        #expect(bodyText(72.46) == "72.5")
+    }
+}
