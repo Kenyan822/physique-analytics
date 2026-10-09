@@ -147,10 +147,14 @@ final class BodyModel {
             }
 
             lastSynced = today
+
+            // **load より先に結果を立てない。** load は先頭で message = nil するので、
+            // ここで入れると消える。押しても何も起きないように見えていた
+            await load(date: today)
+
             if !quiet {
                 message = days.isEmpty ? "取り込むものが無かった" : "\(days.count)日分を取り込んだ"
             }
-            await load(date: today)
         } catch {
             // 自動のときは黙る。**開くたびにエラーが出ると、手入力の邪魔になる**
             if !quiet { message = describe(error) }

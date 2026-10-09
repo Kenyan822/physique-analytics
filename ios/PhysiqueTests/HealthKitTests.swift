@@ -141,8 +141,11 @@ struct AutoSyncTests {
     }
 
     /// **テストごとに別の置き場所を使う。** `.standard` を共有すると汚し合う
+    /// `putDailyMetrics` は `DailyMetrics` を期待する。**id が無いと decode で落ち**、
+    /// catch に入って「取り込んだ」ではなくエラーが message に入る
     private func model(_ h: CountingSource, granted: Bool) -> BodyModel {
-        let t = FakeTransport(json: #"{"date":"2026-10-09"}"#)
+        let ok = #"{"id":"33333333-3333-4333-8333-333333333333","date":"2026-10-09"}"#
+        let t = FakeTransport(json: ok)
         let suite = UserDefaults(suiteName: "test-\(UUID().uuidString)")!
         let m = BodyModel(api: APIClient(baseURL: URL(string: "http://api.test")!, transport: t),
                           health: h, defaults: suite)
@@ -195,6 +198,19 @@ struct AutoSyncTests {
         #expect(!m.healthGranted)
     }
 
+    @Test("**手動で押したら結果が残る**")
+    func manualShowsMessage() async {
+        let h = CountingSource()
+        let m = model(h, granted: false)
+
+        await m.syncHealth(today: "2026-10-09")
+
+        // syncHealth の最後で load() を呼ぶが、load は message = nil する。
+        // **結果が消えるので、押しても何も起きないように見える**（実機で踏んだ）。
+        // 「nil でない」だけでは足りない —— load の失敗メッセージでも通ってしまう
+        #expect(m.message?.contains("取り込") == true)
+    }
+
     @Test("**自動のときはメッセージを出さない**")
     func quietWhenAutomatic() async {
         let h = CountingSource()
@@ -202,8 +218,9 @@ struct AutoSyncTests {
 
         await m.syncHealthIfGranted(today: "2026-10-09")
 
-        // 開くたびに「3日分を取り込んだ」と出ると邪魔
-        #expect(m.message == nil)
+        // 開くたびに「3日分を取り込んだ」と出ると邪魔。
+        // **読み込みの失敗は出してよい**ので、取り込み結果だけ抑える
+        #expect(m.message?.contains("取り込") != true)
     }
 }
 
