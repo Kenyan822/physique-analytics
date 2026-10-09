@@ -171,6 +171,7 @@ jobs:
             --allow-unauthenticated
           secrets: |
             DATABASE_URL=supabase-pooler-url:latest
+            VISION_API_KEY=vision-api-key:latest
           # **env_vars は毎回まるごと置き換わる。** ここに書いていない変数は
           # デプロイのたびに消えるので、手で gcloud から入れても残らない
           env_vars: |
