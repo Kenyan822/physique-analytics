@@ -124,8 +124,15 @@ final class LogInputTests: XCTestCase {
         XCTAssertTrue(register.isHittable, "押せる位置にあること")
         register.tap()
 
+        // **シートの中からシートを開く。** XCUITest では遅い環境で開き切る前に
+        // 見てしまうことがあるので、まず navigation bar の出現を待つ
+        XCTAssertTrue(
+            app.navigationBars["種目を登録"].waitForExistence(timeout: UITimeout.slow),
+            "登録画面が開くこと"
+        )
+
         let name = app.textFields["newExerciseName"]
-        XCTAssertTrue(name.waitForExistence(timeout: UITimeout.normal), "名前の欄が出ること")
+        XCTAssertTrue(name.waitForExistence(timeout: UITimeout.slow), "名前の欄が出ること")
         XCTAssertTrue(name.isHittable, "打てる位置にあること")
         name.tap()
         name.typeText("ケーブルクロスオーバー")
