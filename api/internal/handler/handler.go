@@ -141,6 +141,13 @@ type StreakRepository interface {
 	Inputs(ctx context.Context, from, to time.Time) (repository.StreakInputs, error)
 }
 
+// DayRepository は1日ぶんの要約の元データを引く。
+//
+// **nil でもよい。** 未設定なら記録の無い日として返す
+type DayRepository interface {
+	Records(ctx context.Context, date time.Time) (repository.DayRecords, error)
+}
+
 // PlanRepository は計画の設定へのアクセス（要件 P-01 / P-05）。
 type PlanRepository interface {
 	Get(ctx context.Context) (openapi.Plan, error)
@@ -238,6 +245,8 @@ type Server struct {
 	routines RoutineRepository
 	// streaks も任意。未設定なら全日 null・未実施で返す
 	streaks StreakRepository
+	// days も任意。未設定なら記録の無い日として返す
+	days DayRepository
 }
 
 // WithFoodItems は食品マスタの置き場所を差す（要件 N-02）。
@@ -258,6 +267,13 @@ func (s *Server) WithRoutines(r RoutineRepository) *Server {
 // WithStreaks は日別の達成判定の元データの置き場所を差す。
 func (s *Server) WithStreaks(r StreakRepository) *Server {
 	s.streaks = r
+
+	return s
+}
+
+// WithDays は1日ぶんの要約の元データの置き場所を差す。
+func (s *Server) WithDays(r DayRepository) *Server {
+	s.days = r
 
 	return s
 }

@@ -1020,6 +1020,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/days/{date}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description JST の日付（ADR-0013） */
+                date: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * 1日ぶんの要約（食事・筋トレ・体組成）
+         * @description 継続カレンダーで日をタップしたときの要約。**何往復もさせず1回で返す**。
+         *     **記録が無い日も 200**（`meals.consumed` は 0、`workout` と `body` は null）。
+         *
+         *     - `meals.goalMet` は `GET /v1/streaks` の `mealGoalMet` と**同じ判定**
+         *       （P・F・C すべてが目標の ±10% 以内）。目標は**その日に有効だったもの**。
+         *       **目標が引けない日は `target` と `goalMet` が null**（false ではない）
+         *     - `meals.shortfall` は**目標との素の差**（実績 − 目標）。負なら足りない。
+         *       許容幅の内外は見ない。目標が引けなければ null
+         */
+        get: operations["getDay"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/streaks": {
         parameters: {
             query?: never;
@@ -1820,6 +1850,47 @@ export interface components {
                 field: string;
                 message: string;
             }[];
+        };
+        DayDetail: {
+            /** Format: date */
+            date: string;
+            meals: components["schemas"]["DayMeals"];
+            /** @description その日に `workout_sets` が1件でもあれば。無ければ null */
+            workout: components["schemas"]["DayWorkout"] | null;
+            /** @description 体重・体脂肪率のどちらかがあれば。無ければ null */
+            body: components["schemas"]["DayBody"] | null;
+        };
+        DayMeals: {
+            consumed: components["schemas"]["Macros"];
+            /** @description その日に有効だった目標。引けなければ null */
+            target: components["schemas"]["Macros"] | null;
+            /** @description P・F・C すべてが目標の ±10% 以内なら true。**目標が引けなければ null** */
+            goalMet: boolean | null;
+            /** @description 実績 − 目標。負なら足りない。目標が引けなければ null */
+            shortfall: components["schemas"]["MacroDiff"] | null;
+        };
+        MacroDiff: {
+            proteinG: number;
+            fatG: number;
+            carbG: number;
+        };
+        DayWorkout: {
+            /** @description その日のセッションのテンプレート名。無ければ null */
+            templateName?: string | null;
+            /** @description 有効なルーティンの何日目か。ルーティンに無ければ null */
+            dayOrder?: number | null;
+            setCount: number;
+            exercises: components["schemas"]["DayWorkoutExercise"][];
+        };
+        DayWorkoutExercise: {
+            exerciseName: string;
+            setCount: number;
+            /** @description その日の最大重量（kg） */
+            topWeightKg: number;
+        };
+        DayBody: {
+            weightKg?: number | null;
+            bodyFatPct?: number | null;
         };
         StreakDay: {
             /** Format: date */
@@ -3882,6 +3953,30 @@ export interface operations {
                 };
             };
             422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getDay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description JST の日付（ADR-0013） */
+                date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
     getStreaks: {
