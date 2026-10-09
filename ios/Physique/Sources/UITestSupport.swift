@@ -38,6 +38,24 @@ enum UITestSupport {
     /// **本物の CoreLocation を挿さない。** システムのダイアログが出ると
     /// テストから押せない。決め打ちの場所を返す（要件 N-08）
     static func makeLocation() -> LocationSource { StubLocation() }
+
+    /// **本物の HealthKit を挿さない。** 同じ理由。
+    /// CI の素のシミュレータで権限ダイアログに当たり、テストが落ちた
+    static func makeHealth() -> HealthSource { StubHealth() }
+}
+
+/// いつでも許可して、体重を1件返す偽物。
+///
+/// **取り込みの判断は `HealthSync` のテストが見ている**ので、
+/// ここは「押したら結果が出る」ことを確かめるぶんだけあればよい
+private struct StubHealth: HealthSource {
+    func requestAuthorization() async throws {}
+
+    func samples(for kind: HealthKind, from: Date, to: Date) async throws -> [HealthSample] {
+        guard kind == .bodyMass else { return [] }
+
+        return [HealthSample(kind: .bodyMass, date: Date(), value: 72.4)]
+    }
 }
 
 /// いつでも許可して、決まった場所を返す偽物。
