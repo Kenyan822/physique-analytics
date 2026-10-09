@@ -171,3 +171,13 @@ extension Double {
         return (self * f).rounded() / f
     }
 }
+
+/// 体重・体脂肪率の表示（#288）。
+///
+/// HealthKit の値は 72.40000000000001 のように来るので、小数第1位で丸める。
+/// 体重計の精度が 0.1kg なので、それ以上は意味が無い。
+func bodyText(_ v: Double) -> String {
+    let r = (v * 10).rounded() / 10
+
+    return r == r.rounded() ? String(Int(r)) : String(r)
+}

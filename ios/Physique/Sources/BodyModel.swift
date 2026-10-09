@@ -19,8 +19,10 @@ final class BodyModel {
 
     /// 今日より前の直近の周囲長。差分の基準（要件 B-03）
     private(set) var previousMeasurement: BodyMeasurement?
-    /// 今日より前の直近の体重
+    /// 表示日より前の直近の体重
     private(set) var previousWeightKg: Double?
+    /// 表示日より前の直近の体脂肪率
+    private(set) var previousBodyfatPct: Double?
 
     private(set) var message: String?
     private(set) var isSaving = false
@@ -58,6 +60,15 @@ final class BodyModel {
         guard healthGranted else { return }
 
         await syncHealth(today: today, quiet: true)
+    }
+
+    /// 最初から取り込み直す（#291）。
+    ///
+    /// 体脂肪率が壊れて保存されていた期間があるので、直したあとに
+    /// 入れ直す手段が要る。差分取り込みの記録を消してから走らせる
+    func resyncHealth(today: String) async {
+        lastSynced = nil
+        await syncHealth(today: today)
     }
 
     /// テスト用。`UserDefaults` を直に触らせない
@@ -169,21 +180,31 @@ final class BodyModel {
         message = nil
 
         do {
+            // order by date desc で返る
             let daily = try await api.listDailyMetrics(from: shiftDays(date, -30), to: date)
-            if let today = daily.first(where: { $0.date == date }) {
-                weightKg = today.weightKg
-                bodyfatPct = today.bodyfatPct
-                fatigue = today.fatigue
-            }
-            previousWeightKg = daily.first { $0.date != date && $0.weightKg != nil }?.weightKg
+            let onDate = daily.first { $0.date == date }
 
+            // 記録が無い日に移ったら空にする。
+            // 残すと、前の日の値をその日の記録だと思って保存してしまう
+            weightKg = onDate?.weightKg
+            bodyfatPct = onDate?.bodyfatPct
+            fatigue = onDate?.fatigue
+
+            let before = daily.filter { $0.date < date }
+            previousWeightKg = before.first { $0.weightKg != nil }?.weightKg
+            previousBodyfatPct = before.first { $0.bodyfatPct != nil }?.bodyfatPct
+
+            // 表示日より後のものを「前回」にしない。
+            // 日付を移せるようになったので、未来の値が出ることがある（#291）
             let latest = try await api.latestMeasurement()
+            parts = [:]
+            previousMeasurement = nil
             if let latest {
                 if latest.date == date {
                     for part in BodyPart.allCases {
                         parts[part] = latest.value(for: part)
                     }
-                } else {
+                } else if latest.date < date {
                     previousMeasurement = latest
                 }
             }

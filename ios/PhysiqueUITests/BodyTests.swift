@@ -44,6 +44,22 @@ final class BodyTests: XCTestCase {
         )
     }
 
+    /// #288。取り込むので手では入れない
+    func test_取り込んだあとは体重を手で入れられない() {
+        let sync = app.buttons["syncHealth"]
+        XCTAssertTrue(sync.waitForExistence(timeout: UITimeout.normal), "取り込みが出ること")
+        sync.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["bodyMessage"].waitForExistence(timeout: UITimeout.slow),
+            "取り込みが終わること"
+        )
+
+        // 取り込み済みなら入力欄が消える
+        XCTAssertTrue(app.staticTexts["体組成"].exists, "体組成の見出しが出ること")
+        XCTAssertFalse(app.buttons["体組成を保存"].exists, "手で保存するボタンが無いこと")
+    }
+
     /// #277。既定は首とウエストだけ。残りは畳む
     func test_周囲長は既定で2つだけ出て開ける() {
         XCTAssertTrue(app.staticTexts["首"].waitForExistence(timeout: UITimeout.normal),
