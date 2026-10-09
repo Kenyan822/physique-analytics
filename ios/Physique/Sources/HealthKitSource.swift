@@ -52,7 +52,9 @@ struct HealthKitSource: HealthSource {
         return raw.compactMap { s in
             guard let q = s as? HKQuantitySample else { return nil }
 
-            return HealthSample(kind: kind, date: q.endDate, value: q.quantity.doubleValue(for: unit))
+            let raw = q.quantity.doubleValue(for: unit)
+
+            return HealthSample(kind: kind, date: q.endDate, value: scale(kind, raw))
         }
     }
 
@@ -133,6 +135,14 @@ struct HealthKitSource: HealthSource {
     }
 
     /// 取り出す単位。**ここを間違えると静かに桁がずれる。**
+    /// 単位を揃える。
+    ///
+    /// **`HKUnit.percent()` は割合を返す**（20% なら 0.2）。そのまま保存すると
+    /// 体脂肪率 0.2% になる。実際に本番に 0.2 が入った（#291）
+    private func scale(_ kind: HealthKind, _ v: Double) -> Double {
+        kind == .bodyFatPercentage ? v * 100 : v
+    }
+
     private static func unit(for kind: HealthKind) -> HKUnit? {
         switch kind {
         case .bodyMass: .gramUnit(with: .kilo)
