@@ -122,6 +122,8 @@ struct HealthSyncTests {
 struct AutoSyncTests {
     /// 呼ばれた回数を数える偽物
     final class CountingSource: HealthSource, @unchecked Sendable {
+        init() {}
+
         var authCalls = 0
         var sampleCalls = 0
         var shouldThrow: Error?
@@ -131,8 +133,12 @@ struct AutoSyncTests {
             if let shouldThrow { throw shouldThrow }
         }
 
+        /// 最後に要求された開始日。取り込み直しの確認に使う
+        var lastFrom: Date?
+
         func samples(for kind: HealthKind, from: Date, to: Date) async throws -> [HealthSample] {
             sampleCalls += 1
+            lastFrom = from
 
             return kind == .bodyMass
                 ? [HealthSample(kind: .bodyMass, date: Date(), value: 72.4)]
@@ -297,5 +303,102 @@ struct BodyNumberTextTests {
     @Test("第2位以下は丸める")
     func truncates() {
         #expect(bodyText(72.46) == "72.5")
+    }
+}
+
+/// 体組成の読み込み（#291）。
+@Suite("体組成の前回値と日付移動")
+@MainActor
+struct BodyLoadTests {
+    /// 10/8 と 10/5 に記録がある。order by date desc
+    private let daily = #"""
+    {"items":[
+     {"id":"11111111-1111-4111-8111-111111111111","date":"2026-10-08","weightKg":78.4,"bodyfatPct":18.2},
+     {"id":"22222222-2222-4222-8222-222222222222","date":"2026-10-05","weightKg":79.2,"bodyfatPct":18.9}]}
+    """#
+
+    private func model(date: String) -> (BodyModel, FakeTransport) {
+        let t = FakeTransport()
+        let m = BodyModel(api: APIClient(baseURL: URL(string: "http://api.test")!, transport: t),
+                          defaults: UserDefaults(suiteName: "b-\(UUID().uuidString)")!,
+                          date: date, today: "2026-10-09")
+
+        return (m, t)
+    }
+
+    @Test("**体脂肪率にも前回値が出る**")
+    func bodyfatPrevious() async {
+        let (m, t) = model(date: "2026-10-08")
+        t.responses = [(Data(daily.utf8), 200), (Data("null".utf8), 200)]
+
+        await m.load(date: "2026-10-08")
+
+        #expect(m.bodyfatPct == 18.2)
+        #expect(m.previousBodyfatPct == 18.9)
+    }
+
+    @Test("前回は表示日より前の直近")
+    func previousIsBeforeDate() async {
+        let (m, t) = model(date: "2026-10-08")
+        t.responses = [(Data(daily.utf8), 200), (Data("null".utf8), 200)]
+
+        await m.load(date: "2026-10-08")
+
+        #expect(m.previousWeightKg == 79.2)
+    }
+
+    @Test("**記録が無い日に移ると空欄になる**")
+    func clearsOnEmptyDay() async {
+        let (m, t) = model(date: "2026-10-08")
+        t.responses = [(Data(daily.utf8), 200), (Data("null".utf8), 200)]
+        await m.load(date: "2026-10-08")
+        #expect(m.weightKg == 78.4)
+
+        // 10/7 に記録は無い
+        t.responses = [(Data(daily.utf8), 200), (Data("null".utf8), 200)]
+        await m.load(date: "2026-10-07")
+
+        #expect(m.weightKg == nil)
+        #expect(m.bodyfatPct == nil)
+        // その日より前の直近が前回になる
+        #expect(m.previousWeightKg == 79.2)
+    }
+
+    @Test("**周囲長の前回は表示日より前**")
+    func measurementBeforeDate() async {
+        let (m, t) = model(date: "2026-10-06")
+        let future = #"{"id":"33333333-3333-4333-8333-333333333333","date":"2026-10-08","neckCm":38}"#
+        t.responses = [(Data(daily.utf8), 200), (Data(future.utf8), 200)]
+
+        await m.load(date: "2026-10-06")
+
+        // 10/8 は表示日より後。前回として出してはいけない
+        #expect(m.previousMeasurement == nil)
+    }
+}
+
+@Suite("取り込み直し")
+@MainActor
+struct ResyncTests {
+    @Test("**押せば最初から取り込み直せる**")
+    func resync() async {
+        let t = FakeTransport(json: #"{"id":"44444444-4444-4444-8444-444444444444","date":"2026-10-09"}"#)
+        let h = AutoSyncTests.CountingSource()
+        let m = BodyModel(api: APIClient(baseURL: URL(string: "http://api.test")!, transport: t),
+                          health: h,
+                          defaults: UserDefaults(suiteName: "r-\(UUID().uuidString)")!)
+
+        // 初回は30日前から
+        await m.syncHealth(today: "2026-10-09")
+        let first = try! #require(h.lastFrom)
+
+        // 2回目は差分だけなので、もっと後ろから
+        await m.syncHealth(today: "2026-10-09")
+        let second = try! #require(h.lastFrom)
+        #expect(second > first)
+
+        // 取り込み直しは初回と同じところまで戻る
+        await m.resyncHealth(today: "2026-10-09")
+        #expect(h.lastFrom == first)
     }
 }

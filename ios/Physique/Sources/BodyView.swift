@@ -100,6 +100,16 @@ struct BodyView: View {
                 .disabled(model.isSaving)
                 .accessibilityIdentifier("syncHealth")
 
+                // 体脂肪率が壊れて入っていた期間があるので、入れ直せるようにする（#291）
+                if model.healthGranted {
+                    Button("30日ぶん取り込み直す") {
+                        Task { await model.resyncHealth(today: model.date) }
+                    }
+                    .font(.callout)
+                    .disabled(model.isSaving)
+                    .accessibilityIdentifier("resyncHealth")
+                }
+
                 // **押したボタンのすぐ下に出す。** 画面の一番下に出していたので、
                 // 押しても何も起きないように見えていた
                 if let message = model.message {
@@ -141,7 +151,7 @@ struct BodyView: View {
             )
             NumberRow(
                 label: "体脂肪率", unit: "%", value: $model.bodyfatPct,
-                previous: nil, max: 70,
+                previous: model.previousBodyfatPct, max: 70,
                 readOnly: model.healthGranted
             )
 
