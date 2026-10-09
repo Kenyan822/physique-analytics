@@ -6,16 +6,18 @@
 module github.com/Kenyan822/physique-analytics/api
 
 go 1.27          // このモジュールが要求する最低バージョン（言語機能もこれで決まる）
-toolchain go1.27.1  // ビルドに使うコンパイラのバージョン
+toolchain go1.27.2  // ビルドに使うコンパイラのバージョン
 ```
 
 **状況**: 手元の Go は 1.24.5 だが、[docs/06-技術選定.md](../06-技術選定.md) では 1.27 を採用と決めていた。
 Go のサポート対象は最新2世代だけなので、1.24 はすでにサポート外。
 
-**判断**: `go 1.27` / `toolchain go1.27.1` を書いた。手元の Go を入れ替えていない。
+**判断**: `go 1.27` / `toolchain go1.27.2` を書いた。手元の Go を入れ替えていない。
 
 **理由**: Go 1.21 以降、`go.mod` の `go` が手元の Go より新しいとき、
 コマンドは必要な toolchain を自動でダウンロードして実行する。
+
+**上げるときは golangci-lint も一緒に上げる**（[toolchain.md](toolchain.md)）。
 `go version` は 1.24.5 のままでも、`go build` は 1.27.1 で走る。
 
 ```console
