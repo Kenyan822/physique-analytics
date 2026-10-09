@@ -569,6 +569,57 @@ type DailyTargets struct {
 // 体重が動いても目標が変わらない理由が分からなくなる**ので明示する
 type DailyTargetsTargetSource string
 
+// DayBody defines model for DayBody.
+type DayBody struct {
+	BodyFatPct *float32 `json:"bodyFatPct,omitempty"`
+	WeightKg   *float32 `json:"weightKg,omitempty"`
+}
+
+// DayDetail defines model for DayDetail.
+type DayDetail struct {
+	// Body 体重・体脂肪率のどちらかがあれば。無ければ null
+	Body  *DayBody           `json:"body"`
+	Date  openapi_types.Date `json:"date"`
+	Meals DayMeals           `json:"meals"`
+
+	// Workout その日に `workout_sets` が1件でもあれば。無ければ null
+	Workout *DayWorkout `json:"workout"`
+}
+
+// DayMeals defines model for DayMeals.
+type DayMeals struct {
+	Consumed Macros `json:"consumed"`
+
+	// GoalMet P・F・C すべてが目標の ±10% 以内なら true。**目標が引けなければ null**
+	GoalMet *bool `json:"goalMet"`
+
+	// Shortfall 実績 − 目標。負なら足りない。目標が引けなければ null
+	Shortfall *MacroDiff `json:"shortfall"`
+
+	// Target その日に有効だった目標。引けなければ null
+	Target *Macros `json:"target"`
+}
+
+// DayWorkout defines model for DayWorkout.
+type DayWorkout struct {
+	// DayOrder 有効なルーティンの何日目か。ルーティンに無ければ null
+	DayOrder  *int                 `json:"dayOrder,omitempty"`
+	Exercises []DayWorkoutExercise `json:"exercises"`
+	SetCount  int                  `json:"setCount"`
+
+	// TemplateName その日のセッションのテンプレート名。無ければ null
+	TemplateName *string `json:"templateName,omitempty"`
+}
+
+// DayWorkoutExercise defines model for DayWorkoutExercise.
+type DayWorkoutExercise struct {
+	ExerciseName string `json:"exerciseName"`
+	SetCount     int    `json:"setCount"`
+
+	// TopWeightKg その日の最大重量（kg）
+	TopWeightKg float32 `json:"topWeightKg"`
+}
+
 // Exercise defines model for Exercise.
 type Exercise struct {
 	CreatedAt      time.Time `json:"createdAt"`
@@ -680,6 +731,13 @@ type ImportError struct {
 	// Line CSV の行番号（ヘッダが1）
 	Line    int    `json:"line"`
 	Message string `json:"message"`
+}
+
+// MacroDiff defines model for MacroDiff.
+type MacroDiff struct {
+	CarbG    float32 `json:"carbG"`
+	FatG     float32 `json:"fatG"`
+	ProteinG float32 `json:"proteinG"`
 }
 
 // MacroRatio defines model for MacroRatio.
@@ -1623,6 +1681,9 @@ type ServerInterface interface {
 	// GetDailyMetrics 日次記録の取得
 	// (GET /v1/daily/{date})
 	GetDailyMetrics(w http.ResponseWriter, r *http.Request, date openapi_types.Date)
+	// GetDay 1日ぶんの要約（食事・筋トレ・体組成）
+	// (GET /v1/days/{date})
+	GetDay(w http.ResponseWriter, r *http.Request, date openapi_types.Date)
 	// ListExercises 種目の一覧
 	// (GET /v1/exercises)
 	ListExercises(w http.ResponseWriter, r *http.Request, params ListExercisesParams)
@@ -2097,6 +2158,32 @@ func (siw *ServerInterfaceWrapper) GetDailyMetrics(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetDailyMetrics(w, r, date)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDay operation middleware
+func (siw *ServerInterfaceWrapper) GetDay(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "date" -------------
+	var date openapi_types.Date
+
+	err = runtime.BindStyledParameterWithOptions("simple", "date", r.PathValue("date"), &date, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "date", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "date", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDay(w, r, date)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3874,6 +3961,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/sync", wrapper.PushSync)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/export/csv", wrapper.ExportCsv)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/import/csv", wrapper.ImportCsv)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/days/{date}", wrapper.GetDay)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/streaks", wrapper.GetStreaks)
 
 	return m
@@ -4595,6 +4683,44 @@ func (response GetDailyMetrics404ApplicationProblemPlusJSONResponse) VisitGetDai
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDayRequestObject struct {
+	Date openapi_types.Date `json:"date"`
+}
+
+type GetDayResponseObject interface {
+	VisitGetDayResponse(w http.ResponseWriter) error
+}
+
+type GetDay200JSONResponse DayDetail
+
+func (response GetDay200JSONResponse) VisitGetDayResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDay401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetDay401ApplicationProblemPlusJSONResponse) VisitGetDayResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -7867,6 +7993,9 @@ type StrictServerInterface interface {
 	// GetDailyMetrics 日次記録の取得
 	// (GET /v1/daily/{date})
 	GetDailyMetrics(ctx context.Context, request GetDailyMetricsRequestObject) (GetDailyMetricsResponseObject, error)
+	// GetDay 1日ぶんの要約（食事・筋トレ・体組成）
+	// (GET /v1/days/{date})
+	GetDay(ctx context.Context, request GetDayRequestObject) (GetDayResponseObject, error)
 	// ListExercises 種目の一覧
 	// (GET /v1/exercises)
 	ListExercises(ctx context.Context, request ListExercisesRequestObject) (ListExercisesResponseObject, error)
@@ -8448,6 +8577,32 @@ func (sh *strictHandler) GetDailyMetrics(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetDailyMetricsResponseObject); ok {
 		if err := validResponse.VisitGetDailyMetricsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetDay operation middleware
+func (sh *strictHandler) GetDay(w http.ResponseWriter, r *http.Request, date openapi_types.Date) {
+	var request GetDayRequestObject
+
+	request.Date = date
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDay(ctx, request.(GetDayRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDay")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDayResponseObject); ok {
+		if err := validResponse.VisitGetDayResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

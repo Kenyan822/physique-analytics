@@ -84,7 +84,8 @@ func run() error {
 		WithManualTargets(repository.NewManualTargets(pool.DB())).
 		WithFoodItems(repository.NewFoodItem(pool.DB())).
 		WithRoutines(repository.NewRoutine(pool.DB())).
-		WithStreaks(repository.NewStreak(pool.DB())))
+		WithStreaks(repository.NewStreak(pool.DB())).
+		WithDays(repository.NewDay(pool.DB())))
 
 	if cfg.AuthDisabled {
 		// ローカル開発専用。本番でこのログが出ていたら設定ミス

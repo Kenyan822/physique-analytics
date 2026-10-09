@@ -1672,6 +1672,34 @@ paths:
                     items: { $ref: "#/components/schemas/ImportError" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
 
+  /v1/days/{date}:
+    parameters:
+      - name: date
+        in: path
+        required: true
+        schema: { type: string, format: date }
+        description: JST の日付（ADR-0013）
+    get:
+      operationId: getDay
+      tags: [nutrition]
+      summary: 1日ぶんの要約（食事・筋トレ・体組成）
+      description: |
+        継続カレンダーで日をタップしたときの要約。**何往復もさせず1回で返す**。
+        **記録が無い日も 200**（`meals.consumed` は 0、`workout` と `body` は null）。
+
+        - `meals.goalMet` は `GET /v1/streaks` の `mealGoalMet` と**同じ判定**
+          （P・F・C すべてが目標の ±10% 以内）。目標は**その日に有効だったもの**。
+          **目標が引けない日は `target` と `goalMet` が null**（false ではない）
+        - `meals.shortfall` は**目標との素の差**（実績 − 目標）。負なら足りない。
+          許容幅の内外は見ない。目標が引けなければ null
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DayDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
   /v1/streaks:
     get:
       operationId: getStreaks
@@ -2829,6 +2857,79 @@ components:
             properties:
               field: { type: string }
               message: { type: string }
+
+    DayDetail:
+      type: object
+      required: [date, meals, workout, body]
+      properties:
+        date: { type: string, format: date }
+        meals: { $ref: "#/components/schemas/DayMeals" }
+        workout:
+          oneOf:
+            - $ref: "#/components/schemas/DayWorkout"
+            - type: "null"
+          description: その日に `workout_sets` が1件でもあれば。無ければ null
+        body:
+          oneOf:
+            - $ref: "#/components/schemas/DayBody"
+            - type: "null"
+          description: 体重・体脂肪率のどちらかがあれば。無ければ null
+
+    DayMeals:
+      type: object
+      required: [consumed, target, goalMet, shortfall]
+      properties:
+        consumed: { $ref: "#/components/schemas/Macros" }
+        target:
+          oneOf:
+            - $ref: "#/components/schemas/Macros"
+            - type: "null"
+          description: その日に有効だった目標。引けなければ null
+        goalMet:
+          type: [boolean, "null"]
+          description: P・F・C すべてが目標の ±10% 以内なら true。**目標が引けなければ null**
+        shortfall:
+          oneOf:
+            - $ref: "#/components/schemas/MacroDiff"
+            - type: "null"
+          description: 実績 − 目標。負なら足りない。目標が引けなければ null
+
+    MacroDiff:
+      type: object
+      required: [proteinG, fatG, carbG]
+      properties:
+        proteinG: { type: number }
+        fatG: { type: number }
+        carbG: { type: number }
+
+    DayWorkout:
+      type: object
+      required: [setCount, exercises]
+      properties:
+        templateName:
+          type: [string, "null"]
+          description: その日のセッションのテンプレート名。無ければ null
+        dayOrder:
+          type: [integer, "null"]
+          description: 有効なルーティンの何日目か。ルーティンに無ければ null
+        setCount: { type: integer }
+        exercises:
+          type: array
+          items: { $ref: "#/components/schemas/DayWorkoutExercise" }
+
+    DayWorkoutExercise:
+      type: object
+      required: [exerciseName, setCount, topWeightKg]
+      properties:
+        exerciseName: { type: string }
+        setCount: { type: integer }
+        topWeightKg: { type: number, description: その日の最大重量（kg） }
+
+    DayBody:
+      type: object
+      properties:
+        weightKg: { type: [number, "null"] }
+        bodyFatPct: { type: [number, "null"] }
 
     StreakDay:
       type: object
