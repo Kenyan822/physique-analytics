@@ -218,7 +218,8 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
                     "consumed": ["kcal": 1820, "proteinG": 150, "fatG": 60, "carbG": 200],
                     "target": ["kcal": 2110, "proteinG": 180, "fatG": 70, "carbG": 250],
                     "goalMet": false,
-                    "shortfall": ["kcal": -290, "proteinG": -30, "fatG": -10, "carbG": -50],
+                    // **kcal は無い**（サーバは MacroDiff を返す）
+                    "shortfall": ["proteinG": -30, "fatG": -10, "carbG": -50],
                 ],
                 "workout": [
                     "templateName": "胸", "dayOrder": 1, "setCount": 12,

@@ -152,7 +152,8 @@ struct StreakView: View {
 
                 Section("筋トレ") {
                     if let w = d.workout {
-                        LabeledContent(w.templateName) {
+                        // **ルーティン外でやった日は名前が無い**
+                        LabeledContent(w.templateName ?? "記録あり") {
                             Text("\(w.setCount)セット").monospacedDigit()
                         }
                         ForEach(w.exercises ?? []) { e in

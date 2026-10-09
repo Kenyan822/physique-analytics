@@ -17,8 +17,9 @@ struct DayMeals: Codable, Sendable {
     var target: Macros?
     /// P・F・C すべてが ±10% 以内か。**判定できない日は nil**（#248 と同じ定義）
     var goalMet: Bool?
-    /// 目標との差。マイナスが不足
-    var shortfall: Macros?
+    /// 目標との差。マイナスが不足。
+    /// **kcal は持たない** —— PFC から導けるので、サーバも返さない
+    var shortfall: MacroDiff?
 
     /// 未達の理由。**足りない順**に並べる —— 一番効いているものから直したい。
     ///
@@ -28,7 +29,7 @@ struct DayMeals: Codable, Sendable {
         guard goalMet == false, let s = shortfall else { return [] }
 
         let items: [(String, Double)] = [
-            ("P", Double(s.proteinG)), ("F", Double(s.fatG)), ("C", Double(s.carbG)),
+            ("P", s.proteinG), ("F", s.fatG), ("C", s.carbG),
         ]
 
         return items
@@ -38,8 +39,16 @@ struct DayMeals: Codable, Sendable {
     }
 }
 
+/// 目標との差（`MacroDiff`）。**kcal は無い**
+struct MacroDiff: Codable, Sendable {
+    let proteinG: Double
+    let fatG: Double
+    let carbG: Double
+}
+
 struct DayWorkout: Codable, Sendable {
-    let templateName: String
+    /// その日のセッションのテンプレート名。**ルーティン外でやった日は nil**
+    var templateName: String?
     var dayOrder: Int?
     let setCount: Int
     var exercises: [DayWorkoutExercise]?

@@ -11,7 +11,7 @@ private let missed = #"""
  "meals":{"consumed":{"kcal":1820,"proteinG":150,"fatG":60,"carbG":200},
           "target":{"kcal":2110,"proteinG":180,"fatG":70,"carbG":250},
           "goalMet":false,
-          "shortfall":{"kcal":-290,"proteinG":-30,"fatG":-10,"carbG":-50}},
+          "shortfall":{"proteinG":-30,"fatG":-10,"carbG":-50}},
  "workout":{"templateName":"胸","dayOrder":1,"setCount":12,
             "exercises":[{"exerciseName":"ベンチプレス","setCount":5,"topWeightKg":80}]},
  "body":{"weightKg":72.4,"bodyFatPct":13.2}}
@@ -22,8 +22,35 @@ private let empty = #"""
 {"date":"2026-10-04","meals":{"consumed":{"kcal":0,"proteinG":0,"fatG":0,"carbG":0}}}
 """#
 
+/// テンプレートが無い日（ルーティン外でやった日）。**`templateName` は null**
+private let noTemplate = #"""
+{"date":"2026-10-06",
+ "meals":{"consumed":{"kcal":0,"proteinG":0,"fatG":0,"carbG":0},
+          "target":null,"goalMet":null,"shortfall":null},
+ "workout":{"templateName":null,"dayOrder":null,"setCount":4,
+            "exercises":[{"exerciseName":"懸垂","setCount":4,"topWeightKg":0}]},
+ "body":null}
+"""#
+
 @Suite("その日の詳細")
 struct DayDetailTests {
+    @Test("**`shortfall` に kcal は無い**（サーバは MacroDiff を返す）")
+    func shortfallShape() async throws {
+        let got = try await APIClient(baseURL: base, transport: FakeTransport(json: missed))
+            .day("2026-10-03")
+
+        #expect(got.meals.shortfall?.proteinG == -30)
+    }
+
+    @Test("**テンプレートが無い日も読める**")
+    func nullTemplate() async throws {
+        let got = try await APIClient(baseURL: base, transport: FakeTransport(json: noTemplate))
+            .day("2026-10-06")
+
+        #expect(got.workout?.templateName == nil)
+        #expect(got.workout?.setCount == 4)
+    }
+
     @Test("GET /v1/days/{date} を叩く")
     func fetches() async throws {
         let t = FakeTransport(json: missed)
