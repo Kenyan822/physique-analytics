@@ -80,11 +80,15 @@ jobs:
 
       # v8 以降が golangci-lint v2 系（.golangci.yaml の version: "2"）に対応する。
       # version を latest にすると action が v1 系を落としてきて
-      # 「go1.24 でビルドされた golangci-lint が go 1.27 を対象にできない」で落ちる
+      # 「go1.24 でビルドされた golangci-lint が go 1.27 を対象にできない」で落ちる。
+      #
+      # **Go を上げたらここも上げる。** 古い golangci-lint は新しい Go の
+      # export data を読めず `export data version 5 is greater than maximum
+      # supported version 4` で落ちる（go1.27.2 で踏んだ・#281）
       - name: Lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13.2
+          version: v2.14.0
           working-directory: api
 
       - name: Build
