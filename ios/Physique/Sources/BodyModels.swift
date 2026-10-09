@@ -7,6 +7,24 @@ import Foundation
 enum BodyPart: String, CaseIterable, Sendable {
     case neck, shoulder, chest, waistNavel, hip, armR, thighR, calfR
 
+    /// 既定で入力欄を出すか（#277）。
+    ///
+    /// **首とウエストは海軍式の体脂肪率推定に要る**（`analytics.Measurement`）。
+    /// 体組成計の体脂肪率は水分量でぶれるので、月1で巻尺を当てると答え合わせになる。
+    ///
+    /// 残りは見た目の変化を追うためのもので、毎回は測らない。畳んでおく
+    var isEssential: Bool {
+        switch self {
+        case .neck, .waistNavel: true
+        default: false
+        }
+    }
+
+    /// 既定で出す項目
+    static var essentials: [BodyPart] { allCases.filter(\.isEssential) }
+    /// 「詳しく測る」を開いたときだけ出す項目
+    static var optionals: [BodyPart] { allCases.filter { !$0.isEssential } }
+
     /// 画面に出す名前。
     var label: String {
         switch self {
