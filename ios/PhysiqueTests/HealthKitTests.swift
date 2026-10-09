@@ -115,3 +115,149 @@ struct HealthSyncTests {
         #expect(from == "2026-11-01")
     }
 }
+
+/// 一度許可したら自動で取り込む（#274）。
+@Suite("Apple Health の自動取り込み")
+@MainActor
+struct AutoSyncTests {
+    /// 呼ばれた回数を数える偽物
+    final class CountingSource: HealthSource, @unchecked Sendable {
+        var authCalls = 0
+        var sampleCalls = 0
+        var shouldThrow: Error?
+
+        func requestAuthorization() async throws {
+            authCalls += 1
+            if let shouldThrow { throw shouldThrow }
+        }
+
+        func samples(for kind: HealthKind, from: Date, to: Date) async throws -> [HealthSample] {
+            sampleCalls += 1
+
+            return kind == .bodyMass
+                ? [HealthSample(kind: .bodyMass, date: Date(), value: 72.4)]
+                : []
+        }
+    }
+
+    /// **テストごとに別の置き場所を使う。** `.standard` を共有すると汚し合う
+    private func model(_ h: CountingSource, granted: Bool) -> BodyModel {
+        let t = FakeTransport(json: #"{"date":"2026-10-09"}"#)
+        let suite = UserDefaults(suiteName: "test-\(UUID().uuidString)")!
+        let m = BodyModel(api: APIClient(baseURL: URL(string: "http://api.test")!, transport: t),
+                          health: h, defaults: suite)
+        m.resetHealthPermissionForTesting(granted: granted)
+
+        return m
+    }
+
+    @Test("**まだ許可していなければ自動では走らない**")
+    func doesNotSyncBeforeGrant() async {
+        let h = CountingSource()
+        let m = model(h, granted: false)
+
+        await m.syncHealthIfGranted(today: "2026-10-09")
+
+        // 起動のたびに権限ダイアログが出るのを避ける
+        #expect(h.authCalls == 0)
+        #expect(h.sampleCalls == 0)
+    }
+
+    @Test("**一度許可したら自動で走る**")
+    func syncsAfterGrant() async {
+        let h = CountingSource()
+        let m = model(h, granted: true)
+
+        await m.syncHealthIfGranted(today: "2026-10-09")
+
+        #expect(h.sampleCalls > 0)
+    }
+
+    @Test("手動で取り込むと以後は許可済みになる")
+    func manualGrants() async {
+        let h = CountingSource()
+        let m = model(h, granted: false)
+
+        await m.syncHealth(today: "2026-10-09")
+
+        #expect(h.authCalls == 1)
+        #expect(m.healthGranted)
+    }
+
+    @Test("**拒否されたら許可済みにしない**")
+    func deniedDoesNotGrant() async {
+        let h = CountingSource()
+        h.shouldThrow = URLError(.notConnectedToInternet)
+        let m = model(h, granted: false)
+
+        await m.syncHealth(today: "2026-10-09")
+
+        #expect(!m.healthGranted)
+    }
+
+    @Test("**自動のときはメッセージを出さない**")
+    func quietWhenAutomatic() async {
+        let h = CountingSource()
+        let m = model(h, granted: true)
+
+        await m.syncHealthIfGranted(today: "2026-10-09")
+
+        // 開くたびに「3日分を取り込んだ」と出ると邪魔
+        #expect(m.message == nil)
+    }
+}
+
+/// 体組成の日付移動を食事・記録と同じ形にする（#275）。
+@Suite("体組成の日付移動")
+@MainActor
+struct BodyDateNavTests {
+    private func model(date: String = "2026-10-09", today: String = "2026-10-09") -> BodyModel {
+        let t = FakeTransport(json: #"{"date":"2026-10-09"}"#)
+        return BodyModel(api: APIClient(baseURL: URL(string: "http://api.test")!, transport: t),
+                         defaults: UserDefaults(suiteName: "t-\(UUID().uuidString)")!,
+                         date: date, today: today)
+    }
+
+    @Test("曜日つきで表示する")
+    func label() {
+        #expect(model(date: "2026-10-09").dateLabel == "10/9(金)")
+    }
+
+    @Test("前の日に移れる")
+    func previous() async {
+        let m = model()
+
+        await m.goToPreviousDay()
+
+        #expect(m.date == "2026-10-08")
+    }
+
+    @Test("**今日より先には進めない**")
+    func noFuture() async {
+        let m = model(date: "2026-10-09", today: "2026-10-09")
+        #expect(!m.canGoNext)
+
+        await m.goToNextDay()
+
+        #expect(m.date == "2026-10-09")
+    }
+
+    @Test("戻ったら進めるようになる")
+    func nextAfterBack() async {
+        let m = model()
+        await m.goToPreviousDay()
+
+        #expect(m.canGoNext)
+        await m.goToNextDay()
+        #expect(m.date == "2026-10-09")
+    }
+
+    @Test("未来を選んだら今日に丸める")
+    func clampsFuture() async {
+        let m = model()
+
+        await m.goTo("2026-12-31")
+
+        #expect(m.date == "2026-10-09")
+    }
+}
