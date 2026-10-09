@@ -28,6 +28,7 @@ Go 側は [docs/go/](../go/)。
 | [offline.md](offline.md) | `PendingQueue`。電波が切れても記録が消えない仕組み（要件 T-07） |
 | [build-config.md](build-config.md) | xcconfig → `Info.plist` → `AppConfig`。署名と bundle ID |
 | [testing.md](testing.md) | Swift Testing、偽物の注入、タイムゾーン依存の落とし方 |
+| [healthkit.md](healthkit.md) | **Apple Health の取り込み**。`HKUnit.percent()` が割合を返す話、entitlement、読み取り権限が問い合わせられない理由 |
 
 ## 全体像
 
