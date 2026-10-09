@@ -342,7 +342,7 @@ cd web && pnpm typecheck
 cd api && go generate ./...                    # openapi.yaml → gen/openapi/
 cd api && go test ./... -race -cover
 cd api && go test ./internal/analytics -run TestE1RM -v   # 単一テスト
-cd api && golangci-lint run ./...
+cd api && golangci-lint run ./...              # CI と同じ版を使う（docs/go/toolchain.md）
 
 # API をローカルで起動（先に docker compose up -d が必要）
 cd api && DATABASE_URL='postgres://physique:dev@localhost:5432/physique?sslmode=disable' go run ./cmd/server

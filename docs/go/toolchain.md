@@ -33,6 +33,26 @@ golangci-lint は**自分がビルドされた Go の型情報しか読めない
 **バージョンを `latest` にしない。** action が v1 系を落としてきて、
 `.golangci.yaml` の `version: "2"` を読めずに落ちる。
 
+## 手元の golangci-lint も上げる
+
+CI だけ直しても、手元で `golangci-lint run ./...` を打つと同じエラーで落ちる。
+
+```bash
+golangci-lint --version
+# golangci-lint has version 2.13.2 built with go1.27.1
+```
+
+`built with` が `api/go.mod` の toolchain より古いと落ちる。
+
+```bash
+brew upgrade golangci-lint
+# または
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+```
+
+**CI の `version:` と合わせること。** ずれていると「手元は通るのに CI が落ちる」
+（またはその逆）になり、どちらを信じるか分からなくなる。
+
 ## 上げる理由はたいてい govulncheck
 
 標準ライブラリの脆弱性は**自分のコードを一行も変えていなくても**出る。
