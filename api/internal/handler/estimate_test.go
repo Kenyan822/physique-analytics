@@ -123,7 +123,7 @@ func TestEstimateMeal_未設定なら503(t *testing.T) {
 		t.Fatalf("status = %d, want 503, body = %s", rec.Code, rec.Body)
 	}
 	// **直し方と代替手段を返す**
-	if !jsonContains(rec.Body.String(), "ANTHROPIC_API_KEY") ||
+	if !jsonContains(rec.Body.String(), "VISION_API_KEY") ||
 		!jsonContains(rec.Body.String(), "手で入力") {
 		t.Errorf("body = %s, want 設定方法と代替手段", rec.Body)
 	}

@@ -31,7 +31,7 @@ func (s *Server) EstimateMeal(ctx context.Context, req openapi.EstimateMealReque
 		return openapi.EstimateMeal503ApplicationProblemPlusJSONResponse{
 			ServiceUnavailableApplicationProblemPlusJSONResponse: openapi.ServiceUnavailableApplicationProblemPlusJSONResponse(
 				problem(503, "写真からの推定が未設定",
-					"ANTHROPIC_API_KEY と VISION_MODEL を設定すると使える。手で入力することもできる")),
+					"VISION_API_KEY と VISION_MODEL を設定すると使える。手で入力することもできる")),
 		}, nil
 	}
 	if req.Body == nil {
