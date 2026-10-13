@@ -154,15 +154,6 @@ struct BodyView: View {
                 previous: model.previousBodyfatPct, max: 70,
                 readOnly: model.healthGranted
             )
-            // 除脂肪体重は計算値（要件 A-06）。**常に手では入れない**
-            NumberRow(
-                label: "除脂肪体重", unit: "kg",
-                value: .constant(leanBodyMass(
-                    weightKg: model.weightKg, bodyfatPct: model.bodyfatPct)),
-                previous: leanBodyMass(
-                    weightKg: model.previousWeightKg, bodyfatPct: model.previousBodyfatPct),
-                max: 0, readOnly: true
-            )
 
             // 取り込んでいる間は保存する必要が無い
             if !model.healthGranted {

@@ -143,20 +143,6 @@ func formatDiff(current: Double?, previous: Double?) -> String? {
     return diff > 0 ? "+\(trim(diff))" : "−\(trim(abs(diff)))"
 }
 
-/// 除脂肪体重を出す（要件 A-06）。
-///
-/// **保存しない。** 体重と体脂肪率から出せるので、列を持つと
-/// どちらかを後から直したときに LBM だけ古い値で残る。表示のたびに計算する。
-///
-/// 片方でも欠けていれば nil。**0 と「測っていない」を混ぜない。**
-func leanBodyMass(weightKg: Double?, bodyfatPct: Double?) -> Double? {
-    guard let weightKg, let bodyfatPct else { return nil }
-    // 体組成計が壊れた値を返すことがある。負の除脂肪体重を作らない
-    guard (0...100).contains(bodyfatPct) else { return nil }
-
-    return weightKg * (1 - bodyfatPct / 100)
-}
-
 /// 入力欄の文字列を数値にする。読めなければ nil。
 ///
 /// 全角を正規化するのは、日本語入力のまま打つと全角数字になるため。
