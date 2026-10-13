@@ -142,6 +142,24 @@ func TestLoad_推定は任意(t *testing.T) {
 	}
 }
 
+func TestLoad_推定の鍵を読む(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load(lookup(map[string]string{
+		"DATABASE_URL":      "postgres://x",
+		"SUPABASE_JWKS_URL": "https://x/jwks.json",
+		// 提供者に依らない名前にしてある（Anthropic → Gemini で変えずに済む）
+		"VISION_API_KEY": "k",
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.VisionAPIKey != "k" {
+		t.Errorf("VisionAPIKey = %q, want k", cfg.VisionAPIKey)
+	}
+}
+
 func TestLoad_ALLOWED_USER_IDSを分ける(t *testing.T) {
 	env := map[string]string{
 		"DATABASE_URL":      "postgres://localhost:5432/physique",

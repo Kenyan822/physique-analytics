@@ -225,7 +225,7 @@ pytest analysis/tests -v
 
 | | 設定 |
 |---|---|
-| 写真からの PFC 推定（N-06） | `ANTHROPIC_API_KEY` / `VISION_MODEL` |
+| 写真からの PFC 推定（N-06） | `VISION_API_KEY` / `VISION_MODEL` |
 | 身体写真（B-04 / B-05 / B-07） | `R2_ACCOUNT_ID` / `R2_BUCKET` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` |
 | HealthKit（B-01 / B-09） | Xcode で HealthKit capability を追加（[ios/README.md](ios/README.md)） |
 

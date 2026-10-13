@@ -17,38 +17,41 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
-// defaultEndpoint は Anthropic Messages API。
-const defaultEndpoint = "https://api.anthropic.com/v1/messages"
-
-// apiVersion は Messages API のバージョンヘッダ。
-const apiVersion = "2023-06-01"
-
-// maxTokens は応答の上限。JSON 1つなので小さくてよい。
+// defaultEndpoint は Gemini Developer API（Google AI Studio）のベース URL。
 //
-// **大きくすると事故ったときのコストが上がる。** 要件のコスト試算
-// （年1,095回・出力200トークン程度）に合わせる。
-const maxTokens = 512
+// Vertex AI（aiplatform.googleapis.com）ではない。**無料枠があるのはこちらだけ。**
+// ここにモデル名を足して /models/<model>:generateContent を組み立てる。
+const defaultEndpoint = "https://generativelanguage.googleapis.com/v1beta"
+
+// thinkingLevel は思考の深さ。
+//
+// **Gemini 3 系は思考を切れない。** gemini-3.8-flash の既定は medium で、
+// minimal を指定すると 400 になる。写真1枚から PFC を出すだけなので low で足りる。
+const thinkingLevel = "low"
 
 // supportedMimeTypes は送れる画像形式。
 //
-// HEIC は API が受け付けないので、クライアント側で変換してから送る。
+// **Gemini が受け付ける形式に合わせてある。** HEIC が通るので iPhone の写真は
+// 変換せずに送れる。GIF は受け付けない。
 var supportedMimeTypes = map[string]bool{
 	"image/jpeg": true,
 	"image/png":  true,
 	"image/webp": true,
-	"image/gif":  true,
+	"image/heic": true,
+	"image/heif": true,
 }
 
 // Config は推定に使う設定。
 type Config struct {
 	// APIKey が空なら推定を実行しない（課金が発生しない）
 	APIKey string
-	// Model は Vision 対応のモデル。要件のコスト試算は Haiku 相当
+	// Model は Vision 対応のモデル
 	Model string
-	// Endpoint は差し替え用。空なら Anthropic の既定
+	// Endpoint は差し替え用のベース URL。空なら Gemini の既定
 	Endpoint string
 }
 
@@ -93,15 +96,32 @@ func NewClient(cfg Config, hc *http.Client) *Client {
 // Enabled は推定が使える状態かを返す。
 func (c *Client) Enabled() bool { return c.cfg.APIKey != "" }
 
+// estimateSchema は structured output のスキーマ。
+//
+// **形は prompt ではなくここで縛る。** 説明文が混ざった応答を防ぐ。
+// 分からない項目は null を許す（0 で埋めると偽の推定値になる）。
+var estimateSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"name":     map[string]any{"type": "string", "description": "料理名"},
+		"qty":      map[string]any{"type": []string{"string", "null"}, "description": "量。例: 1食、200g"},
+		"kcal":     map[string]any{"type": []string{"integer", "null"}},
+		"proteinG": map[string]any{"type": []string{"number", "null"}},
+		"fatG":     map[string]any{"type": []string{"number", "null"}},
+		"carbG":    map[string]any{"type": []string{"number", "null"}},
+		"confidence": map[string]any{
+			"type": "string", "enum": []string{"low", "medium", "high"},
+			"description": "量が判断できなければ low",
+		},
+		"note": map[string]any{"type": "string", "description": "推定の根拠を1文で"},
+	},
+	"required": []string{"name", "confidence", "note"},
+}
+
 // prompt は LLM への指示。
 //
-// **JSON だけを返させる。** 説明文が混ざると壊れた推定値になるので、
-// 読めなければエラーにする（握りつぶさない）。
+// **出力の形は estimateSchema が縛る。** ここには形から読み取れない前提だけ書く。
 const prompt = `この写真の食事の栄養素を推定してください。
-
-出力は次の JSON のみ。説明文を付けないでください。
-
-{"name":"料理名","qty":"量（例: 1食, 200g）","kcal":整数,"proteinG":数値,"fatG":数値,"carbG":数値,"confidence":"low|medium|high","note":"推定の根拠を1文で"}
 
 - 量が判断できない場合は confidence を low にしてください
 - 日本の一般的な食事量を前提にしてください
@@ -111,29 +131,26 @@ const prompt = `この写真の食事の栄養素を推定してください。
 func (c *Client) Estimate(ctx context.Context, req Request) (Estimate, error) {
 	if c.cfg.APIKey == "" {
 		return Estimate{}, errors.New(
-			"写真からの推定が未設定。ANTHROPIC_API_KEY と VISION_MODEL を設定する")
+			"写真からの推定が未設定。VISION_API_KEY と VISION_MODEL を設定する")
 	}
 	if !supportedMimeTypes[req.MimeType] {
-		return Estimate{}, fmt.Errorf("対応していない画像形式: %s（jpeg / png / webp / gif）", req.MimeType)
+		return Estimate{}, fmt.Errorf(
+			"対応していない画像形式: %s（jpeg / png / webp / heic / heif）", req.MimeType)
 	}
 
-	body, err := json.Marshal(c.messagesBody(req))
+	body, err := json.Marshal(c.generateContentBody(req))
 	if err != nil {
 		return Estimate{}, fmt.Errorf("リクエストを組み立てられない: %w", err)
 	}
 
-	endpoint := c.cfg.Endpoint
-	if endpoint == "" {
-		endpoint = defaultEndpoint
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint(), bytes.NewReader(body))
 	if err != nil {
 		return Estimate{}, fmt.Errorf("リクエストを作れない: %w", err)
 	}
 	httpReq.Header.Set("content-type", "application/json")
-	httpReq.Header.Set("x-api-key", c.cfg.APIKey)
-	httpReq.Header.Set("anthropic-version", apiVersion)
+	// **鍵はヘッダで渡す。** クエリパラメータでも通るが、URL は
+	// プロキシやアクセスログに残るので使わない
+	httpReq.Header.Set("x-goog-api-key", c.cfg.APIKey)
 
 	res, err := c.http.Do(httpReq)
 	if err != nil {
@@ -147,7 +164,7 @@ func (c *Client) Estimate(ctx context.Context, req Request) (Estimate, error) {
 	}
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		// **握りつぶさない。** 課金が絡むので、失敗は見える形で残す
+		// **握りつぶさない。** 無料枠の上限もここに出るので、失敗は見える形で残す
 		return Estimate{}, fmt.Errorf("推定 API が %d を返した: %s",
 			res.StatusCode, truncate(string(raw), 200))
 	}
@@ -155,7 +172,19 @@ func (c *Client) Estimate(ctx context.Context, req Request) (Estimate, error) {
 	return parseEstimate(raw)
 }
 
-func (c *Client) messagesBody(req Request) map[string]any {
+// endpoint は呼び先を組み立てる。**Gemini はモデルを URL で指定する**
+// （Anthropic はボディに入れていた）。
+func (c *Client) endpoint() string {
+	base := c.cfg.Endpoint
+	if base == "" {
+		base = defaultEndpoint
+	}
+
+	return fmt.Sprintf("%s/models/%s:generateContent",
+		strings.TrimSuffix(base, "/"), url.PathEscape(c.cfg.Model))
+}
+
+func (c *Client) generateContentBody(req Request) map[string]any {
 	text := prompt
 	if n := strings.TrimSpace(req.Note); n != "" {
 		// 量を添えると精度が上がるので、補足は必ず渡す
@@ -163,50 +192,73 @@ func (c *Client) messagesBody(req Request) map[string]any {
 	}
 
 	return map[string]any{
-		"model":      c.cfg.Model,
-		"max_tokens": maxTokens,
-		"messages": []map[string]any{{
-			"role": "user",
-			"content": []map[string]any{
-				{
-					"type": "image",
-					"source": map[string]string{
-						"type":       "base64",
-						"media_type": req.MimeType,
-						"data":       base64.StdEncoding.EncodeToString(req.Image),
-					},
-				},
-				{"type": "text", "text": text},
+		"contents": []map[string]any{{
+			"parts": []map[string]any{
+				{"inline_data": map[string]string{
+					"mime_type": req.MimeType,
+					"data":      base64.StdEncoding.EncodeToString(req.Image),
+				}},
+				// 画像とテキストを混ぜるときは、テキストを後ろに置く（Gemini の推奨）
+				{"text": text},
 			},
 		}},
+		"generationConfig": map[string]any{
+			"thinkingConfig": map[string]any{"thinkingLevel": thinkingLevel},
+			"responseFormat": map[string]any{
+				"text": map[string]any{
+					"mimeType": "application/json",
+					"schema":   estimateSchema,
+				},
+			},
+		},
+		// **maxOutputTokens は設定しない。** thinking の分も数える hard cutoff なので、
+		// 小さくすると本文が空のまま 200 が返る。絞るなら thinkingLevel を下げる
 	}
+}
+
+// generateContentResponse は応答のうち、推定に使う部分だけ。
+type generateContentResponse struct {
+	Candidates []struct {
+		Content struct {
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"content"`
+		FinishReason string `json:"finishReason"`
+	} `json:"candidates"`
 }
 
 // parseEstimate は応答から JSON を取り出す。
 func parseEstimate(raw []byte) (Estimate, error) {
-	var res struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	}
+	var res generateContentResponse
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return Estimate{}, fmt.Errorf("応答の形式が不明: %w", err)
 	}
 
-	for _, c := range res.Content {
-		if c.Type != "text" {
-			continue
-		}
-
-		var e Estimate
-		if err := json.Unmarshal([]byte(strings.TrimSpace(c.Text)), &e); err == nil && e.Name != "" {
-			return e, nil
+	for _, cand := range res.Candidates {
+		for _, p := range cand.Content.Parts {
+			var e Estimate
+			if err := json.Unmarshal([]byte(strings.TrimSpace(p.Text)), &e); err == nil && e.Name != "" {
+				return e, nil
+			}
 		}
 	}
 
-	// 説明文が返ってきた場合。**壊れた推定値を作らない**
-	return Estimate{}, errors.New("推定結果を読み取れなかった。もう一度撮るか、手で入力する")
+	// 安全フィルタや打ち切りで本文が返らないことがある。**壊れた推定値を作らない**
+	return Estimate{}, fmt.Errorf("推定結果を読み取れなかった%s。もう一度撮るか、手で入力する",
+		res.finishNote())
+}
+
+// finishNote は打ち切りの理由を添える。
+// MAX_TOKENS / SAFETY のどれで止まったか分からないと直せない。
+func (r generateContentResponse) finishNote() string {
+	for _, cand := range r.Candidates {
+		if cand.FinishReason != "" && cand.FinishReason != "STOP" {
+			return "（" + cand.FinishReason + "）"
+		}
+	}
+
+	return ""
 }
 
 func truncate(s string, n int) string {

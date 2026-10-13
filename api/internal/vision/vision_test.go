@@ -2,6 +2,9 @@ package vision_test
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -41,14 +44,46 @@ func (f *fakeTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	}, nil
 }
 
+// geminiBody は Gemini の応答を組み立てる。
+// 本文は candidates[].content.parts[].text に入る（Anthropic の content[] とは違う）。
+func geminiBody(t *testing.T, text string) string {
+	t.Helper()
+
+	b, err := json.Marshal(map[string]any{
+		"candidates": []map[string]any{{
+			"content": map[string]any{
+				"parts": []map[string]any{{"text": text}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("応答を組み立てられない: %v", err)
+	}
+
+	return string(b)
+}
+
+// noNetwork は「入口で止まるはず」のテストに渡す。
+//
+// **弾かれなかったときに本物の API へ出て行かないようにするため。**
+// 実際に、移行前のテストが許可リストの変更で素通りして 401 を貰っている。
+type noNetwork struct{ t *testing.T }
+
+func (n noNetwork) RoundTrip(r *http.Request) (*http.Response, error) {
+	n.t.Helper()
+	n.t.Errorf("API を呼んでいる: %s", r.URL)
+
+	return nil, errors.New("外に出てはいけない")
+}
+
 func TestEstimate_応答をPFCにする(t *testing.T) {
 	t.Parallel()
 
-	// LLM は JSON だけを返すよう指示してある
-	body := `{"content":[{"type":"text","text":"{\"name\":\"鶏むねと白米\",\"qty\":\"1食\",\"kcal\":620,\"proteinG\":48,\"fatG\":6,\"carbG\":88,\"confidence\":\"medium\",\"note\":\"食器のサイズから量を推定\"}"}]}`
+	// structured output を指定しているので JSON だけが返る
+	body := geminiBody(t, `{"name":"鶏むねと白米","qty":"1食","kcal":620,"proteinG":48,"fatG":6,"carbG":88,"confidence":"medium","note":"食器のサイズから量を推定"}`)
 	tr := &fakeTransport{status: 200, body: body}
 
-	c := vision.NewClient(vision.Config{APIKey: "test-key", Model: "claude-haiku-4-5-20251001"},
+	c := vision.NewClient(vision.Config{APIKey: "test-key", Model: "gemini-3.8-flash"},
 		&http.Client{Transport: tr})
 
 	got, err := c.Estimate(context.Background(), vision.Request{
@@ -69,40 +104,63 @@ func TestEstimate_応答をPFCにする(t *testing.T) {
 	}
 }
 
-func TestEstimate_テキスト補足を送る(t *testing.T) {
+func TestEstimate_リクエストの形(t *testing.T) {
 	t.Parallel()
 
-	tr := &fakeTransport{status: 200, body: `{"content":[{"type":"text","text":"{\"name\":\"x\"}"}]}`}
-	c := vision.NewClient(vision.Config{APIKey: "k", Model: "m"}, &http.Client{Transport: tr})
+	tr := &fakeTransport{status: 200, body: geminiBody(t, `{"name":"x"}`)}
+	c := vision.NewClient(vision.Config{APIKey: "secret-key", Model: "gemini-3.8-flash"},
+		&http.Client{Transport: tr})
 
-	_, err := c.Estimate(context.Background(), vision.Request{
-		Image: []byte{1}, MimeType: "image/jpeg", Note: "鶏むね200g、白米150g",
-	})
-	if err != nil {
+	img := []byte{0x89, 0x50, 0x4e, 0x47}
+	if _, err := c.Estimate(context.Background(), vision.Request{
+		Image: img, MimeType: "image/jpeg", Note: "鶏むね200g、白米150g",
+	}); err != nil {
 		t.Fatalf("Estimate: %v", err)
+	}
+
+	// **鍵はヘッダで渡す。** URL に入れると CDN やアクセスログに残る
+	if got := tr.gotReq.Header.Get("x-goog-api-key"); got != "secret-key" {
+		t.Errorf("x-goog-api-key = %q, want secret-key", got)
+	}
+	if u := tr.gotReq.URL.String(); strings.Contains(u, "secret-key") {
+		t.Errorf("URL に鍵が入っている: %s", u)
+	}
+
+	// Gemini はモデルを URL のパスで指定する（Anthropic はボディ）
+	if u := tr.gotReq.URL.String(); !strings.Contains(u, "models/gemini-3.8-flash:generateContent") {
+		t.Errorf("URL = %s, want models/<model>:generateContent", u)
+	}
+
+	// 画像は inline_data で送る
+	if !strings.Contains(tr.gotRaw, "inline_data") {
+		t.Errorf("inline_data が無い: %s", truncate(tr.gotRaw))
+	}
+	if enc := base64.StdEncoding.EncodeToString(img); !strings.Contains(tr.gotRaw, enc) {
+		t.Errorf("画像が base64 で送られていない: %s", truncate(tr.gotRaw))
 	}
 
 	// **量を添えると精度が大きく上がる**（要件 N-06）。確実に送る
 	if !strings.Contains(tr.gotRaw, "鶏むね200g") {
-		t.Errorf("テキスト補足が送られていない: %s", tr.gotRaw[:min(300, len(tr.gotRaw))])
+		t.Errorf("テキスト補足が送られていない: %s", truncate(tr.gotRaw))
 	}
-	// 画像は base64 で送る
-	if !strings.Contains(tr.gotRaw, "base64") {
-		t.Error("画像が base64 で送られていない")
+
+	// structured output を指定して、説明文が混ざるのを防ぐ
+	if !strings.Contains(tr.gotRaw, "responseFormat") || !strings.Contains(tr.gotRaw, "application/json") {
+		t.Errorf("structured output を指定していない: %s", truncate(tr.gotRaw))
 	}
 }
 
 func TestEstimate_APIキーが無ければエラー(t *testing.T) {
 	t.Parallel()
 
-	c := vision.NewClient(vision.Config{}, http.DefaultClient)
+	c := vision.NewClient(vision.Config{}, &http.Client{Transport: noNetwork{t}})
 
 	_, err := c.Estimate(context.Background(), vision.Request{Image: []byte{1}, MimeType: "image/jpeg"})
 	if err == nil {
 		t.Fatal("エラーにならない")
 	}
 	// **直し方を書く。** 「使えない」だけでは次の行動が決まらない
-	if !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
+	if !strings.Contains(err.Error(), "VISION_API_KEY") {
 		t.Errorf("err = %v, want 設定方法を含む", err)
 	}
 }
@@ -125,8 +183,9 @@ func TestEstimate_失敗を握りつぶさない(t *testing.T) {
 func TestEstimate_JSONでない応答(t *testing.T) {
 	t.Parallel()
 
-	// LLM が説明文を返すことがある。**壊れた推定値を作らない**
-	tr := &fakeTransport{status: 200, body: `{"content":[{"type":"text","text":"この写真は鶏むねです。"}]}`}
+	// structured output を指定していても、安全フィルタなどで説明文が返ることがある。
+	// **壊れた推定値を作らない**
+	tr := &fakeTransport{status: 200, body: geminiBody(t, "この写真は鶏むねです。")}
 	c := vision.NewClient(vision.Config{APIKey: "k", Model: "m"}, &http.Client{Transport: tr})
 
 	if _, err := c.Estimate(context.Background(), vision.Request{Image: []byte{1}, MimeType: "image/jpeg"}); err == nil {
@@ -134,16 +193,68 @@ func TestEstimate_JSONでない応答(t *testing.T) {
 	}
 }
 
-func TestEstimate_対応していない形式(t *testing.T) {
+func TestEstimate_候補が空(t *testing.T) {
 	t.Parallel()
 
-	c := vision.NewClient(vision.Config{APIKey: "k", Model: "m"}, http.DefaultClient)
+	// 安全フィルタで止まると candidates が空で 200 が返る
+	tr := &fakeTransport{status: 200, body: `{"candidates":[]}`}
+	c := vision.NewClient(vision.Config{APIKey: "k", Model: "m"}, &http.Client{Transport: tr})
 
-	_, err := c.Estimate(context.Background(), vision.Request{Image: []byte{1}, MimeType: "image/heic"})
+	if _, err := c.Estimate(context.Background(), vision.Request{Image: []byte{1}, MimeType: "image/jpeg"}); err == nil {
+		t.Error("エラーにならない")
+	}
+}
+
+func TestEstimate_打ち切られたら理由を返す(t *testing.T) {
+	t.Parallel()
+
+	// **maxOutputTokens は thinking の分も数える。** 絞りすぎると本文が空で 200 が返る。
+	// 何が起きたか分からないと直せないので、理由をエラーに載せる
+	tr := &fakeTransport{status: 200, body: `{"candidates":[{"finishReason":"MAX_TOKENS","content":{"parts":[]}}]}`}
+	c := vision.NewClient(vision.Config{APIKey: "k", Model: "m"}, &http.Client{Transport: tr})
+
+	_, err := c.Estimate(context.Background(), vision.Request{Image: []byte{1}, MimeType: "image/jpeg"})
 	if err == nil {
 		t.Fatal("エラーにならない")
 	}
-	if !strings.Contains(err.Error(), "image/heic") {
+	if !strings.Contains(err.Error(), "MAX_TOKENS") {
+		t.Errorf("err = %v, want 打ち切りの理由を含む", err)
+	}
+}
+
+func TestEstimate_対応していない形式(t *testing.T) {
+	t.Parallel()
+
+	c := vision.NewClient(vision.Config{APIKey: "k", Model: "m"}, &http.Client{Transport: noNetwork{t}})
+
+	// Gemini は HEIC を受け付けるが GIF は受け付けない
+	_, err := c.Estimate(context.Background(), vision.Request{Image: []byte{1}, MimeType: "image/gif"})
+	if err == nil {
+		t.Fatal("エラーにならない")
+	}
+	if !strings.Contains(err.Error(), "image/gif") {
 		t.Errorf("err = %v, want 形式名を含む", err)
 	}
+}
+
+func TestEstimate_HEICを受け付ける(t *testing.T) {
+	t.Parallel()
+
+	// iPhone の写真はそのまま HEIC。**変換せずに送れる**
+	tr := &fakeTransport{status: 200, body: geminiBody(t, `{"name":"x"}`)}
+	c := vision.NewClient(vision.Config{APIKey: "k", Model: "m"}, &http.Client{Transport: tr})
+
+	if _, err := c.Estimate(context.Background(), vision.Request{
+		Image: []byte{1}, MimeType: "image/heic",
+	}); err != nil {
+		t.Errorf("Estimate: %v", err)
+	}
+}
+
+func truncate(s string) string {
+	if len(s) <= 300 {
+		return s
+	}
+
+	return s[:300] + "…"
 }

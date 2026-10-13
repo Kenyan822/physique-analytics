@@ -97,7 +97,7 @@ type Config struct {
 付いているか）まで手元で確かめられる。
 
 ```
-MODEL: claude-haiku-4-5-20251001
+MODEL: gemini-3.8-flash
 IMAGE_BYTES: 18
 HAS_NOTE: True
 API_KEY_SENT: True
@@ -107,11 +107,116 @@ API_KEY_SENT: True
 環境変数で差し替えられる方が要る。ユニットテストは `http.Client` の
 `Transport` を差し替えれば足りるので、両方を用意している。
 
+## 提供者を替えるときに変わるのは「形」であって「構造」ではない
+
+写真からの PFC 推定を Anthropic から Gemini に移した（[#301](https://github.com/Kenyan822/physique-analytics/issues/301)）。
+`Config` / `Request` / `Estimate` と `Estimate()` / `Enabled()` はそのままで、
+ハンドラ側は1文字も変えていない。**変わったのは送る JSON と読む JSON だけ。**
+
+| | Anthropic | Gemini |
+|---|---|---|
+| モデルの指定 | ボディの `model` | **URL のパス** `/models/<model>:generateContent` |
+| 鍵 | `x-api-key` | `x-goog-api-key` |
+| 画像 | `content[].source.{type,media_type,data}` | `parts[].inline_data.{mime_type,data}` |
+| 本文の取り出し | `content[].text` | `candidates[].content.parts[].text` |
+| 出力の形を縛る | プロンプトで指示 | `generationConfig.responseFormat.text.schema` |
+
+**モデル名が URL に入る**ので、宛先の組み立てが文字列連結になる。
+
+```go
+return fmt.Sprintf("%s/models/%s:generateContent",
+	strings.TrimSuffix(base, "/"), url.PathEscape(c.cfg.Model))
+```
+
+`url.PathEscape` は `:` をエスケープしない（パスセグメント内では許される文字なので）。
+`:generateContent` がそのまま残るのはこのため。モデル名だけを包んでおけば、
+変な名前が来ても壊れない。
+
+### 鍵は URL ではなくヘッダで渡す
+
+Gemini はクエリパラメータ `?key=` でも通るが使わない。
+**URL はプロキシとアクセスログに残る。** ヘッダなら残らない。
+
+```go
+httpReq.Header.Set("x-goog-api-key", c.cfg.APIKey)
+```
+
+テストでこれを見ておく。「ヘッダに入れた」だけでなく
+**「URL に入っていない」も確かめる**（両方書ける状態だから）。
+
+```go
+if u := tr.gotReq.URL.String(); strings.Contains(u, "secret-key") {
+	t.Errorf("URL に鍵が入っている: %s", u)
+}
+```
+
+### `maxOutputTokens` は thinking の分も数える
+
+Anthropic 版では「事故ったときのコストが上がる」という理由で `max_tokens: 512`
+を付けていた。Gemini にそのまま移すと**壊れる。**
+
+Gemini 3 系は思考を切れない（`gemini-3.8-flash` の既定は medium、
+`minimal` を指定すると 400）。`maxOutputTokens` は思考トークンも含む
+hard cutoff なので、512 だと**思考の途中で打ち切られ、本文が空のまま 200 が返る。**
+
+```go
+// 絞るなら maxOutputTokens ではなく thinkingLevel を下げる
+"thinkingConfig": map[string]any{"thinkingLevel": "low"},
+```
+
+打ち切られたことは `candidates[].finishReason` に出る。
+**200 なのに結果が無いときは理由をエラーに載せる。**
+
+```go
+return Estimate{}, fmt.Errorf("推定結果を読み取れなかった%s。もう一度撮るか、手で入力する",
+	res.finishNote())   // （MAX_TOKENS）
+```
+
+### 無名構造体にメソッドは生やせない
+
+応答の読み取りを最初はこう書いていた。
+
+```go
+func parseEstimate(raw []byte) (Estimate, error) {
+	var res struct {
+		Candidates []struct{ ... } `json:"candidates"`
+	}
+```
+
+ここから `finishReason` を取り出す処理を切り出そうとして詰まった。
+**無名構造体はメソッドのレシーバにできないし、関数の引数に書くと
+同じ定義を丸ごと再掲することになる。**
+
+使い捨ての形なら無名でよいが、**2か所から触るなら名前を付ける。**
+
+```go
+type generateContentResponse struct { ... }
+
+func (r generateContentResponse) finishNote() string { ... }
+```
+
+### 対応する画像形式は提供者に合わせる
+
+Anthropic は jpeg / png / webp / gif、Gemini は jpeg / png / webp / **heic** / heif。
+**gif が落ちて heic が入る。** iPhone の写真はそのまま HEIC なので、変換が要らなくなった。
+
+ここで1つ事故った。移行前のテストは「対応していない形式」の例に `image/heic` を
+使っていて、**その MIME が許可リストに無いことに依存していた**。Gemini 版では
+heic が通るようになり、テストが実際に API を叩きに行った（401 が返ってきて気づいた）。
+
+```
+err = 推定 API が 401 を返した: {"type":"error","error":{"type":"authentication_error",...
+```
+
+**「弾かれるはず」のテストは、弾かれなかったときに外へ出て行く。**
+`http.DefaultClient` を渡しているとそのまま本番の URL に繋がる。
+入口で止まることを確かめるテストでも、`Transport` は差し替えておく方が安全。
+
 ## 「使えない」は 503 で、理由と代替手段を返す
 
 ```go
 return problem(503, "写真からの推定が未設定",
-	"ANTHROPIC_API_KEY と VISION_MODEL を設定すると使える。手で入力することもできる")
+	"VISION_API_KEY と VISION_MODEL を設定すると使える。手で入力することもできる")
 ```
 
 機能が無効なのはリクエストのせいではないので 4xx にしない。

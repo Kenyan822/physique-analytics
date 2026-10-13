@@ -38,11 +38,10 @@ type Config struct {
 	// 推定のエンドポイントだけが 503 を返す。
 	VisionAPIKey string
 
-	// VisionModel は推定に使うモデル。要件のコスト試算は Haiku 相当
-	// （年1,095回で約3ドル）。
+	// VisionModel は推定に使うモデル。
 	VisionModel string
 
-	// VisionEndpoint は推定 API の宛先。空なら Anthropic の既定。
+	// VisionEndpoint は推定 API のベース URL。空なら Gemini の既定。
 	//
 	// **差し替えられるようにしてあるのは、課金を発生させずに経路全体を
 	// 確かめるため。** 偽のサーバを立てて手元で通す。
@@ -65,9 +64,10 @@ type Config struct {
 
 // defaultVisionModel は推定の既定モデル。
 //
-// 要件のコスト試算（年1,095回・入力1,700 / 出力200トークン）が
-// Haiku 相当で年3ドル程度という前提なので、既定はこれにする。
-const defaultVisionModel = "claude-haiku-4-5-20251001"
+// Google AI Studio の無料枠で動く（要件のコスト試算は年1,095回）。
+// **short-term availability 扱いのモデルなので、いずれ終わる。**
+// そのとき VISION_MODEL で差し替えられるようにしてある。
+const defaultVisionModel = "gemini-3.8-flash"
 
 // LookupEnv は os.LookupEnv と同じ形。テストで差し替えるために引数で受ける。
 type LookupEnv func(key string) (string, bool)
@@ -98,7 +98,7 @@ func Load(lookup LookupEnv) (Config, error) {
 	}
 
 	// 推定は任意。設定しなければ使えないだけで、起動は通す
-	if v, ok := lookup("ANTHROPIC_API_KEY"); ok {
+	if v, ok := lookup("VISION_API_KEY"); ok {
 		cfg.VisionAPIKey = v
 	}
 	cfg.VisionModel = defaultVisionModel
