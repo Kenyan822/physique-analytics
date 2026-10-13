@@ -38,7 +38,7 @@ type Config struct {
 	// 推定のエンドポイントだけが 503 を返す。
 	VisionAPIKey string
 
-	// VisionModel は推定に使うモデル。要件のコスト試算は Haiku 相当
+	// VisionModel は推定に使うモデル。既定は Opus（defaultVisionModel）
 	// （年1,095回で約3ドル）。
 	VisionModel string
 
@@ -65,9 +65,14 @@ type Config struct {
 
 // defaultVisionModel は推定の既定モデル。
 //
-// 要件のコスト試算（年1,095回・入力1,700 / 出力200トークン）が
-// Haiku 相当で年3ドル程度という前提なので、既定はこれにする。
-const defaultVisionModel = "claude-haiku-4-5-20251001"
+// **Opus にする。** 写真から量を見積もる作業は、食器の大きさや盛りの厚みを
+// 読む必要があり、安いモデルだと外しやすい。外した値をそのまま記録すると
+// 分析全体が濁るので、ここは精度を取る。
+//
+// 要件のコスト試算（年1,095回・入力1,700 / 出力200トークン）で、
+// Opus 5.5（入力 $4 / 出力 $20 per MTok）なら年12ドル程度。
+// Haiku 5.5 なら年0.3ドルだが、その差より誤記録の方が高くつく。
+const defaultVisionModel = "claude-opus-5-5"
 
 // LookupEnv は os.LookupEnv と同じ形。テストで差し替えるために引数で受ける。
 type LookupEnv func(key string) (string, bool)

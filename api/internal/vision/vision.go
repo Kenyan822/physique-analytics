@@ -46,7 +46,7 @@ var supportedMimeTypes = map[string]bool{
 type Config struct {
 	// APIKey が空なら推定を実行しない（課金が発生しない）
 	APIKey string
-	// Model は Vision 対応のモデル。要件のコスト試算は Haiku 相当
+	// Model は Vision 対応のモデル。既定は config.defaultVisionModel
 	Model string
 	// Endpoint は差し替え用。空なら Anthropic の既定
 	Endpoint string
