@@ -398,13 +398,13 @@ struct LogView: View {
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(width: 16, alignment: .trailing)
 
-                box(d, .weight, width: 50, pad: .decimalPad)
-                Text("kg").font(.caption).foregroundStyle(.secondary)
-                Text("×").font(.caption).foregroundStyle(.tertiary).padding(.horizontal, 2)
-                box(d, .reps, width: 40, pad: .numberPad)
-                Text("回").font(.caption).foregroundStyle(.secondary)
-                Text("RIR").font(.caption).foregroundStyle(.secondary).padding(.leading, 6)
-                box(d, .rir, width: 32, pad: .numberPad)
+                box(d, .weight, width: 68, pad: .decimalPad)
+                Text("kg").font(.footnote).foregroundStyle(.secondary)
+                Text("×").font(.footnote).foregroundStyle(.tertiary).padding(.horizontal, 2)
+                box(d, .reps, width: 56, pad: .numberPad)
+                Text("回").font(.footnote).foregroundStyle(.secondary)
+                Text("RIR").font(.footnote).foregroundStyle(.secondary).padding(.leading, 6)
+                box(d, .rir, width: 46, pad: .numberPad)
 
                 Spacer(minLength: 4)
             }
@@ -429,15 +429,30 @@ struct LogView: View {
         .accessibilityIdentifier("addSet")
     }
 
+    /// 枠の高さ。**44pt は Apple の最小タップ領域**（#309）。
+    /// ジムで素早く打つので、狙わなくても当たる大きさにする。
+    private static let boxHeight: CGFloat = 44
+
     /// 数字の枠。**離れたら保存する**（確定ボタンを置かない）
+    ///
+    /// `.roundedBorder` を使わないのは、**枠が文字の大きさで決まってしまう**ため。
+    /// 高さを指定してもタップ領域が広がるだけで、見た目の枠は大きくならない。
     private func box(
         _ d: LogModel.SetDraft, _ kind: Field.Kind, width: CGFloat, pad: UIKeyboardType
     ) -> some View {
         TextField("", text: binding(d, kind))
             .keyboardType(pad)
             .multilineTextAlignment(.center)
-            .textFieldStyle(.roundedBorder)
-            .frame(width: width)
+            .font(.title3.monospacedDigit())
+            .frame(width: width, height: Self.boxHeight)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(.secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color(.separator), lineWidth: 1)
+            )
             .focused($focus, equals: Field(set: d.id, kind: kind))
             .accessibilityIdentifier(identifier(kind))
     }
