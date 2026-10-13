@@ -83,3 +83,55 @@ XCTAssertTrue(app.textFields["weightInput"].firstMatch.isHittable, "重量が打
 
 `isHittable` は「画面内にあって、他のものに隠れていないか」しか見ない。
 **押しやすいかどうかは見ていない。** そこは実機でしか分からない。
+
+## Form に行を1つ足すと、下の要素が「存在しない」ことになる
+
+体組成に除脂肪体重の行を足したら（[#306](https://github.com/Kenyan822/physique-analytics/issues/306)）、
+**関係ない UI テストが落ちた。**
+
+```
+XCTAssertTrue failed - 詳しく測るがあること
+```
+
+```swift
+let more = app.buttons["showAllParts"]
+XCTAssertTrue(more.exists, "詳しく測るがあること")   // ← ここで落ちる
+app.swipeUp()
+```
+
+**`Form` は遅延描画する。** 画面の外にある行はビューが作られておらず、
+アクセシビリティツリーにも出てこない。`isHittable` が false になるのではなく
+**`exists` が false になる。**
+
+行を1つ足して押し出しただけで、**触っていないテストが落ちる。**
+
+```swift
+app.swipeUp()
+XCTAssertTrue(more.waitForExistence(timeout: UITimeout.normal), "詳しく測るがあること")
+XCTAssertTrue(more.isHittable, "スクロールすれば押せること")
+```
+
+**スクロールしてから `exists` を見る。** 先に `exists` を見てからスクロールする
+順番だと、画面の長さに依存したテストになる。
+
+## Swift Charts の縦軸に 0 を含めない
+
+```swift
+.chartYScale(domain: .automatic(includesZero: false))
+```
+
+既定では 0 を含む。**体重 70〜72kg を 0 から描くと、変化が見えない直線になる。**
+体組成のように「狭い範囲での動き」を見るグラフでは必ず外す。
+
+## 画面を足したら `Package.swift` の `exclude` にも足す
+
+`swift test` は macOS 向けにビルドする（`.xcodeproj` との二重ビルド）。
+iOS 専用の API を使うファイルは `exclude` しないと落ちる。
+
+```
+error: 'navigationBarTitleDisplayMode' is unavailable in macOS
+```
+
+**畳み方や計算はビューから出して core 側に置く。** そうすれば
+`exclude` してもテストは効く（`TrendSeries.swift` は core、
+`BodyChartView.swift` は exclude）。
