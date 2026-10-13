@@ -32,16 +32,19 @@ type Config struct {
 	// シークレットではない（UUID であって鍵ではない）。
 	AllowedUserIDs []string
 
-	// VisionAPIKey は写真からの PFC 推定に使う API キー（要件 N-06）。
+	// VisionProjectID は推定を呼ぶ Google Cloud プロジェクト（要件 N-06）。
+	//
+	// **鍵ではない。** Vertex AI は Cloud Run のサービスアカウントで呼ぶので、
+	// シークレットを持たない（[#304]）。
 	//
 	// **空なら推定を実行しない。** 未設定のまま動かしても課金は発生せず、
 	// 推定のエンドポイントだけが 503 を返す。
-	VisionAPIKey string
+	VisionProjectID string
 
 	// VisionModel は推定に使うモデル。
 	VisionModel string
 
-	// VisionEndpoint は推定 API のベース URL。空なら Gemini の既定。
+	// VisionEndpoint は推定 API のベース URL。空なら Vertex の既定。
 	//
 	// **差し替えられるようにしてあるのは、課金を発生させずに経路全体を
 	// 確かめるため。** 偽のサーバを立てて手元で通す。
@@ -64,7 +67,7 @@ type Config struct {
 
 // defaultVisionModel は推定の既定モデル。
 //
-// Google AI Studio の無料枠で動く（要件のコスト試算は年1,095回）。
+// Vertex AI 上で動く（要件のコスト試算は年1,095回で年1ドル前後）。
 // **short-term availability 扱いのモデルなので、いずれ終わる。**
 // そのとき VISION_MODEL で差し替えられるようにしてある。
 const defaultVisionModel = "gemini-3.8-flash"
@@ -98,8 +101,8 @@ func Load(lookup LookupEnv) (Config, error) {
 	}
 
 	// 推定は任意。設定しなければ使えないだけで、起動は通す
-	if v, ok := lookup("VISION_API_KEY"); ok {
-		cfg.VisionAPIKey = v
+	if v, ok := lookup("VISION_PROJECT_ID"); ok {
+		cfg.VisionProjectID = v
 	}
 	cfg.VisionModel = defaultVisionModel
 	if v, ok := lookup("VISION_MODEL"); ok && v != "" {
