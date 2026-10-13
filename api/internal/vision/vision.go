@@ -21,11 +21,16 @@ import (
 	"strings"
 )
 
-// defaultEndpoint は Gemini Developer API（Google AI Studio）のベース URL。
+// defaultEndpoint は Vertex AI のベース URL。
 //
-// Vertex AI（aiplatform.googleapis.com）ではない。**無料枠があるのはこちらだけ。**
-// ここにモデル名を足して /models/<model>:generateContent を組み立てる。
-const defaultEndpoint = "https://generativelanguage.googleapis.com/v1beta"
+// Google AI Studio（generativelanguage.googleapis.com）ではない。
+// **AI Studio の無料枠は請求を紐付けていないプロジェクトでしか効かず**、
+// このプロジェクトは Cloud Run のために請求が要る（#304）。
+// Vertex なら鍵を持たずにサービスアカウントで呼べる。
+const defaultEndpoint = "https://aiplatform.googleapis.com/v1"
+
+// location はモデルを呼ぶ場所。global は空きのあるリージョンに回してくれる。
+const location = "global"
 
 // thinkingLevel は思考の深さ。
 //
@@ -47,11 +52,15 @@ var supportedMimeTypes = map[string]bool{
 
 // Config は推定に使う設定。
 type Config struct {
-	// APIKey が空なら推定を実行しない（課金が発生しない）
-	APIKey string
+	// ProjectID が空なら推定を実行しない（課金が発生しない）。
+	//
+	// **鍵は持たない。** 認証は NewClient に渡す *http.Client の責務で、
+	// 本番では Cloud Run のサービスアカウント（ADC）が署名する。
+	// 認証情報が取れないときは ProjectID を立てずに「使えない」状態にする
+	ProjectID string
 	// Model は Vision 対応のモデル
 	Model string
-	// Endpoint は差し替え用のベース URL。空なら Gemini の既定
+	// Endpoint は差し替え用のベース URL。空なら Vertex の既定
 	Endpoint string
 }
 
@@ -94,7 +103,7 @@ func NewClient(cfg Config, hc *http.Client) *Client {
 }
 
 // Enabled は推定が使える状態かを返す。
-func (c *Client) Enabled() bool { return c.cfg.APIKey != "" }
+func (c *Client) Enabled() bool { return c.cfg.ProjectID != "" }
 
 // estimateSchema は structured output のスキーマ。
 //
@@ -129,9 +138,9 @@ const prompt = `この写真の食事の栄養素を推定してください。
 
 // Estimate は写真とテキストから PFC を推定する。
 func (c *Client) Estimate(ctx context.Context, req Request) (Estimate, error) {
-	if c.cfg.APIKey == "" {
+	if c.cfg.ProjectID == "" {
 		return Estimate{}, errors.New(
-			"写真からの推定が未設定。VISION_API_KEY と VISION_MODEL を設定する")
+			"写真からの推定が未設定。VISION_PROJECT_ID を設定する")
 	}
 	if !supportedMimeTypes[req.MimeType] {
 		return Estimate{}, fmt.Errorf(
@@ -148,9 +157,7 @@ func (c *Client) Estimate(ctx context.Context, req Request) (Estimate, error) {
 		return Estimate{}, fmt.Errorf("リクエストを作れない: %w", err)
 	}
 	httpReq.Header.Set("content-type", "application/json")
-	// **鍵はヘッダで渡す。** クエリパラメータでも通るが、URL は
-	// プロキシやアクセスログに残るので使わない
-	httpReq.Header.Set("x-goog-api-key", c.cfg.APIKey)
+	// **Authorization はここで付けない。** c.http がサービスアカウントで署名する
 
 	res, err := c.http.Do(httpReq)
 	if err != nil {
@@ -164,7 +171,7 @@ func (c *Client) Estimate(ctx context.Context, req Request) (Estimate, error) {
 	}
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		// **握りつぶさない。** 無料枠の上限もここに出るので、失敗は見える形で残す
+		// **握りつぶさない。** 課金とクォータの問題もここに出る
 		return Estimate{}, fmt.Errorf("推定 API が %d を返した: %s",
 			res.StatusCode, truncate(string(raw), 200))
 	}
@@ -172,16 +179,17 @@ func (c *Client) Estimate(ctx context.Context, req Request) (Estimate, error) {
 	return parseEstimate(raw)
 }
 
-// endpoint は呼び先を組み立てる。**Gemini はモデルを URL で指定する**
-// （Anthropic はボディに入れていた）。
+// endpoint は呼び先を組み立てる。
+// **Vertex はプロジェクトもモデルも URL で指定する**（Anthropic はボディだった）。
 func (c *Client) endpoint() string {
 	base := c.cfg.Endpoint
 	if base == "" {
 		base = defaultEndpoint
 	}
 
-	return fmt.Sprintf("%s/models/%s:generateContent",
-		strings.TrimSuffix(base, "/"), url.PathEscape(c.cfg.Model))
+	return fmt.Sprintf("%s/projects/%s/locations/%s/publishers/google/models/%s:generateContent",
+		strings.TrimSuffix(base, "/"), url.PathEscape(c.cfg.ProjectID),
+		location, url.PathEscape(c.cfg.Model))
 }
 
 func (c *Client) generateContentBody(req Request) map[string]any {
@@ -193,6 +201,9 @@ func (c *Client) generateContentBody(req Request) map[string]any {
 
 	return map[string]any{
 		"contents": []map[string]any{{
+			// **Vertex は role を省略できない。** 無いと 400 になる
+			// （AI Studio は既定で user を補っていた）
+			"role": "user",
 			"parts": []map[string]any{
 				{"inline_data": map[string]string{
 					"mime_type": req.MimeType,
@@ -206,7 +217,9 @@ func (c *Client) generateContentBody(req Request) map[string]any {
 			"thinkingConfig": map[string]any{"thinkingLevel": thinkingLevel},
 			"responseFormat": map[string]any{
 				"text": map[string]any{
-					"mimeType": "application/json",
+					// **enum なので MIME 文字列ではない。**
+					// "application/json" を渡すと 400 になる（実際に踏んだ）
+					"mimeType": "APPLICATION_JSON",
 					"schema":   estimateSchema,
 				},
 			},

@@ -13,6 +13,9 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
+
 	"github.com/Kenyan822/physique-analytics/api/internal/auth"
 	"github.com/Kenyan822/physique-analytics/api/internal/blobstore"
 	"github.com/Kenyan822/physique-analytics/api/internal/config"
@@ -66,12 +69,8 @@ func run() error {
 		repository.NewMealSet(pool.DB()),
 		repository.NewContest(pool.DB()),
 		repository.NewBloodTest(pool.DB()),
-		// 推定は任意。API キーが無ければ 503 を返すだけで、課金は発生しない
-		vision.NewClient(vision.Config{
-			APIKey:   cfg.VisionAPIKey,
-			Model:    cfg.VisionModel,
-			Endpoint: cfg.VisionEndpoint,
-		}, nil),
+		// 推定は任意。未設定なら 503 を返すだけで、課金は発生しない
+		visionClient(ctx, cfg),
 		repository.NewPhoto(pool.DB()),
 		// 写真も任意。未設定なら 503 を返すだけ
 		blobstore.NewR2(blobstore.Config{
@@ -130,4 +129,31 @@ func run() error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// vertexScope は Vertex AI を呼ぶのに要るスコープ。
+const vertexScope = "https://www.googleapis.com/auth/cloud-platform"
+
+// visionClient は写真からの推定のクライアントを作る（要件 N-06）。
+//
+// **API キーを持たない。** Cloud Run のサービスアカウント（ADC）で署名する。
+// 手元で gcloud にログインしていない等で認証情報が取れないときは、
+// **ProjectID を立てずに「使えない」状態にする。** そのまま呼びに行かせると
+// 401 になり、利用者には「推定できなかった」としか見えない。
+// 起動は止めない（推定以外は動く）。
+func visionClient(ctx context.Context, cfg config.Config) *vision.Client {
+	vc := vision.Config{Model: cfg.VisionModel, Endpoint: cfg.VisionEndpoint}
+	if cfg.VisionProjectID == "" {
+		return vision.NewClient(vc, nil)
+	}
+
+	ts, err := google.DefaultTokenSource(ctx, vertexScope)
+	if err != nil {
+		slog.Warn("推定の認証情報が取れない。写真からの推定は使えない", slog.Any("error", err))
+
+		return vision.NewClient(vc, nil)
+	}
+	vc.ProjectID = cfg.VisionProjectID
+
+	return vision.NewClient(vc, oauth2.NewClient(ctx, ts))
 }

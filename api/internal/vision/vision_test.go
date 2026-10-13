@@ -83,7 +83,7 @@ func TestEstimate_応答をPFCにする(t *testing.T) {
 	body := geminiBody(t, `{"name":"鶏むねと白米","qty":"1食","kcal":620,"proteinG":48,"fatG":6,"carbG":88,"confidence":"medium","note":"食器のサイズから量を推定"}`)
 	tr := &fakeTransport{status: 200, body: body}
 
-	c := vision.NewClient(vision.Config{APIKey: "test-key", Model: "gemini-3.8-flash"},
+	c := vision.NewClient(vision.Config{ProjectID: "p-1", Model: "gemini-3.8-flash"},
 		&http.Client{Transport: tr})
 
 	got, err := c.Estimate(context.Background(), vision.Request{
@@ -108,7 +108,7 @@ func TestEstimate_リクエストの形(t *testing.T) {
 	t.Parallel()
 
 	tr := &fakeTransport{status: 200, body: geminiBody(t, `{"name":"x"}`)}
-	c := vision.NewClient(vision.Config{APIKey: "secret-key", Model: "gemini-3.8-flash"},
+	c := vision.NewClient(vision.Config{ProjectID: "p-1", Model: "gemini-3.8-flash"},
 		&http.Client{Transport: tr})
 
 	img := []byte{0x89, 0x50, 0x4e, 0x47}
@@ -118,17 +118,21 @@ func TestEstimate_リクエストの形(t *testing.T) {
 		t.Fatalf("Estimate: %v", err)
 	}
 
-	// **鍵はヘッダで渡す。** URL に入れると CDN やアクセスログに残る
-	if got := tr.gotReq.Header.Get("x-goog-api-key"); got != "secret-key" {
-		t.Errorf("x-goog-api-key = %q, want secret-key", got)
-	}
-	if u := tr.gotReq.URL.String(); strings.Contains(u, "secret-key") {
-		t.Errorf("URL に鍵が入っている: %s", u)
+	// **このパッケージは鍵を知らない。** 認証は渡された http.Client の責務
+	// （Cloud Run のサービスアカウントで署名する）
+	if got := tr.gotReq.Header.Get("x-goog-api-key"); got != "" {
+		t.Errorf("x-goog-api-key = %q, want 空。鍵は持たない", got)
 	}
 
-	// Gemini はモデルを URL のパスで指定する（Anthropic はボディ）
-	if u := tr.gotReq.URL.String(); !strings.Contains(u, "models/gemini-3.8-flash:generateContent") {
-		t.Errorf("URL = %s, want models/<model>:generateContent", u)
+	// Vertex はプロジェクトとモデルを URL のパスで指定する
+	want := "/projects/p-1/locations/global/publishers/google/models/gemini-3.8-flash:generateContent"
+	if u := tr.gotReq.URL.String(); !strings.Contains(u, want) {
+		t.Errorf("URL = %s, want %s を含む", u, want)
+	}
+
+	// **Vertex は role を省略できない。** 無いと 400 になる（AI Studio は既定で補う）
+	if !strings.Contains(tr.gotRaw, `"role":"user"`) {
+		t.Errorf("role が無い: %s", truncate(tr.gotRaw))
 	}
 
 	// 画像は inline_data で送る
@@ -144,13 +148,14 @@ func TestEstimate_リクエストの形(t *testing.T) {
 		t.Errorf("テキスト補足が送られていない: %s", truncate(tr.gotRaw))
 	}
 
-	// structured output を指定して、説明文が混ざるのを防ぐ
-	if !strings.Contains(tr.gotRaw, "responseFormat") || !strings.Contains(tr.gotRaw, "application/json") {
+	// structured output を指定して、説明文が混ざるのを防ぐ。
+	// **mimeType は enum。** "application/json" だと 400 になる
+	if !strings.Contains(tr.gotRaw, "responseFormat") || !strings.Contains(tr.gotRaw, `"APPLICATION_JSON"`) {
 		t.Errorf("structured output を指定していない: %s", truncate(tr.gotRaw))
 	}
 }
 
-func TestEstimate_APIキーが無ければエラー(t *testing.T) {
+func TestEstimate_プロジェクトが無ければエラー(t *testing.T) {
 	t.Parallel()
 
 	c := vision.NewClient(vision.Config{}, &http.Client{Transport: noNetwork{t}})
@@ -160,7 +165,7 @@ func TestEstimate_APIキーが無ければエラー(t *testing.T) {
 		t.Fatal("エラーにならない")
 	}
 	// **直し方を書く。** 「使えない」だけでは次の行動が決まらない
-	if !strings.Contains(err.Error(), "VISION_API_KEY") {
+	if !strings.Contains(err.Error(), "VISION_PROJECT_ID") {
 		t.Errorf("err = %v, want 設定方法を含む", err)
 	}
 }
@@ -169,7 +174,7 @@ func TestEstimate_失敗を握りつぶさない(t *testing.T) {
 	t.Parallel()
 
 	tr := &fakeTransport{status: 429, body: `{"error":{"message":"rate limited"}}`}
-	c := vision.NewClient(vision.Config{APIKey: "k", Model: "m"}, &http.Client{Transport: tr})
+	c := vision.NewClient(vision.Config{ProjectID: "p-1", Model: "m"}, &http.Client{Transport: tr})
 
 	_, err := c.Estimate(context.Background(), vision.Request{Image: []byte{1}, MimeType: "image/jpeg"})
 	if err == nil {
@@ -186,7 +191,7 @@ func TestEstimate_JSONでない応答(t *testing.T) {
 	// structured output を指定していても、安全フィルタなどで説明文が返ることがある。
 	// **壊れた推定値を作らない**
 	tr := &fakeTransport{status: 200, body: geminiBody(t, "この写真は鶏むねです。")}
-	c := vision.NewClient(vision.Config{APIKey: "k", Model: "m"}, &http.Client{Transport: tr})
+	c := vision.NewClient(vision.Config{ProjectID: "p-1", Model: "m"}, &http.Client{Transport: tr})
 
 	if _, err := c.Estimate(context.Background(), vision.Request{Image: []byte{1}, MimeType: "image/jpeg"}); err == nil {
 		t.Error("エラーにならない")
@@ -198,7 +203,7 @@ func TestEstimate_候補が空(t *testing.T) {
 
 	// 安全フィルタで止まると candidates が空で 200 が返る
 	tr := &fakeTransport{status: 200, body: `{"candidates":[]}`}
-	c := vision.NewClient(vision.Config{APIKey: "k", Model: "m"}, &http.Client{Transport: tr})
+	c := vision.NewClient(vision.Config{ProjectID: "p-1", Model: "m"}, &http.Client{Transport: tr})
 
 	if _, err := c.Estimate(context.Background(), vision.Request{Image: []byte{1}, MimeType: "image/jpeg"}); err == nil {
 		t.Error("エラーにならない")
@@ -211,7 +216,7 @@ func TestEstimate_打ち切られたら理由を返す(t *testing.T) {
 	// **maxOutputTokens は thinking の分も数える。** 絞りすぎると本文が空で 200 が返る。
 	// 何が起きたか分からないと直せないので、理由をエラーに載せる
 	tr := &fakeTransport{status: 200, body: `{"candidates":[{"finishReason":"MAX_TOKENS","content":{"parts":[]}}]}`}
-	c := vision.NewClient(vision.Config{APIKey: "k", Model: "m"}, &http.Client{Transport: tr})
+	c := vision.NewClient(vision.Config{ProjectID: "p-1", Model: "m"}, &http.Client{Transport: tr})
 
 	_, err := c.Estimate(context.Background(), vision.Request{Image: []byte{1}, MimeType: "image/jpeg"})
 	if err == nil {
@@ -225,7 +230,7 @@ func TestEstimate_打ち切られたら理由を返す(t *testing.T) {
 func TestEstimate_対応していない形式(t *testing.T) {
 	t.Parallel()
 
-	c := vision.NewClient(vision.Config{APIKey: "k", Model: "m"}, &http.Client{Transport: noNetwork{t}})
+	c := vision.NewClient(vision.Config{ProjectID: "p-1", Model: "m"}, &http.Client{Transport: noNetwork{t}})
 
 	// Gemini は HEIC を受け付けるが GIF は受け付けない
 	_, err := c.Estimate(context.Background(), vision.Request{Image: []byte{1}, MimeType: "image/gif"})
@@ -242,7 +247,7 @@ func TestEstimate_HEICを受け付ける(t *testing.T) {
 
 	// iPhone の写真はそのまま HEIC。**変換せずに送れる**
 	tr := &fakeTransport{status: 200, body: geminiBody(t, `{"name":"x"}`)}
-	c := vision.NewClient(vision.Config{APIKey: "k", Model: "m"}, &http.Client{Transport: tr})
+	c := vision.NewClient(vision.Config{ProjectID: "p-1", Model: "m"}, &http.Client{Transport: tr})
 
 	if _, err := c.Estimate(context.Background(), vision.Request{
 		Image: []byte{1}, MimeType: "image/heic",
