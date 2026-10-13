@@ -171,3 +171,35 @@ struct ShiftDaysTests {
         #expect(shiftDays("2026-11-01", -30) == "2026-10-02")
     }
 }
+
+@Suite("除脂肪体重")
+struct LeanBodyMassTests {
+    @Test("体重から脂肪を引く")
+    func calculates() {
+        // 80kg・体脂肪率 20% → 64kg
+        #expect(leanBodyMass(weightKg: 80, bodyfatPct: 20) == 64)
+    }
+
+    @Test("小数が出ても丸めない")
+    func keepsPrecision() {
+        let got = leanBodyMass(weightKg: 70, bodyfatPct: 15.5)
+        #expect(got != nil)
+        // 70 × 0.845 = 59.15
+        #expect(abs((got ?? 0) - 59.15) < 0.001)
+    }
+
+    @Test("どちらかが無ければ出さない")
+    func needsBoth() {
+        // **0 と「測っていない」を混ぜない。** 片方だけでは計算できない
+        #expect(leanBodyMass(weightKg: 80, bodyfatPct: nil) == nil)
+        #expect(leanBodyMass(weightKg: nil, bodyfatPct: 20) == nil)
+        #expect(leanBodyMass(weightKg: nil, bodyfatPct: nil) == nil)
+    }
+
+    @Test("ありえない体脂肪率は出さない")
+    func rejectsOutOfRange() {
+        // 体組成計が壊れた値を返すことがある。**負の除脂肪体重を作らない**
+        #expect(leanBodyMass(weightKg: 80, bodyfatPct: 120) == nil)
+        #expect(leanBodyMass(weightKg: 80, bodyfatPct: -1) == nil)
+    }
+}
