@@ -55,6 +55,8 @@ func run() error {
 		Plan:     repository.NewPlan(pool.DB()),
 		Contests: repository.NewContest(pool.DB()),
 		Body:     repository.NewBody(pool.DB()),
+		// 食事の記録。**MCP で唯一の書き込み**（#297）
+		Meals: repository.NewMeal(pool.DB()),
 	})
 
 	slog.Info("MCP サーバを開始")

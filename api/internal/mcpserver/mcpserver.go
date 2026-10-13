@@ -41,6 +41,10 @@ type Deps struct {
 	Contests *repository.Contest
 	// Body は直近の周囲長（要件 A-11）
 	Body *repository.Body
+
+	// Meals は食事の記録（要件 N-06）。**MCP で唯一の書き込み先**。
+	// nil なら log_meal を登録しない
+	Meals *repository.Meal
 }
 
 // New は MCP サーバを組み立てる。
@@ -55,6 +59,7 @@ func New(d Deps) *mcp.Server {
 	registerAnalysisTools(s, d)
 	registerWeeklyTools(s, d)
 	registerCorrelationTools(s, d)
+	registerMealTools(s, d)
 
 	return s
 }
