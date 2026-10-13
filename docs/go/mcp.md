@@ -253,3 +253,74 @@ DB に入ったことが分かる。**
 
 弾くケースでも同じで、「エラーが返った」だけでなく**「行が増えていない」**を
 見る。検証の前に一部だけ書いてしまう実装を、これが捕まえる。
+
+## Description に書いた約束は、コードで守る
+
+`log_meal` の入力にこう書いていた。
+
+```go
+Kcal *int `json:"kcal,omitempty" jsonschema:"カロリー。省くと PFC から計算される"`
+```
+
+**計算していなかった。** PFC から kcal を出す処理は HTTP のハンドラ側にあり、
+MCP は `repository` を直接使うのでそこを通らない（[ADR-0010](../adr/0010-mcp-over-analysis-ui.md)）。
+
+LLM はこの文字列を読んで「kcal は省いてよい」と判断する。
+**説明が嘘だと、エラーも出ないまま kcal の無い行が積まれる。**
+
+Description と `jsonschema` タグは**仕様書ではなく約束**で、
+読む相手が人ではなく LLM というだけ。書いたなら実装で守る。
+
+MCP が API を通らない設計である以上、**ハンドラ側の加工は自動では効かない。**
+同じ規則が要るなら、共有するか書き写すかを意識して決める。
+
+## `Truncate(24 * time.Hour)` で「今日」を作らない
+
+```go
+// 壊れている
+timeutil.Now().Truncate(24 * time.Hour)
+```
+
+`timeutil.Now()` は JST を返すが、`Truncate` は**ロケーションを見ない。**
+エポックからの絶対時刻を切るので、JST では **9時** に丸まる。
+
+```
+2026-10-14 06:53 JST = 2026-10-13 21:53 UTC
+          → Truncate(24h) → 2026-10-13 00:00 UTC = 2026-10-13 09:00 JST
+```
+
+**朝9時前に記録すると前日の行になる。** 筋トレ前の朝食が一番踏みやすい。
+
+```go
+// JST で年月日を取り出して組み直す
+j := now.In(timeutil.JST)
+time.Date(j.Year(), j.Month(), j.Day(), 0, 0, 0, 0, time.UTC)
+```
+
+### 返す Time のロケーションは UTC にする
+
+上で `timeutil.JST` のまま返したら、既存のテストが落ちた。
+
+`date` 列は**日付そのもの**で、時刻もタイムゾーンも持たない（ADR-0013）。
+`+09:00` の深夜を渡すと UTC に直されて `15:00 前日` になり、**1日ずれる。**
+
+**JST は「どの日か」を決めるためだけに使い、組み直した Time は UTC の深夜にする。**
+`time.Parse("2006-01-02", s)` が返すのと同じ形に揃う。
+
+## 書き込むツールには Annotations を付ける
+
+```go
+mcp.AddTool(s, &mcp.Tool{
+	Name: "log_meal",
+	Annotations: &mcp.ToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: ptr(false),   // 行を足すだけ
+		IdempotentHint:  false,        // 2回呼ぶと2行入る
+	},
+```
+
+このサーバは `log_meal` 以外すべて読み取り専用なので、**例外であることを
+型で示しておく。** クライアントはこれを見て確認を挟める。
+
+`DestructiveHint` と `IdempotentHint` が `*bool` なのは、
+**「false」と「言っていない」を区別するため。** 既定値が同じでない。

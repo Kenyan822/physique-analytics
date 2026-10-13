@@ -9,6 +9,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
+	"github.com/Kenyan822/physique-analytics/api/internal/analytics"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 	"github.com/Kenyan822/physique-analytics/api/internal/timeutil"
 )
@@ -44,6 +45,15 @@ func registerMealTools(s *mcp.Server, d Deps) {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name: "log_meal",
+		// **このサーバで唯一の書き込みツール。** 読み取り専用だと思って
+		// 気軽に呼ばれないよう、明示する
+		Annotations: &mcp.ToolAnnotations{
+			ReadOnlyHint: false,
+			// 行を足すだけ。既存の記録を消したり書き換えたりしない
+			DestructiveHint: ptr(false),
+			// 同じ内容で2回呼ぶと2行入る
+			IdempotentHint: false,
+		},
 		Description: "食事を1件記録する。写真や口頭の説明から推定した PFC を入れる用途。" +
 			"source は ai_estimated で固定され、手入力と区別できる。" +
 			"**推定値をそのまま入れない。** 量が曖昧なときは qty に根拠を書き、" +
@@ -56,7 +66,7 @@ func registerMealTools(s *mcp.Server, d Deps) {
 }
 
 func logMeal(ctx context.Context, d Deps, in logMealIn) (logMealOut, error) {
-	date, err := mealDate(in.Date)
+	date, err := mealDate(in.Date, timeutil.Now())
 	if err != nil {
 		return logMealOut{}, err
 	}
@@ -66,7 +76,7 @@ func logMeal(ctx context.Context, d Deps, in logMealIn) (logMealOut, error) {
 		// **推定由来だと後から分かるようにする。** manual と混ざると
 		// 推定の精度を評価できなくなる（要件 N-06）
 		Source:   ptr(openapi.MealSourceAiEstimated),
-		Kcal:     in.Kcal,
+		Kcal:     kcalOrDerived(in),
 		ProteinG: f32ptr(in.ProteinG),
 		FatG:     f32ptr(in.FatG),
 		CarbG:    f32ptr(in.CarbG),
@@ -105,10 +115,20 @@ func logMeal(ctx context.Context, d Deps, in logMealIn) (logMealOut, error) {
 	return out, nil
 }
 
-// mealDate は空なら今日（JST・ADR-0013）を返す。
-func mealDate(s string) (openapi_types.Date, error) {
+// mealDate は空なら now の日（JST・ADR-0013）を返す。
+//
+// **Truncate(24h) を使わない。** 絶対時刻を切るのでロケーションを見ず、
+// JST では9時に丸まる。朝9時前に記録すると前日の行になる。
+//
+// JST は「どの日か」を決めるためだけに使い、**返す Time は UTC の深夜**にする。
+// date 列は日付そのもので、+09:00 のまま渡すと UTC に直されて前日になる。
+func mealDate(s string, now time.Time) (openapi_types.Date, error) {
 	if s == "" {
-		return openapi_types.Date{Time: timeutil.Now().Truncate(24 * time.Hour)}, nil
+		j := now.In(timeutil.JST)
+
+		return openapi_types.Date{
+			Time: time.Date(j.Year(), j.Month(), j.Day(), 0, 0, 0, 0, time.UTC),
+		}, nil
 	}
 
 	t, err := time.Parse("2006-01-02", s)
@@ -117,6 +137,36 @@ func mealDate(s string) (openapi_types.Date, error) {
 	}
 
 	return openapi_types.Date{Time: t}, nil
+}
+
+// kcalOrDerived は kcal が無ければ PFC から出す。
+//
+// **ツールの説明が「省くと PFC から計算される」と約束している。**
+// ここで計算しないと LLM への説明が嘘になる。HTTP のハンドラは
+// 同じことをしているが、MCP は repository を直接使うので通らない。
+//
+// **空欄は 0 とみなす。** 鶏むねの C のように「本当に 0」で空のまま
+// 済ませる場面が普通にある（handler/meal.go と同じ規則）。
+// ただし1つも入っていなければ計算しない。名前だけの記録に 0 kcal を付けない。
+func kcalOrDerived(in logMealIn) *int {
+	if in.Kcal != nil {
+		return in.Kcal
+	}
+	if in.ProteinG == nil && in.FatG == nil && in.CarbG == nil {
+		return nil
+	}
+
+	kcal := analytics.KcalFromMacros(zeroIfNil(in.ProteinG), zeroIfNil(in.FatG), zeroIfNil(in.CarbG))
+
+	return &kcal
+}
+
+func zeroIfNil(v *float64) float64 {
+	if v == nil {
+		return 0
+	}
+
+	return *v
 }
 
 func ptr[T any](v T) *T { return &v }

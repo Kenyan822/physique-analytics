@@ -12,6 +12,7 @@ import (
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
 	"github.com/Kenyan822/physique-analytics/api/internal/repository"
 	"github.com/Kenyan822/physique-analytics/api/internal/testdb"
+	"github.com/Kenyan822/physique-analytics/api/internal/timeutil"
 )
 
 // mealFixture はトランザクション内で動く Deps と、確認用の Meals を返す。
@@ -119,6 +120,121 @@ func TestLogMealDefaultsToToday(t *testing.T) {
 	if got.Date == "" {
 		t.Error("date が空")
 	}
+}
+
+func TestMealDateDefaultsToJSTToday(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		now  time.Time
+		want string
+	}{
+		// **朝9時前が肝。** Truncate(24h) は絶対時刻を切るのでロケーションを見ず、
+		// JST では9時に丸まる。前日になってしまう（ADR-0013）
+		{"朝6時", time.Date(2028, 6, 15, 6, 0, 0, 0, timeutil.JST), "2028-06-15"},
+		{"ちょうど0時", time.Date(2028, 6, 15, 0, 0, 0, 0, timeutil.JST), "2028-06-15"},
+		{"夜23時", time.Date(2028, 6, 15, 23, 59, 0, 0, timeutil.JST), "2028-06-15"},
+		// UTC で来ても JST の日付に直す
+		{"UTCで来る", time.Date(2028, 6, 14, 21, 0, 0, 0, time.UTC), "2028-06-15"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := mealDate("", tt.now)
+			if err != nil {
+				t.Fatalf("mealDate: %v", err)
+			}
+			if day := got.Format("2006-01-02"); day != tt.want {
+				t.Errorf("mealDate() = %s, want %s", day, tt.want)
+			}
+		})
+	}
+}
+
+func TestLogMealDerivesKcalFromMacros(t *testing.T) {
+	d, meals := mealFixture(t)
+
+	// **ツールの説明が「省くと PFC から計算される」と約束している。**
+	// 計算しないと、LLM への説明が嘘になる
+	got, err := logMeal(t.Context(), d, logMealIn{
+		Date: "2028-06-15", Name: "ゆで卵 2個",
+		ProteinG: fptr(12), FatG: fptr(10), CarbG: fptr(1),
+	})
+	if err != nil {
+		t.Fatalf("記録できない: %v", err)
+	}
+
+	list := mealsOn(t, meals, "2028-06-15")
+
+	m := findMeal(t, list, got.ID)
+	// 12×4 + 10×9 + 1×4 = 142
+	if m.Kcal == nil || *m.Kcal != 142 {
+		t.Errorf("Kcal = %v, want 142", m.Kcal)
+	}
+}
+
+func TestLogMealKeepsGivenKcal(t *testing.T) {
+	d, meals := mealFixture(t)
+
+	// **明示された kcal を上書きしない。** 推定は kcal を直接持ってくる
+	got, err := logMeal(t.Context(), d, logMealIn{
+		Date: "2028-06-15", Name: "ラーメン",
+		Kcal: iptr(800), ProteinG: fptr(20), FatG: fptr(20), CarbG: fptr(100),
+	})
+	if err != nil {
+		t.Fatalf("記録できない: %v", err)
+	}
+
+	list := mealsOn(t, meals, "2028-06-15")
+
+	m := findMeal(t, list, got.ID)
+	if m.Kcal == nil || *m.Kcal != 800 {
+		t.Errorf("Kcal = %v, want 800", m.Kcal)
+	}
+}
+
+func TestLogMealNameOnlyHasNoKcal(t *testing.T) {
+	d, meals := mealFixture(t)
+
+	// 名前だけの記録に 0 kcal を付けない。**測っていないことが分からなくなる**
+	got, err := logMeal(t.Context(), d, logMealIn{Date: "2028-06-15", Name: "外食"})
+	if err != nil {
+		t.Fatalf("記録できない: %v", err)
+	}
+
+	list := mealsOn(t, meals, "2028-06-15")
+
+	if m := findMeal(t, list, got.ID); m.Kcal != nil {
+		t.Errorf("Kcal = %v, want nil", *m.Kcal)
+	}
+}
+
+// mealsOn はその日の記録を引き直す。**書けたことは読み直して確かめる。**
+func mealsOn(t *testing.T, meals *repository.Meal, day string) []openapi.Meal {
+	t.Helper()
+
+	d := mustDate(t, day)
+	list, err := meals.List(t.Context(), &d, &d)
+	if err != nil {
+		t.Fatalf("読み直せない: %v", err)
+	}
+
+	return list
+}
+
+func findMeal(t *testing.T, list []openapi.Meal, id string) openapi.Meal {
+	t.Helper()
+
+	for _, m := range list {
+		if m.Id.String() == id {
+			return m
+		}
+	}
+	t.Fatalf("記録した行が見つからない: %s", id)
+
+	return openapi.Meal{}
 }
 
 func iptr(v int) *int { return &v }
