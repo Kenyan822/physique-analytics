@@ -5,12 +5,15 @@ import SwiftUI
 /// 記録画面と違って**測れた項目だけ入れる**。体脂肪率も周囲長も
 /// 毎日測るものではないので、空欄をそのままにできることが要る。
 struct BodyView: View {
+    /// 推移グラフに渡すために持つ。**BodyModel の api は private なので使えない**
+    private let api: APIClient
     @State private var model: BodyModel
     /// 周囲長の「詳しく測る」を開いているか（#277）
     @State private var showingAllParts = false
     @State private var pickingDate = false
 
     init(api: APIClient, health: HealthSource? = nil, date: String = JST.dateString()) {
+        self.api = api
         _model = State(initialValue: BodyModel(api: api, health: health, date: date))
     }
 
@@ -24,7 +27,19 @@ struct BodyView: View {
             }
             .navigationBarTitleDisplayMode(.inline)
             // **食事・記録と同じ形**（#193 / #232 と揃える・#275）
-            .toolbar { ToolbarItem(placement: .principal) { dateNav } }
+            .toolbar {
+                ToolbarItem(placement: .principal) { dateNav }
+                // 推移を見る口（要件 A-06 / #307）。**毎日触るのがここなので、
+                // Web ではなくアプリの中に置く**
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        BodyChartView(api: api)
+                    } label: {
+                        Image(systemName: "chart.xyaxis.line")
+                    }
+                    .accessibilityIdentifier("bodyChart")
+                }
+            }
             .dismissesKeyboardOnTap()
             .keyboardDoneButton()
             // **.task(id:) で日付が変わるたびに読み直す**
