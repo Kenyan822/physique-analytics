@@ -336,4 +336,22 @@ final class MealInputTests: XCTestCase {
         field.tap()
         field.typeText(value)
     }
+
+    /// #308。推移の入口。**押した先が開くところまで**見る
+    func test_推移のグラフに飛べる() {
+        let chart = app.buttons["mealChart"]
+        XCTAssertTrue(chart.waitForExistence(timeout: UITimeout.normal), "推移の入口が出ること")
+        XCTAssertTrue(chart.isHittable, "押せる位置にあること")
+        chart.tap()
+
+        // 記録が無くても画面は開く。**空のグラフを描かず「記録が無い」と出す**
+        XCTAssertTrue(
+            app.segmentedControls["metricPicker"].waitForExistence(timeout: UITimeout.slow),
+            "推移の画面が開くこと"
+        )
+        XCTAssertTrue(
+            app.segmentedControls["spanPicker"].isHittable, "日/月を切り替えられること"
+        )
+    }
+
 }

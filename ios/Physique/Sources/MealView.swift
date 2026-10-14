@@ -6,6 +6,8 @@ import SwiftUI
 /// **食事の直後や移動中に片手で触る。** 過去の記録から選べば入力が終わるのが
 /// 一番速い経路で、手打ちはその次。
 struct MealView: View {
+    /// 推移グラフに渡すために持つ。**MealModel の api は private なので使えない**
+    private let api: APIClient
     @State private var model: MealModel
     @State private var pickingDate = false
     @State private var editingTarget = false
@@ -31,6 +33,7 @@ struct MealView: View {
     }
 
     init(api: APIClient, location: LocationSource = NoLocation()) {
+        self.api = api
         _model = State(initialValue: MealModel(
             api: api, location: location, places: FoodPlaceStore()
         ))
@@ -47,6 +50,15 @@ struct MealView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) { dateNav }
                 ToolbarItem(placement: .topBarTrailing) { unknownMacrosMenu }
+                // 推移を見る口（要件 N-05 / #308）。体組成と同じ位置に置く
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        MealChartView(api: api)
+                    } label: {
+                        Image(systemName: "chart.xyaxis.line")
+                    }
+                    .accessibilityIdentifier("mealChart")
+                }
             }
             .dismissesKeyboardOnTap()
             .keyboardFocusBar(

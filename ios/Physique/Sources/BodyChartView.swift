@@ -1,4 +1,3 @@
-import Charts
 import SwiftUI
 
 /// 体組成の推移（要件 A-06 / #307）。
@@ -27,7 +26,12 @@ struct BodyChartView: View {
             .frame(maxWidth: 180)
             .accessibilityIdentifier("spanPicker")
 
-            chart
+            TrendChart(
+                points: model.points,
+                unit: model.metric.unit,
+                isLoading: model.isLoading,
+                emptyNote: "\(model.span.days)日さかのぼって記録が見つからない"
+            )
 
             if let message = model.message {
                 Text(message).font(.caption).foregroundStyle(.secondary)
@@ -42,39 +46,6 @@ struct BodyChartView: View {
         .task(id: model.span) { await model.load() }
     }
 
-    @ViewBuilder
-    private var chart: some View {
-        let points = model.points
-
-        if points.isEmpty {
-            // **空のグラフを描かない。** 軸だけ出ても何も分からない
-            ContentUnavailableView(
-                model.isLoading ? "読み込み中" : "記録が無い",
-                systemImage: "chart.xyaxis.line",
-                description: Text(model.isLoading ? "" : "\(model.span.days)日さかのぼって記録が見つからない")
-            )
-            .frame(height: 300)
-        } else {
-            Chart(points) { p in
-                LineMark(
-                    x: .value("日", p.date),
-                    y: .value(model.metric.rawValue, p.value)
-                )
-                .interpolationMethod(.monotone)
-
-                PointMark(
-                    x: .value("日", p.date),
-                    y: .value(model.metric.rawValue, p.value)
-                )
-                .symbolSize(16)
-            }
-            // **0 を含めない。** 体重 70〜72kg を 0 から描くと真っ平らに見える
-            .chartYScale(domain: .automatic(includesZero: false))
-            .chartYAxisLabel(model.metric.unit)
-            .frame(height: 300)
-            .accessibilityIdentifier("trendChart")
-        }
-    }
 }
 
 /// 推移グラフの状態。
