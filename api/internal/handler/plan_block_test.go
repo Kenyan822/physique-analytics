@@ -113,7 +113,7 @@ func TestGetMonthlyTargets_実測から引き直す(t *testing.T) {
 
 	// **要件 P-03。** 直近7日の実測を起点にする
 	// 「直近7日」は今日から数えるので、今日を終端にした系列を作る
-	series := &stubSeries{points: seriesWithBodyfat(21, timeutil.Now().Truncate(24*time.Hour), 73, 19, 2100)}
+	series := &stubSeries{points: seriesWithBodyfat(21, timeutil.Today(), 73, 19, 2100)}
 	stub := &stubPlan{plan: planWithBaseline(), blocks: sampleBlocks()}
 
 	rec := httptest.NewRecorder()
