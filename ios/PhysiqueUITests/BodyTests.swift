@@ -70,9 +70,13 @@ final class BodyTests: XCTestCase {
 
         // **スクロールしてから見る。** 周囲長はフォームの一番下にある。
         // キーボードに隠れているわけではないので、届かないのは問題ではない
+        //
+        // **exists もスクロールしてから見る。** Form は遅延描画なので、
+        // 画面の外にある行はアクセシビリティツリーに出てこない。
+        // 上に行を1つ足しただけで exists が false になった（#306）
         let more = app.buttons["showAllParts"]
-        XCTAssertTrue(more.exists, "詳しく測るがあること")
         app.swipeUp()
+        XCTAssertTrue(more.waitForExistence(timeout: UITimeout.normal), "詳しく測るがあること")
         XCTAssertTrue(more.isHittable, "スクロールすれば押せること")
         more.tap()
 
