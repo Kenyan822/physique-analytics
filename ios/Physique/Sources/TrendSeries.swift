@@ -28,6 +28,36 @@ enum BodyMetric: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// 食事の推移に出す指標（要件 N-05 / A-09）。
+///
+/// **daily_metrics の kcal 列は使わない。** 書かれていないので、
+/// 食事の記録から日ごとに合計する。
+enum MealMetric: String, CaseIterable, Identifiable, Sendable {
+    case kcal = "kcal"
+    case protein = "P"
+    case fat = "F"
+    case carb = "C"
+
+    var id: String { rawValue }
+
+    var unit: String {
+        switch self {
+        case .kcal: "kcal"
+        case .protein, .fat, .carb: "g"
+        }
+    }
+
+    /// その1件の値。**記録されていなければ nil。**
+    func value(in m: Meal) -> Double? {
+        switch self {
+        case .kcal: m.kcal.map(Double.init)
+        case .protein: m.proteinG
+        case .fat: m.fatG
+        case .carb: m.carbG
+        }
+    }
+}
+
 /// 日ごとに見るか、月ごとに見るか。
 enum TrendSpan: String, CaseIterable, Identifiable, Sendable {
     case daily = "日"
@@ -113,5 +143,59 @@ enum TrendSeries {
 
             return TrendPoint(label: month, date: date, value: s.total / Double(s.count))
         }
+    }
+}
+
+extension TrendSeries {
+    /// 食事を日ごとに合計してから畳む。
+    ///
+    /// 体組成と違って**1日に何件も記録される**ので、先に合計する。
+    ///
+    /// **その日に1件も値が無ければ点を作らない。** 名前だけの記録しか
+    /// 無い日は「0 kcal の日」ではなく「測っていない日」なので、
+    /// 線を床まで落とさない。
+    static func points(
+        _ meals: [Meal], _ metric: MealMetric, span: TrendSpan
+    ) -> [TrendPoint] {
+        let totals = dailyTotals(meals, metric)
+
+        switch span {
+        case .daily:
+            return totals.keys.sorted().compactMap { day in
+                guard let v = totals[day], let date = parseDay(day) else { return nil }
+
+                return TrendPoint(label: day, date: date, value: v)
+            }
+
+        case .monthly:
+            var byMonth: [String: (total: Double, days: Int)] = [:]
+            for (day, v) in totals {
+                let month = String(day.prefix(7))
+                let cur = byMonth[month] ?? (0, 0)
+                byMonth[month] = (cur.total + v, cur.days + 1)
+            }
+
+            // **日ごとの合計の平均**（月の合計ではない）。1日あたりの摂取を見る
+            return byMonth.keys.sorted().compactMap { month in
+                guard let s = byMonth[month], s.days > 0,
+                      let date = parseDay(month + "-01")
+                else { return nil }
+
+                return TrendPoint(label: month, date: date, value: s.total / Double(s.days))
+            }
+        }
+    }
+
+    /// 日ごとの合計。値が1件も無い日は作らない。
+    private static func dailyTotals(_ meals: [Meal], _ metric: MealMetric) -> [String: Double] {
+        var totals: [String: Double] = [:]
+
+        for m in meals {
+            // 読めない日付は落とす。壊れた点を打たない
+            guard let v = metric.value(in: m), parseDay(m.date) != nil else { continue }
+            totals[m.date, default: 0] += v
+        }
+
+        return totals
     }
 }
