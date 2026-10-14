@@ -140,7 +140,9 @@ final class BodyModel {
             healthGranted = true
 
             let fromDay = HealthSync.syncFrom(lastSynced: lastSynced, today: today)
-            guard let from = JST.date(from: fromDay), let to = JST.date(from: today) else {
+            guard let from = JST.date(from: fromDay),
+                  let to = JST.date(from: HealthSync.syncTo(today: today))
+            else {
                 message = "日付を解釈できない"
 
                 return

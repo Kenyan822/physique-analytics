@@ -55,7 +55,7 @@ func correlations(ctx context.Context, d Deps, in correlationsIn) (correlationsO
 		days = defaultCorrelationDays
 	}
 
-	to := timeutil.Now().Truncate(24 * time.Hour)
+	to := timeutil.Today()
 	from := to.AddDate(0, 0, -days)
 
 	points, err := d.Analysis.DailySeries(ctx,

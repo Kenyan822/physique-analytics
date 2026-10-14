@@ -58,6 +58,7 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 | [tdd.md](tdd.md) | **TDD の実際の流れ**。Red の見方、層ごとのテスト方針、詰まったときの切り分け |
 | [toolchain.md](toolchain.md) | **Go のバージョンを上げるとき**。golangci-lint も一緒に上げる理由、govulncheck |
 | [database.md](database.md) | pgx、トランザクションでのテスト隔離、`DBTX` インターフェース、部分インデックスへの upsert |
+| [time.md](time.md) | **時刻と「今日」**。`Truncate(24h)` が JST で9時に丸まる話、date 列に渡すロケーション、ソースを走査するガード |
 | [mcp.md](mcp.md) | MCP サーバ。ツールの説明文の書き方、読み取り専用 SQL の守り方、nil の依存はツールごと登録しない、書き込みは引き直して確かめる |
 | [interfaces.md](interfaces.md) | nil ポインタと interface、使う側での定義、共通化の判断 |
 | [numeric.md](numeric.md) | 定数と引数の切り分け、`*float64` で「未測定」を表す、従属変数のクランプ |

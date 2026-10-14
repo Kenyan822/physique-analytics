@@ -331,7 +331,7 @@ func registerAnalysisTools(s *mcp.Server, d Deps) {
 // dateRange は from / to を解釈する。空なら today-defaultDays 〜 today。
 func dateRange(from, to string, defaultDays int) (openapi_types.Date, openapi_types.Date, error) {
 	// 「今日」は JST で決める（ADR-0013）。UTC だと日付が1日ずれる
-	today := timeutil.Now().Truncate(24 * time.Hour)
+	today := timeutil.Today()
 
 	parse := func(s string, fallback time.Time) (openapi_types.Date, error) {
 		if s == "" {
