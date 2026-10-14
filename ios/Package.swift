@@ -24,7 +24,7 @@ let package = Package(
                 "StreakView.swift",
                 // Charts の画面も iOS 専用。**畳み方は TrendSeries.swift 側にあり、
                 // そちらはテストがある**
-                "BodyChartView.swift",
+                "BodyChartView.swift", "MealChartView.swift", "TrendChart.swift",
                 // CoreLocation は macOS にもあるが、権限の聞き方が違う。
                 // 判断は FoodPlaces / MealModel 側にあり、そちらはテストがある
                 "CoreLocationSource.swift",

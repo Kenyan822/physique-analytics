@@ -45,6 +45,25 @@ final class BodyTests: XCTestCase {
         XCTAssertTrue(
             app.segmentedControls["spanPicker"].isHittable, "日/月を切り替えられること"
         )
+
+        // **数値が読めるところまで見る。** グラフだけ出ても数字が分からない（#318）
+        let value = app.staticTexts["trendValue"]
+        XCTAssertTrue(value.waitForExistence(timeout: UITimeout.slow), "数値が出ること")
+
+        // 触っていないうちは一番新しい点
+        XCTAssertTrue(app.staticTexts["trendLatestHint"].exists, "最新と出ていること")
+
+        // **実際にタップする。** 「数値が出ている」だけでは、タップが
+        // 効いているか分からない。chartXSelection は単発のタップを拾わず、
+        // 表示されたままなのでテストが通ってしまっていた（#318）
+        let plot = app.otherElements["trendChart"].firstMatch
+        XCTAssertTrue(plot.waitForExistence(timeout: UITimeout.normal), "グラフがあること")
+        plot.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)).tap()
+
+        XCTAssertFalse(
+            app.staticTexts["trendLatestHint"].exists,
+            "タップしたら最新ではなく選んだ点になること"
+        )
     }
 
     /// 実機で「押しても反応しない」と言われた件。**押した結果が見えるところまで**見る
