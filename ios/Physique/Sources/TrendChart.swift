@@ -55,6 +55,7 @@ struct TrendChart: View {
             Spacer()
             if selected == nil {
                 Text("最新").font(.caption2).foregroundStyle(.tertiary)
+                    .accessibilityIdentifier("trendLatestHint")
             }
         }
         .frame(height: 30)
@@ -90,7 +91,26 @@ struct TrendChart: View {
                 }
             }
         }
-        .chartXSelection(value: $tappedAt)
+        // **`chartXSelection` は使わない。** 単発のタップを拾わず、
+        // 長押しドラッグでしか選べない。指1本で触って数値が出ないと使えない
+        .chartOverlay { proxy in
+            GeometryReader { geo in
+                Rectangle()
+                    .fill(.clear)
+                    .contentShape(Rectangle())
+                    // minimumDistance: 0 でタップもドラッグも同じ扱いになる
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { v in
+                                guard let frame = proxy.plotFrame else { return }
+                                let x = v.location.x - geo[frame].origin.x
+                                if let date: Date = proxy.value(atX: x) {
+                                    tappedAt = date
+                                }
+                            }
+                    )
+            }
+        }
         .frame(height: 300)
         .accessibilityIdentifier("trendChart")
     }
