@@ -173,3 +173,51 @@ entitlement が無いという明確なエラーが**何週間も見えていな
 ```swift
 #expect(m.message?.contains("取り込") == true)
 ```
+
+## 取り込みの範囲は「今日の 00:00」で閉じない
+
+```swift
+// 壊れている
+let to = JST.date(from: today)        // 2026-10-14 00:00 JST
+```
+
+`JST.date(from: "2026-10-14")` はその日の**始まり**を返す。これを
+`HKQuery.predicateForSamples(withStart:end:options:.strictEndDate)` の終端に渡すと、
+**今日測った値は必ず範囲外**になる。朝に乗って昼に取り込んでも入らない。
+
+```swift
+// 終端は翌日の 00:00。範囲に今日を含める
+static func syncTo(today: String) -> String { shiftDays(today, 1) }
+```
+
+### 差分取り込みと組み合わさると、永久に何も入らなくなる
+
+取り込みのあと `lastSynced = today` を立てていた。すると次回は
+`syncFrom` が `today` を返す。終端も `today` だったので、
+
+```
+from = 2026-10-14 00:00
+to   = 2026-10-14 00:00   ← 幅ゼロ
+```
+
+**一度取り込むと、差分取り込みは二度と何も拾わない。** 翌日も同じで、
+`from` も `to` も常にその日の 00:00 になる。
+
+気づけなかったのは、**「30日ぶん取り込み直す」（`lastSynced = nil`）だけが
+動いていた**から。手で押すと入るので、壊れているように見えない。
+
+本番のデータで分かった。`daily_metrics` の**全行の `updated_at` が
+取り込み直し1回ぶんの時刻に固まっていた**。差分が1件も入っていなかった。
+
+**範囲を扱うコードは、両端をテストする。** 開始日のテスト（初回・差分・未来）は
+3本あったのに、終端のテストが1本も無かった。
+
+```swift
+@Test("同じ日に2回押しても空振りしない")
+func sameDayRerun() {
+    let from = HealthSync.syncFrom(lastSynced: "2026-11-01", today: "2026-11-01")
+    let to = HealthSync.syncTo(today: "2026-11-01")
+
+    #expect(from < to)
+}
+```
