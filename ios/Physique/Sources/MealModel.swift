@@ -607,6 +607,37 @@ final class MealModel {
         }
     }
 
+    /// リセットで消した下書き。**取り消せるように持つ**（#320）。
+    private var undoableDraft: MealDraft?
+
+    /// 消すものがあるか。**空のときは押せないようにする。**
+    /// 押せて何も起きないと、壊れているように見える
+    var canResetDraft: Bool { !draft.isEmpty }
+
+    /// 取り消せるか。
+    ///
+    /// **打ち直したあとは出さない。** そこで戻すと、打った内容が消える。
+    var canUndoReset: Bool { undoableDraft != nil && draft.isEmpty }
+
+    /// 入力を途中でやり直す（#320）。
+    ///
+    /// 消すのは**下書きだけ**。記録済みの行は触らない。
+    func resetDraft() {
+        guard !draft.isEmpty else { return }
+
+        undoableDraft = draft
+        draft = MealDraft()
+        estimateNote = nil
+    }
+
+    /// リセットを取り消す。
+    func undoResetDraft() {
+        guard let d = undoableDraft else { return }
+
+        draft = d
+        undoableDraft = nil
+    }
+
     /// 推定をやめる（#321）。
     ///
     /// **走っている通信は呼び出し側が cancel する。** ここでは画面の状態だけ戻す。
@@ -627,6 +658,8 @@ final class MealModel {
             let created = try await api.createMeal(
                 draft.toInput(date: date, at: JST.timeString()))
             meals.append(created)
+            // 記録したら、それ以前のリセットは取り消せない
+            undoableDraft = nil
             // 続けて入れられるよう空に戻す。区分は据え置き
             draft = MealDraft()
         } catch {
