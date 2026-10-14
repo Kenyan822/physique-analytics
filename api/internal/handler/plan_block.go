@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
 	"github.com/Kenyan822/physique-analytics/api/internal/analytics"
@@ -126,7 +125,7 @@ func (s *Server) resolveBaseline(
 	param *openapi.GetMonthlyTargetsParamsBaseline,
 ) (*analytics.Baseline, openapi.MonthlyTargetsBaselineSource, string, error) {
 	if param != nil && *param == openapi.GetMonthlyTargetsParamsBaselineMeasured {
-		sum, err := weekly.Build(ctx, weekly.Deps{Plan: s.plan, Series: s.series}, timeutil.Now().Truncate(24*time.Hour))
+		sum, err := weekly.Build(ctx, weekly.Deps{Plan: s.plan, Series: s.series}, timeutil.Today())
 		if err != nil {
 			return nil, "", "", err
 		}

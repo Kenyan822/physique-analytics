@@ -49,7 +49,7 @@ func (s *Server) GetPhotoGuide(ctx context.Context, req openapi.GetPhotoGuideReq
 		}, nil
 	}
 
-	before := openapi_types.Date{Time: timeutil.Now().Truncate(24 * time.Hour)}
+	before := openapi_types.Date{Time: timeutil.Today()}
 	if req.Params.Before != nil {
 		before = *req.Params.Before
 	}
