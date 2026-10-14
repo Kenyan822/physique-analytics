@@ -30,6 +30,9 @@ let package = Package(
                 "CoreLocationSource.swift",
                 // UIApplication は iOS 専用
                 "KeyboardDismiss.swift",
+                // UIImagePickerController は iOS 専用。**縮小は ImageDownscale.swift
+                // 側にあり、そちらはテストがある**
+                "CameraPicker.swift",
                 // UI テスト専用。swift test では使わない
                 "UITestSupport.swift",
             ]
