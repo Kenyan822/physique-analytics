@@ -107,6 +107,23 @@ struct HealthSyncTests {
         #expect(HealthSync.syncFrom(lastSynced: nil, today: "2026-11-01") == "2026-10-02")
     }
 
+    @Test("取り込む範囲の終端は今日の終わり")
+    func rangeIncludesToday() {
+        // **終端を今日の 00:00 にすると、今日測った値が必ず範囲外になる。**
+        // 実際に本番で、取り込み直し1回ぶんしか入っていなかった（#303）
+        #expect(HealthSync.syncTo(today: "2026-11-01") == "2026-11-02")
+    }
+
+    @Test("同じ日に2回押しても空振りしない")
+    func sameDayRerun() {
+        // 2回目は lastSynced == today になる。
+        // ここで from == to になると、朝に押した人は夜の記録を永久に取り込めない
+        let from = HealthSync.syncFrom(lastSynced: "2026-11-01", today: "2026-11-01")
+        let to = HealthSync.syncTo(today: "2026-11-01")
+
+        #expect(from < to)
+    }
+
     @Test("未来の日付は取り込まない")
     func noFutureDays() {
         let from = HealthSync.syncFrom(lastSynced: "2026-11-05", today: "2026-11-01")

@@ -124,11 +124,7 @@ func logMeal(ctx context.Context, d Deps, in logMealIn) (logMealOut, error) {
 // date 列は日付そのもので、+09:00 のまま渡すと UTC に直されて前日になる。
 func mealDate(s string, now time.Time) (openapi_types.Date, error) {
 	if s == "" {
-		j := now.In(timeutil.JST)
-
-		return openapi_types.Date{
-			Time: time.Date(j.Year(), j.Month(), j.Day(), 0, 0, 0, 0, time.UTC),
-		}, nil
+		return openapi_types.Date{Time: timeutil.StartOfDay(now)}, nil
 	}
 
 	t, err := time.Parse("2006-01-02", s)
