@@ -123,6 +123,119 @@ XCTAssertTrue(more.isHittable, "スクロールすれば押せること")
 既定では 0 を含む。**体重 70〜72kg を 0 から描くと、変化が見えない直線になる。**
 体組成のように「狭い範囲での動き」を見るグラフでは必ず外す。
 
+### 横軸の整形を自動に任せない
+
+```swift
+.chartXAxis {
+    AxisMarks(values: .automatic(desiredCount: 5)) { value in
+        AxisValueLabel {
+            if let d = value.as(Date.self) { Text(span.axisLabel(d)) }
+        }
+    }
+}
+```
+
+既定の整形は**幅に応じて勝手に削る**。日ごとのグラフなのに月だけになったり、
+2年ぶん並べたときに年が落ちて「どの6月か」が分からなくなる。
+
+日ごとは `M/d`、月ごとは `yyyy/M` と決め打ちにした。
+
+### `chartXSelection` は単発のタップを拾わない
+
+まずこう書いた。
+
+```swift
+.chartXSelection(value: $tappedAt)   // ← タップでは反応しない
+```
+
+**長押しドラッグでしか選べない。** 指で1回つついても何も起きない。
+実機で触ってもらって「タップして数値出てこないよ」と言われた。
+
+`chartOverlay` に `DragGesture(minimumDistance: 0)` を載せると、
+タップもドラッグも同じ扱いになる。
+
+```swift
+.chartOverlay { proxy in
+    GeometryReader { geo in
+        Rectangle().fill(.clear).contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { v in
+                        guard let frame = proxy.plotFrame else { return }
+                        let x = v.location.x - geo[frame].origin.x
+                        if let date: Date = proxy.value(atX: x) { tappedAt = date }
+                    }
+            )
+    }
+}
+```
+
+返るのは**指のところの x 座標**で、点とは一致しない。一番近い点に寄せる。
+
+```swift
+static func nearest(_ points: [TrendPoint], to date: Date) -> TrendPoint? {
+    points.min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
+}
+```
+
+**何も選んでいないときは一番新しい点を出す。** 空にしておくと、
+タップするまで数字が1つも読めない。
+
+### 「出ている」と「効いている」は違う
+
+最初のテストはこうだった。
+
+```swift
+XCTAssertTrue(app.staticTexts["trendValue"].waitForExistence(timeout: .slow), "数値が出ること")
+```
+
+**通る。** タップが効いていなくても、未選択のときは一番新しい点を出して
+いるので、数値そのものは最初から表示されている。
+壊れた実装のままテストが緑だった。
+
+実際にタップして、**状態が変わること**を見る。
+
+```swift
+XCTAssertTrue(app.staticTexts["trendLatestHint"].exists, "最新と出ていること")
+
+let plot = app.otherElements["trendChart"].firstMatch
+plot.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)).tap()
+
+XCTAssertFalse(app.staticTexts["trendLatestHint"].exists, "選んだ点になること")
+```
+
+**書いたら、古い実装に戻して落ちることを確かめる。**
+1回目は「要素が複数ある」という別の理由で落ちていて、狙いを見ていなかった。
+`firstMatch` にして、意図した assertion で落ちるようにした。
+
+### UI テストで数値まで見るには、スタブにデータが要る
+
+`/v1/daily` をスタブしていなかったので、グラフは常に「記録が無い」だった。
+**グラフが出ない状態のテストは、グラフを検証していない。**
+
+```swift
+case ("GET", let p) where p.hasSuffix("/v1/daily"):
+    return (["items": Self.dailyMetrics], 200)
+```
+
+値は公開してよい架空の数字にする（ADR-0002）。
+**測っていない日を混ぜる**と、線が途切れないことも同時に見られる。
+
+### `HStack` に付けた identifier は要素にならない
+
+```swift
+HStack { ... }.accessibilityIdentifier("trendReadout")   // ← 引けない
+```
+
+SwiftUI は**ただの `HStack` に要素を作らない**ので、`otherElements` にも
+`staticTexts` にも出てこない。
+
+```swift
+Text(bodyText(p.value)).accessibilityIdentifier("trendValue")   // ← 引ける
+```
+
+**引きたいものそのものに付ける。** 入れ物ではなく中身。
+
 ### 月の平均が「何の平均か」を画面に書く
 
 食事の推移を月ごとにすると、**1日あたりの平均**を出している。月の合計ではない。

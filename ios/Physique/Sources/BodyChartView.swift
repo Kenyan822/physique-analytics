@@ -29,6 +29,7 @@ struct BodyChartView: View {
             TrendChart(
                 points: model.points,
                 unit: model.metric.unit,
+                span: model.span,
                 isLoading: model.isLoading,
                 emptyNote: "\(model.span.days)日さかのぼって記録が見つからない"
             )

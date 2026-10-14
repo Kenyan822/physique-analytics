@@ -203,3 +203,56 @@ struct MealTrendSeriesTests {
         #expect(TrendSeries.points([Meal](), .kcal, span: .monthly).isEmpty)
     }
 }
+
+/// 横軸の表示とタップした点の見つけ方（#318）。
+@Suite("推移グラフの読みやすさ")
+struct TrendReadabilityTests {
+    private func point(_ day: String, _ v: Double) -> TrendPoint {
+        TrendPoint(label: day, date: JST.date(from: day) ?? Date(), value: v)
+    }
+
+    @Test("横軸は日ごとなら月日まで出す")
+    func axisDaily() {
+        // **既定の自動整形だと月しか出ないことがある。** 日まで出す
+        #expect(TrendSpan.daily.axisLabel(JST.date(from: "2028-06-15")!) == "6/15")
+    }
+
+    @Test("横軸は月ごとなら年月を出す")
+    func axisMonthly() {
+        // 2年ぶん並ぶので、年が無いとどの 6月か分からない
+        #expect(TrendSpan.monthly.axisLabel(JST.date(from: "2028-06-01")!) == "2028/6")
+    }
+
+    @Test("選んだ点は曜日まで出す")
+    func pointLabelDaily() {
+        // **曜日が要る。** トレ日かどうかが日付だけでは分からない
+        #expect(TrendSpan.daily.pointLabel(JST.date(from: "2028-06-15")!) == "2028/6/15(木)")
+    }
+
+    @Test("選んだ点は月ごとなら年月")
+    func pointLabelMonthly() {
+        #expect(TrendSpan.monthly.pointLabel(JST.date(from: "2028-06-01")!) == "2028年6月")
+    }
+
+    @Test("タップに一番近い点を返す")
+    func nearest() {
+        // **指の位置は点と一致しない。** 一番近い点に寄せる
+        let points = [point("2028-06-01", 70), point("2028-06-10", 71), point("2028-06-20", 72)]
+
+        let got = TrendSeries.nearest(points, to: JST.date(from: "2028-06-12")!)
+        #expect(got?.label == "2028-06-10")
+    }
+
+    @Test("端より外でも一番近い点を返す")
+    func nearestOutside() {
+        let points = [point("2028-06-01", 70), point("2028-06-10", 71)]
+
+        #expect(TrendSeries.nearest(points, to: JST.date(from: "2028-05-01")!)?.label == "2028-06-01")
+        #expect(TrendSeries.nearest(points, to: JST.date(from: "2028-12-01")!)?.label == "2028-06-10")
+    }
+
+    @Test("点が無ければ nil")
+    func nearestEmpty() {
+        #expect(TrendSeries.nearest([], to: Date()) == nil)
+    }
+}

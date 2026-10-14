@@ -76,6 +76,49 @@ enum TrendSpan: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+extension TrendSpan {
+    /// 横軸に出す形。
+    ///
+    /// **既定の自動整形に任せない。** 幅が足りないと月だけになったり、
+    /// 年が落ちて「どの6月か」が分からなくなる。
+    func axisLabel(_ date: Date) -> String {
+        switch self {
+        case .daily: TrendFormat.axisDay.string(from: date)
+        case .monthly: TrendFormat.axisMonth.string(from: date)
+        }
+    }
+
+    /// 選んだ点に出す形。**曜日まで出す。**
+    /// トレ日かどうかが日付だけでは分からない。
+    func pointLabel(_ date: Date) -> String {
+        switch self {
+        case .daily: TrendFormat.pointDay.string(from: date)
+        case .monthly: TrendFormat.pointMonth.string(from: date)
+        }
+    }
+}
+
+/// グラフの日付の整形。**JST で固定する**（ADR-0013）。
+///
+/// 端末の暦設定（和暦など）に引きずられないよう、曜日が要るものだけ
+/// `ja_JP`、それ以外は `en_US_POSIX` にする。
+enum TrendFormat {
+    static let axisDay = formatter("M/d", locale: "en_US_POSIX")
+    static let axisMonth = formatter("yyyy/M", locale: "en_US_POSIX")
+    static let pointDay = formatter("yyyy/M/d(E)", locale: "ja_JP")
+    static let pointMonth = formatter("yyyy年M月", locale: "ja_JP")
+
+    private static func formatter(_ format: String, locale: String) -> DateFormatter {
+        let f = DateFormatter()
+        f.calendar = JST.calendar
+        f.timeZone = JST.timeZone
+        f.locale = Locale(identifier: locale)
+        f.dateFormat = format
+
+        return f
+    }
+}
+
 /// グラフの1点。
 struct TrendPoint: Identifiable, Hashable, Sendable {
     /// 日ごとは `yyyy-MM-dd`、月ごとは `yyyy-MM`
@@ -99,6 +142,16 @@ private func parseDay(_ s: String) -> Date? {
 
 /// 日次記録を推移グラフの点に畳む。
 enum TrendSeries {
+    /// x 座標に一番近い点を返す。
+    ///
+    /// **指の位置は点と一致しない。** タップしたところで線を切って、
+    /// 一番近い点の数値を出す。
+    static func nearest(_ points: [TrendPoint], to date: Date) -> TrendPoint? {
+        points.min {
+            abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date))
+        }
+    }
+
     static func points(
         _ items: [DailyMetrics], _ metric: BodyMetric, span: TrendSpan
     ) -> [TrendPoint] {
