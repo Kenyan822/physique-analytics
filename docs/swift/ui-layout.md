@@ -123,6 +123,70 @@ XCTAssertTrue(more.isHittable, "スクロールすれば押せること")
 既定では 0 を含む。**体重 70〜72kg を 0 から描くと、変化が見えない直線になる。**
 体組成のように「狭い範囲での動き」を見るグラフでは必ず外す。
 
+### 横軸の整形を自動に任せない
+
+```swift
+.chartXAxis {
+    AxisMarks(values: .automatic(desiredCount: 5)) { value in
+        AxisValueLabel {
+            if let d = value.as(Date.self) { Text(span.axisLabel(d)) }
+        }
+    }
+}
+```
+
+既定の整形は**幅に応じて勝手に削る**。日ごとのグラフなのに月だけになったり、
+2年ぶん並べたときに年が落ちて「どの6月か」が分からなくなる。
+
+日ごとは `M/d`、月ごとは `yyyy/M` と決め打ちにした。
+
+### タップした点の数値を出す（iOS 17 の `chartXSelection`）
+
+```swift
+@State private var tappedAt: Date?
+
+.chartXSelection(value: $tappedAt)
+```
+
+返るのは**指のところの x 座標**で、点とは一致しない。一番近い点に寄せる。
+
+```swift
+static func nearest(_ points: [TrendPoint], to date: Date) -> TrendPoint? {
+    points.min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
+}
+```
+
+**何も選んでいないときは一番新しい点を出す。** 空にしておくと、
+タップするまで数字が1つも読めない。
+
+### UI テストで数値まで見るには、スタブにデータが要る
+
+`/v1/daily` をスタブしていなかったので、グラフは常に「記録が無い」だった。
+**グラフが出ない状態のテストは、グラフを検証していない。**
+
+```swift
+case ("GET", let p) where p.hasSuffix("/v1/daily"):
+    return (["items": Self.dailyMetrics], 200)
+```
+
+値は公開してよい架空の数字にする（ADR-0002）。
+**測っていない日を混ぜる**と、線が途切れないことも同時に見られる。
+
+### `HStack` に付けた identifier は要素にならない
+
+```swift
+HStack { ... }.accessibilityIdentifier("trendReadout")   // ← 引けない
+```
+
+SwiftUI は**ただの `HStack` に要素を作らない**ので、`otherElements` にも
+`staticTexts` にも出てこない。
+
+```swift
+Text(bodyText(p.value)).accessibilityIdentifier("trendValue")   // ← 引ける
+```
+
+**引きたいものそのものに付ける。** 入れ物ではなく中身。
+
 ### 月の平均が「何の平均か」を画面に書く
 
 食事の推移を月ごとにすると、**1日あたりの平均**を出している。月の合計ではない。

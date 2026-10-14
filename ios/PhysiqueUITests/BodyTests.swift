@@ -45,6 +45,12 @@ final class BodyTests: XCTestCase {
         XCTAssertTrue(
             app.segmentedControls["spanPicker"].isHittable, "日/月を切り替えられること"
         )
+
+        // **数値が読めるところまで見る。** グラフだけ出ても数字が分からない（#318）
+        XCTAssertTrue(
+            app.staticTexts["trendValue"].waitForExistence(timeout: UITimeout.slow),
+            "選んだ点の数値が出ること"
+        )
     }
 
     /// 実機で「押しても反応しない」と言われた件。**押した結果が見えるところまで**見る

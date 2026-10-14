@@ -249,6 +249,11 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
         case ("GET", let p) where p.hasSuffix("/v1/streaks"):
             return (["items": Self.streakDays], 200)
 
+        // MARK: 体組成
+
+        case ("GET", let p) where p.hasSuffix("/v1/daily"):
+            return (["items": Self.dailyMetrics], 200)
+
         // MARK: 食事
 
         case ("GET", let p) where p.hasSuffix("/v1/meals"):
@@ -327,6 +332,27 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
 
         default:
             return (["items": []], 200)
+        }
+    }
+
+    /// 推移グラフに点が出る状態を作る（#318）。
+    ///
+    /// **測っていない日を混ぜる。** 線が途切れず、0 に落ちないことを見たい。
+    /// 値は公開してよい架空の数字にする（ADR-0002）。
+    private static var dailyMetrics: [[String: Any]] {
+        let today = JST.dateString()
+
+        return (0..<14).map { i -> [String: Any] in
+            let date = shiftDays(today, -i)
+            // 3日に1回は測っていない日にする
+            let measured = i % 3 != 0
+
+            return [
+                "id": UUID().uuidString.lowercased(),
+                "date": date,
+                "weightKg": measured ? 70.0 + Double(i) * 0.1 : NSNull(),
+                "bodyfatPct": measured ? 20.0 + Double(i) * 0.05 : NSNull(),
+            ]
         }
     }
 
