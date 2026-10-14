@@ -933,3 +933,78 @@ struct FoodAmountTextTests {
         #expect(m.draft.proteinG == "0")
     }
 }
+
+/// 入力を途中でやり直す（#320）。
+@Suite("食事の下書きのリセット")
+@MainActor
+struct MealDraftResetTests {
+    private func model() -> MealModel {
+        let (client, _) = api([emptyMeals, targets])
+
+        return MealModel(api: client, date: "2028-06-15")
+    }
+
+    @Test("まとめて消せる")
+    func resets() {
+        let m = model()
+        m.draft.proteinG = "30"
+        m.draft.name = "鶏むね"
+
+        m.resetDraft()
+
+        #expect(m.draft.isEmpty)
+    }
+
+    @Test("空なら何も起きない")
+    func noopWhenEmpty() {
+        let m = model()
+
+        // **空振りさせない。** 押せてしまうと「押したのに何も起きない」になる
+        #expect(!m.canResetDraft)
+        m.resetDraft()
+        #expect(!m.canUndoReset)
+    }
+
+    @Test("取り消すと戻る")
+    func undo() {
+        let m = model()
+        m.draft.proteinG = "30"
+        m.draft.name = "鶏むね"
+        m.resetDraft()
+
+        #expect(m.canUndoReset)
+        m.undoResetDraft()
+
+        #expect(m.draft.proteinG == "30")
+        #expect(m.draft.name == "鶏むね")
+        // 戻したあとはもう取り消せない
+        #expect(!m.canUndoReset)
+    }
+
+    @Test("打ち直したら取り消しは出ない")
+    func undoHiddenAfterTyping() {
+        let m = model()
+        m.draft.proteinG = "30"
+        m.resetDraft()
+        m.draft.proteinG = "40"
+
+        // **打ち直したあとに戻すと、打った内容が消える。** 出さない
+        #expect(!m.canUndoReset)
+    }
+
+    @Test("記録済みの行は消えない")
+    func keepsRecorded() async {
+        let (client, _) = api([
+            (#"{"items":[{"id":"11111111-1111-1111-1111-111111111111","date":"2028-06-15","name":"鶏むね","kcal":330}]}"#, 200),
+            targets,
+        ])
+        let m = MealModel(api: client, date: "2028-06-15")
+        await m.load()
+        m.draft.proteinG = "30"
+
+        m.resetDraft()
+
+        // 消すのは下書きだけ
+        #expect(m.meals.count == 1)
+    }
+}
