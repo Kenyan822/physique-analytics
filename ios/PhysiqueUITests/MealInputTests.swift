@@ -36,6 +36,29 @@ final class MealInputTests: XCTestCase {
         XCTAssertTrue(photo.isHittable, "押せる位置にあること")
     }
 
+    /// #321。補足を書いてから送る。**「推定する」がキーボードの下に落ちないこと**
+    func test_写真に補足を書いて送れる() {
+        let menu = app.buttons["unknownMacros"]
+        XCTAssertTrue(menu.waitForExistence(timeout: UITimeout.slow), "メニューが出ること")
+        menu.tap()
+
+        // 写真を選ぶ画面はシステムの UI なので、テスト用の入口から開く
+        let stub = app.buttons["estimateFromStubPhoto"]
+        XCTAssertTrue(stub.waitForExistence(timeout: UITimeout.normal), "テスト用の入口が出ること")
+        stub.tap()
+
+        let note = app.textFields["photoNote"]
+        XCTAssertTrue(note.waitForExistence(timeout: UITimeout.normal), "補足の欄が出ること")
+        XCTAssertTrue(note.isHittable, "打てる位置にあること")
+        note.tap()
+        note.typeText("鶏むね200g")
+
+        // **キーボードが出たまま押せること。** 下に落ちると送れない（#202）
+        let run = app.buttons["runEstimate"]
+        XCTAssertTrue(run.exists, "推定するがあること")
+        XCTAssertTrue(run.isHittable, "キーボードが出ていても押せること")
+    }
+
     /// #261。**飲み会は1品ずつ記録できない。** kcal だけで残す入口。
     func test_ざっくり入力で記録できる() {
         // **ツールバーのメニューから開く**（#262）。Form に行を足さないため

@@ -267,3 +267,58 @@ error: 'navigationBarTitleDisplayMode' is unavailable in macOS
 **畳み方や計算はビューから出して core 側に置く。** そうすれば
 `exclude` してもテストは効く（`TrendSeries.swift` は core、
 `BodyChartView.swift` は exclude）。
+
+## カメラは `UIImagePickerController` を包む
+
+SwiftUI に**標準のカメラが無い**。`PhotosPicker` はライブラリ専用で撮影できない。
+
+```swift
+struct CameraPicker: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let c = UIImagePickerController()
+        c.sourceType = .camera
+        c.delegate = context.coordinator
+
+        return c
+    }
+}
+```
+
+**`Info.plist` に `NSCameraUsageDescription` が要る。** 無いと権限ダイアログが
+出ないのではなく、**プロセスが落ちる。** 書き忘れると実機で初めて分かる。
+
+シミュレータにカメラは無いので、`UIImagePickerController.isSourceTypeAvailable(.camera)`
+で出し分ける。出しっぱなしだと、シミュレータで押せるのに何も起きない。
+
+## 画像の縮小は ImageIO で書く（UIKit で書かない）
+
+```swift
+CGImageSourceCreateThumbnailAtIndex(src, 0, [
+    kCGImageSourceCreateThumbnailFromImageAlways: true,
+    kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+    kCGImageSourceCreateThumbnailWithTransform: true,   // 撮った向きのまま
+] as CFDictionary)
+```
+
+`UIImage` で書くと iOS 専用になり、`Package.swift` で `exclude` することになる。
+**exclude したファイルは `swift test` から見えない。** 誰も検証しないコードになる。
+
+ImageIO は macOS でも動くので、**縮小の判断（長辺・縦横比・拡大しない）を
+テストできる。** 画面に出す部分だけ iOS 専用にして、判断は core に置く。
+
+`kCGImageSourceCreateThumbnailWithTransform` を忘れると、
+**縦で撮った写真が横倒しで送られる。** 量が読み取りにくくなる。
+
+## 待たせる処理は「止める口」を残す
+
+```swift
+.fullScreenCover(isPresented: Binding(get: { model.estimating }, set: { _ in })) {
+    estimatingCover
+}
+```
+
+解析中に他を触らせないのは正しいが、**閉じられない画面は通信が詰まると
+閉じ込めになる。** 「やめる」を置いて `Task` を cancel できるようにする。
+
+`set: { _ in }` にしているのは、**利用者のスワイプで閉じさせない**ため。
+閉じるのは処理が終わったときだけ。

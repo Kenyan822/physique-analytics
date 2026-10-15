@@ -607,6 +607,15 @@ final class MealModel {
         }
     }
 
+    /// 推定をやめる（#321）。
+    ///
+    /// **走っている通信は呼び出し側が cancel する。** ここでは画面の状態だけ戻す。
+    /// 通信が詰まったときに、解析中の表示に閉じ込めないため。
+    func cancelEstimate() {
+        estimating = false
+        estimateNote = nil
+    }
+
     func record() async {
         guard !draft.isEmpty else { return }
         errorMessage = nil
