@@ -15,11 +15,11 @@ import (
 	"github.com/Kenyan822/physique-analytics/api/internal/testdb"
 )
 
-// fixture はトランザクション内で動く Deps と、記録を入れるための Body を返す。
+// fixture はトランザクション内で動く Deps と、記録を入れるための Body / Meal を返す。
 //
 // withPlan のときはフェーズを1つ入れる。**公開用の設定例と同じ値**を使い、
 // private/config.json はテストから参照しない（ADR-0002）。
-func fixture(t *testing.T, withPlan bool) (Deps, *repository.Body) {
+func fixture(t *testing.T, withPlan bool) (Deps, *repository.Body, *repository.Meal) {
 	t.Helper()
 
 	tx := testdb.Begin(t)
@@ -60,12 +60,12 @@ func fixture(t *testing.T, withPlan bool) (Deps, *repository.Body) {
 		}
 	}
 
-	return d, repository.NewBody(tx)
+	return d, repository.NewBody(tx), repository.NewMeal(tx)
 }
 
 func TestWeeklyActions_フェーズが無ければエラー(t *testing.T) {
 	t.Parallel()
-	d, _ := fixture(t, false)
+	d, _, _ := fixture(t, false)
 
 	_, err := weeklyActions(t.Context(), d, weeklyActionsIn{AsOf: "2028-06-15"})
 	if err == nil {
@@ -79,7 +79,7 @@ func TestWeeklyActions_フェーズが無ければエラー(t *testing.T) {
 
 func TestWeeklyActions_日付の形式(t *testing.T) {
 	t.Parallel()
-	d, _ := fixture(t, true)
+	d, _, _ := fixture(t, true)
 
 	if _, err := weeklyActions(t.Context(), d, weeklyActionsIn{AsOf: "2026/09/30"}); err == nil {
 		t.Error("エラーにならない")
@@ -88,7 +88,7 @@ func TestWeeklyActions_日付の形式(t *testing.T) {
 
 func TestWeeklyActions_記録が無ければ記録を促す(t *testing.T) {
 	t.Parallel()
-	d, _ := fixture(t, true)
+	d, _, _ := fixture(t, true)
 
 	got, err := weeklyActions(t.Context(), d, weeklyActionsIn{AsOf: "2028-06-15"})
 	if err != nil {
@@ -113,7 +113,7 @@ func TestWeeklyActions_記録が無ければ記録を促す(t *testing.T) {
 func TestWeeklyActions_記録からTDEEと推奨摂取を出す(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	d, body := fixture(t, true)
+	d, body, meal := fixture(t, true)
 
 	// 2026-10-31 を基準に21日分。体重は1日 -0.06kg、摂取は 2100kcal 一定
 	// 手元の DB にはサンプルが 2026-09〜10 に入っている。
@@ -124,10 +124,17 @@ func TestWeeklyActions_記録からTDEEと推奨摂取を出す(t *testing.T) {
 		if _, err := body.PutDaily(ctx, repository.DailyInput{
 			Date:     openapi_types.Date{Time: date},
 			WeightKg: f32(75.0 + 0.06*float64(i)),
-			Kcal:     ip(2100),
 			Steps:    ip(9000),
 		}); err != nil {
 			t.Fatalf("PutDaily: %v", err)
+		}
+		// **摂取は meals に入れる。** daily_metrics.kcal は誰も書かない列なので、
+		// ここに書くと本番で起きないことをテストすることになる（#325）
+		if _, err := meal.Create(ctx, repository.MealInput{
+			Date: openapi_types.Date{Time: date},
+			Name: sp("鶏むねと白米"), Kcal: ip(2100),
+		}); err != nil {
+			t.Fatalf("Create: %v", err)
 		}
 	}
 
@@ -160,7 +167,7 @@ func TestWeeklyActions_記録からTDEEと推奨摂取を出す(t *testing.T) {
 
 func TestWeeklyActions_計画の期間外(t *testing.T) {
 	t.Parallel()
-	d, _ := fixture(t, true)
+	d, _, _ := fixture(t, true)
 
 	got, err := weeklyActions(t.Context(), d, weeklyActionsIn{AsOf: "2020-01-01"})
 	if err != nil {
@@ -177,10 +184,11 @@ func TestWeeklyActions_計画の期間外(t *testing.T) {
 
 func f32(v float64) *float32 { f := float32(v); return &f }
 func ip(v int) *int          { return &v }
+func sp(v string) *string    { return &v }
 
 func TestWeeklyReport_Markdownを返す(t *testing.T) {
 	t.Parallel()
-	d, _ := fixture(t, true)
+	d, _, _ := fixture(t, true)
 
 	got, err := weeklyReport(t.Context(), d, weeklyReportIn{AsOf: "2028-06-15"})
 	if err != nil {
@@ -199,7 +207,7 @@ func TestWeeklyReport_Markdownを返す(t *testing.T) {
 
 func TestWeeklyReport_フェーズが無ければエラー(t *testing.T) {
 	t.Parallel()
-	d, _ := fixture(t, false)
+	d, _, _ := fixture(t, false)
 
 	if _, err := weeklyReport(t.Context(), d, weeklyReportIn{AsOf: "2028-06-15"}); err == nil {
 		t.Error("エラーにならない")
@@ -208,7 +216,7 @@ func TestWeeklyReport_フェーズが無ければエラー(t *testing.T) {
 
 func TestCorrelations_サンプルが足りなければ示す(t *testing.T) {
 	t.Parallel()
-	d, _ := fixture(t, true)
+	d, _, _ := fixture(t, true)
 
 	got, err := correlations(t.Context(), d, correlationsIn{Days: 365})
 	if err != nil {
@@ -231,7 +239,7 @@ func TestCorrelations_サンプルが足りなければ示す(t *testing.T) {
 
 func TestCorrelations_期間を指定できる(t *testing.T) {
 	t.Parallel()
-	d, _ := fixture(t, true)
+	d, _, _ := fixture(t, true)
 
 	got, err := correlations(t.Context(), d, correlationsIn{Days: 30})
 	if err != nil {

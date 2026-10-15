@@ -29,16 +29,47 @@ func NewAnalysis(db DBTX) *Analysis {
 //
 // **集計はしない。** 平均や回帰は analytics 側の責務にしてある（ADR-0011）。
 // SQL で avg や regr_slope を書くと、分析の正が SQL と Go に割れる。
+// ここで足しているのは1日の中の食事だけで、日をまたぐ集計はしていない。
 //
 // 未記録の項目は nil のまま返す。0 で埋めると「HRV 0」として
 // 回復不足を誤検知する。
+//
+// **摂取は meals が正。** daily_metrics にも kcal / PFC の列があるが誰も
+// 書かないので、そこから引くと摂取の記録日数が常に0になり、TDEE が
+// 永久に出なかった（#325）。daily_metrics へ写す同期は持たない（#316）。
+//
+// 行の土台は daily_metrics と meals の**日付の和**。daily_metrics から
+// select すると、食事だけ記録した日が系列ごと落ちる。
+//
+// **ざっくり入力（source: rough）がある日は、その日ごと摂取から外す。**
+// rough は飲み会・外食の当て推量なので TDEE の母数に入れない。rough の行
+// だけ抜くと、同じ日の手入力との合計が1日分に足りず、平均が低く出る。
 func (r *Analysis) DailySeries(ctx context.Context, from, to openapi_types.Date) ([]analytics.DailyPoint, error) {
 	const q = `
-		select date, weight_kg, bodyfat_pct, kcal, protein_g, fat_g, carb_g,
-		       sleep_h, steps, fatigue, hrv_ms, resting_hr, deep_sleep_min
-		from daily_metrics
-		where deleted_at is null and date >= $1 and date <= $2
-		order by date`
+		with intake as (
+			select date,
+			       sum(kcal)::float8      as kcal,
+			       sum(protein_g)::float8 as protein_g,
+			       sum(fat_g)::float8     as fat_g,
+			       sum(carb_g)::float8    as carb_g
+			from meals
+			where deleted_at is null and date >= $1 and date <= $2
+			group by date
+			having count(*) filter (where source = 'rough') = 0
+		),
+		days as (
+			select date from daily_metrics
+			where deleted_at is null and date >= $1 and date <= $2
+			union
+			select date from intake
+		)
+		select d.date, m.weight_kg, m.bodyfat_pct,
+		       i.kcal, i.protein_g, i.fat_g, i.carb_g,
+		       m.sleep_h, m.steps, m.fatigue, m.hrv_ms, m.resting_hr, m.deep_sleep_min
+		from days d
+		left join daily_metrics m on m.date = d.date and m.deleted_at is null
+		left join intake i on i.date = d.date
+		order by d.date`
 
 	rows, err := r.db.Query(ctx, q, from.Time, to.Time)
 	if err != nil {
