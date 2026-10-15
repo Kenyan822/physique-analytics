@@ -20,12 +20,19 @@
 private/                 ← .gitignore
 ├── config.json          個人の身体データ・計画設定
 ├── data/                実記録・写真・血液検査
-├── docs/                個人の3カ年計画・月次目標・栄養設計・大会準備
 └── reports/             生成された週次レポート
+
+analytics/               ← .gitignore。本番 DB を読む分析の記録
+└── plan/                個人の3カ年計画・トレーニング設計・栄養設計・大会準備
 
 data/sample/             ← コミットする（架空の記録）
 config.example.json      ← コミットする（設定の雛形）
 ```
+
+計画の文書は 2026-10-15 に `private/docs/` から `analytics/plan/` へ移した。
+分析のたびに読み書きするので、分析の記録と同じ場所に置く。
+**数値の正は DB**（[ADR-0015](0015-plan-settings-in-db.md)）で、文書は「なぜそう決めたか」の正。
+月次目標の表は保存しない。
 
 分析スクリプトのデフォルトパスを `private/` に向け、デモ実行時のみ `--data-dir data/sample` で切り替える。
 
