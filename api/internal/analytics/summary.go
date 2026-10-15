@@ -22,7 +22,31 @@ const (
 	// BaselineWindowDays は HRV・安静時心拍の基準となる窓。
 	// 絶対値に個人差が大きいので、自分の30日平均を基準にする。
 	BaselineWindowDays = 30
+
+	// MinPlausibleKcal は1日の摂取として現実的な下限。
+	//
+	// **これを下回る日は、食べていないのではなく記録し忘れとみなす。**
+	// 1食だけ記録した日を平均に混ぜると摂取が低く出て、TDEE が低く→
+	// 推奨摂取まで低く出る（食べる量が足りなくなる方向）。外すと記録日数の
+	// 条件を満たさず「TDEE を推定できない」と見える形で止まる（#325）。
+	// 見えない誤りより見える失敗を取る。
+	//
+	// 本当に下回った日を落とすと平均は上振れするが、推奨摂取が多く出る側な
+	// ので害が小さい。
+	MinPlausibleKcal = 1000
 )
+
+// plausibleKcal は1日分として採れる摂取を返す。採れない日は nil。
+//
+// 摂取を見るところは必ずこれを通す。素の Kcal を直に読むと、記録漏れの日が
+// 平均・変動係数・記録日数のどれかに混ざる。
+func plausibleKcal(p DailyPoint) *float64 {
+	if p.Kcal == nil || *p.Kcal < MinPlausibleKcal {
+		return nil
+	}
+
+	return p.Kcal
+}
 
 // DailyPoint は1日分の記録。集計に使う値だけを持つ。
 //
@@ -60,7 +84,7 @@ type WeeklyStat struct {
 func WeeklyStats(points []DailyPoint, asof time.Time) WeeklyStat {
 	recent := within(points, asof, RecentWindowDays)
 	trend := within(points, asof, TrendWindowDays)
-	kcal21 := pick(trend, func(p DailyPoint) *float64 { return p.Kcal })
+	kcal21 := pick(trend, plausibleKcal)
 
 	return WeeklyStat{
 		WeightKg7dAvg:     Mean(pick(recent, func(p DailyPoint) *float64 { return p.WeightKg })),
@@ -88,9 +112,8 @@ func BuildStallInput(points []DailyPoint, asof time.Time, goalKgPerWeek float64,
 	return StallInput{
 		GoalKgPerWeek:     goalKgPerWeek,
 		WeightSlopeKgWeek: weightSlope(within(points, asof, TrendWindowDays), asof),
-		KcalCVPct: CVPct(pick(within(points, asof, IntakeCVWindowDays),
-			func(p DailyPoint) *float64 { return p.Kcal })),
-		E1RMSlopeKgWeek: e1rmSlope,
+		KcalCVPct:         CVPct(pick(within(points, asof, IntakeCVWindowDays), plausibleKcal)),
+		E1RMSlopeKgWeek:   e1rmSlope,
 
 		Fatigue7dAvg:      avg(recent, func(p DailyPoint) *float64 { return p.Fatigue }),
 		SleepH7dAvg:       avg(recent, func(p DailyPoint) *float64 { return p.SleepH }),
@@ -104,8 +127,7 @@ func BuildStallInput(points []DailyPoint, asof time.Time, goalKgPerWeek float64,
 
 		MissingWeightDays: MissingDays(RecentWindowDays,
 			len(pick(recent, func(p DailyPoint) *float64 { return p.WeightKg }))),
-		MissingKcalDays: MissingDays(RecentWindowDays,
-			len(pick(recent, func(p DailyPoint) *float64 { return p.Kcal }))),
+		MissingKcalDays: MissingDays(RecentWindowDays, len(pick(recent, plausibleKcal))),
 	}
 }
 
