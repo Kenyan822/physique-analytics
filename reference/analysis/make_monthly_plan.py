@@ -10,6 +10,10 @@
 
 P1 完了時点と各大会後の実測 LBM を起点に、以降は必ず再計算する。
 月次目標は固定値ではなく、実測を起点に引き直すもの。
+
+**md は既定では書かない。** 本番の月次目標は `GET /v1/plan/monthly-targets` が毎回計算する
+（ADR-0015）。表を保存すると、引き直したあとも古い表が正に見える。読みたいときだけ
+`--out-docs` を渡す。
 """
 import argparse
 import json
@@ -66,7 +70,7 @@ def month_labels(start_y: int = 2026, start_m: int = 9, n: int = 37) -> list[str
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="private/config.json")
-    ap.add_argument("--out-docs", default="private/docs/02-月次目標.md")
+    ap.add_argument("--out-docs")
     ap.add_argument("--out-csv", default="private/data/monthly_plan.csv")
     a = ap.parse_args()
 
@@ -137,16 +141,19 @@ def main() -> None:
           "差分は神経系適応・技術・レバレッジ最適化によるもので、見た目には現れない。",
           "挙上重量はオーバーロードが効いている証拠として追う指標であり、見た目の目標そのものではない。", ""]
 
-    out_docs, out_csv = Path(a.out_docs), Path(a.out_csv)
-    out_docs.parent.mkdir(parents=True, exist_ok=True)
+    out_csv = Path(a.out_csv)
     out_csv.parent.mkdir(parents=True, exist_ok=True)
-    out_docs.write_text("\n".join(L) + "\n", encoding="utf-8")
+    if a.out_docs:
+        out_docs = Path(a.out_docs)
+        out_docs.parent.mkdir(parents=True, exist_ok=True)
+        out_docs.write_text("\n".join(L) + "\n", encoding="utf-8")
+        print(f"生成: {out_docs}")
     out_csv.write_text(
         "month,phase,weight_kg,bodyfat_pct,lbm_kg,ffmi,bench_e1rm,squat_e1rm\n"
         + "".join(f"{r['month']},{r['phase']},{r['weight']:.1f},{r['bf']:.1f},"
                  f"{r['lbm']:.1f},{r['ffmi']:.1f},{r['bench']:.0f},{r['squat']:.0f}\n" for r in rows),
         encoding="utf-8")
-    print(f"生成: {out_docs} / {out_csv} ({len(rows)}ヶ月分)")
+    print(f"生成: {out_csv} ({len(rows)}ヶ月分)")
     print(f"最終: {f['weight']:.1f}kg / BF{f['bf']:.1f}% / LBM {f['lbm']:.1f}kg / FFMI {f['ffmi']:.1f}")
 
 
