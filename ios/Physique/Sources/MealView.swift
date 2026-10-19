@@ -296,6 +296,22 @@ struct MealView: View {
             }
             .accessibilityIdentifier("enterRough")
 
+            // 途中でやり直す（#320）。
+            //
+            // **Form の中に置かない。** 記録ボタンはキーボードの下にあり、
+            // 打っている最中は押せない（記録はキーボード上のバーから押す）。
+            // やり直したくなるのは打っている最中なので、ツールバーに置く
+            Divider()
+
+            Button(role: .destructive) {
+                focus = nil
+                model.resetDraft()
+            } label: {
+                Label("入力をリセット", systemImage: "arrow.counterclockwise")
+            }
+            .disabled(!model.canResetDraft || model.isWorking)
+            .accessibilityIdentifier("resetDraft")
+
             #if DEBUG
             // **UI テスト専用。** 写真を選ぶ画面はシステムの UI で自動化できないが、
             // 補足シートの「推定する」はキーボードの下に落ちやすい場所なので
@@ -880,6 +896,14 @@ struct MealView: View {
             .buttonStyle(.borderedProminent)
             .disabled(model.draft.isEmpty || model.isWorking)
             .accessibilityIdentifier("recordButton")
+
+            // **消したあとだけ出る。** 常時1行増えるわけではない。
+            // 確認を挟むより、押してから戻せる方が速い
+            if model.canUndoReset {
+                Button("リセットを取り消す") { model.undoResetDraft() }
+                    .font(.callout)
+                    .accessibilityIdentifier("undoReset")
+            }
 
             // **推定の根拠を出す。** 鵜呑みを防ぐ。出るのは推定した直後だけなので
             // 常時 1 行増えるわけではない

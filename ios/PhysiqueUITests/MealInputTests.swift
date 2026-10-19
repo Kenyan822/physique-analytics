@@ -36,6 +36,36 @@ final class MealInputTests: XCTestCase {
         XCTAssertTrue(photo.isHittable, "押せる位置にあること")
     }
 
+    /// #320。途中でやり直す。
+    ///
+    /// **打っている最中に押せること**を見る。記録ボタンはキーボードの下に
+    /// あるので（記録はキーボード上のバーから押す）、Form の中に置くと
+    /// やり直したいときに届かない。
+    func test_入力をリセットして取り消せる() {
+        let menu = app.buttons["unknownMacros"]
+        XCTAssertTrue(menu.waitForExistence(timeout: UITimeout.slow), "メニューが出ること")
+
+        // 空のときに押せないことは MealDraftResetTests で見ている。
+        // ここで見るのは**打っている最中に届くか**だけ
+        type("30", into: "draftP")
+
+        // **キーボードが出たままでも開ける。** ツールバーは隠れない
+        XCTAssertTrue(menu.isHittable, "打っている最中もメニューが押せること")
+        menu.tap()
+
+        let reset = app.buttons["resetDraft"]
+        XCTAssertTrue(reset.waitForExistence(timeout: UITimeout.normal), "リセットが出ること")
+        XCTAssertTrue(reset.isEnabled, "入力したら押せること")
+        reset.tap()
+
+        let undo = app.buttons["undoReset"]
+        XCTAssertTrue(undo.waitForExistence(timeout: UITimeout.normal), "取り消しが出ること")
+        XCTAssertTrue(undo.isHittable, "押せる位置にあること")
+        undo.tap()
+
+        XCTAssertFalse(app.buttons["undoReset"].exists, "戻したら取り消しは消えること")
+    }
+
     /// #321。補足を書いてから送る。**「推定する」がキーボードの下に落ちないこと**
     func test_写真に補足を書いて送れる() {
         let menu = app.buttons["unknownMacros"]
