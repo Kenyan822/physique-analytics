@@ -89,6 +89,40 @@ final class MealInputTests: XCTestCase {
         XCTAssertTrue(run.isHittable, "キーボードが出ていても押せること")
     }
 
+    /// #321。解析中は他を触れないが、**やめる口は残っていること**。
+    ///
+    /// 「推定する」が押せることだけ見ていたので、押したあとに
+    /// 何も出ていないことに気づけなかった（実機で出た）。
+    func test_解析中にやめられる() {
+        let menu = app.buttons["unknownMacros"]
+        XCTAssertTrue(menu.waitForExistence(timeout: UITimeout.slow), "メニューが出ること")
+        menu.tap()
+
+        let stub = app.buttons["estimateFromStubPhoto"]
+        XCTAssertTrue(stub.waitForExistence(timeout: UITimeout.normal), "テスト用の入口が出ること")
+        stub.tap()
+
+        let run = app.buttons["runEstimate"]
+        XCTAssertTrue(run.waitForExistence(timeout: UITimeout.normal), "推定するが出ること")
+        run.tap()
+
+        // **解析中の表示が出ること。** 補足シートを閉じるのと同時に出すと、
+        // SwiftUI が片方を捨てて何も出ない
+        let cover = app.staticTexts["estimatingCover"]
+        XCTAssertTrue(cover.waitForExistence(timeout: UITimeout.normal), "解析中の表示が出ること")
+
+        // **閉じ込めない。** 通信が詰まったときの逃げ道
+        let cancel = app.buttons["cancelEstimate"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: UITimeout.normal), "やめるが出ること")
+        XCTAssertTrue(cancel.isHittable, "押せる位置にあること")
+        cancel.tap()
+
+        XCTAssertFalse(
+            app.buttons["cancelEstimate"].waitForExistence(timeout: 2),
+            "やめたら解析中の表示が消えること"
+        )
+    }
+
     /// #261。**飲み会は1品ずつ記録できない。** kcal だけで残す入口。
     func test_ざっくり入力で記録できる() {
         // **ツールバーのメニューから開く**（#262）。Form に行を足さないため

@@ -116,6 +116,15 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let path = request.url?.path ?? ""
         let method = request.httpMethod ?? "GET"
+
+        // **推定だけはわざと遅くする。** 解析中の表示が出ているかを見たいので、
+        // 即答すると出た瞬間に消えてしまう。
+        // **数秒では足りない。** XCUITest は要素を探すのに毎回1秒前後かかり、
+        // 3秒にしたら「閉じかけのシート」を掴んで画面外だと判定していた。
+        // テストは「やめる」を押して打ち切るので、長くても待たされない
+        if path.hasSuffix("/v1/meals/estimate") {
+            try? await Task.sleep(for: .seconds(30))
+        }
         let body = request.httpBody.flatMap {
             try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
         } ?? [:]
@@ -329,6 +338,20 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
 
         case ("GET", let p) where p.hasSuffix("/v1/meal-sets"):
             return (["items": []], 200)
+
+        // 写真からの推定（#321）。値は公開してよい架空のもの（ADR-0002）
+        case ("POST", let p) where p.hasSuffix("/v1/meals/estimate"):
+            return ([
+                "name": "鶏むねと白米",
+                "qty": "1皿",
+                "kcal": 520,
+                "proteinG": 45.0,
+                "fatG": 8.0,
+                "carbG": 62.0,
+                "confidence": "medium",
+                "note": "白米は茶碗1杯として見積もった",
+                "source": "ai_estimated",
+            ], 200)
 
         default:
             return (["items": []], 200)
