@@ -805,15 +805,16 @@ struct MealView: View {
 
         Section {
             HStack {
-                Total(label: "カロリー", value: model.totals.kcal, remaining: model.remaining?.kcal)
+                Total(id: "mealTotalKcal", label: "カロリー",
+                      value: model.totals.kcal, remaining: model.remaining?.kcal)
                 Divider()
-                Total(label: "P", value: Int(model.totals.proteinG),
+                Total(id: "mealTotalP", label: "P", value: Int(model.totals.proteinG),
                       remaining: model.remaining.map { Int($0.proteinG) })
                 Divider()
-                Total(label: "F", value: Int(model.totals.fatG),
+                Total(id: "mealTotalF", label: "F", value: Int(model.totals.fatG),
                       remaining: model.remaining.map { Int($0.fatG) })
                 Divider()
-                Total(label: "C", value: Int(model.totals.carbG),
+                Total(id: "mealTotalC", label: "C", value: Int(model.totals.carbG),
                       remaining: model.remaining.map { Int($0.carbG) })
             }
             // **読むだけの行。** ここを叩いたらキーボードを閉じる（#229）。
@@ -825,7 +826,7 @@ struct MealView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         } header: {
-            Text(model.remaining == nil ? "今日の合計" : "今日の合計 / 残り")
+            Text(model.remaining == nil ? "今日の合計" : "今日の残り / 合計")
                 .dismissesKeyboardWhenTapped()
         }
     }
@@ -1092,6 +1093,8 @@ private struct Goal: View {
 }
 
 private struct Total: View {
+    /// 大きい方の数字に付ける。**UI テストから引くのはこれ1つ**（#334）
+    let id: String
     let label: String
     let value: Int
     let remaining: Int?
@@ -1099,13 +1102,23 @@ private struct Total: View {
     var body: some View {
         VStack(spacing: 2) {
             Text(label).font(.caption2).foregroundStyle(.secondary)
-            Text("\(value)").font(.headline).monospacedDigit()
+
             if let r = remaining {
-                // 超えたら負のまま出す。あとどれだけ削るかが分かる
-                Text(r >= 0 ? "残 \(r)" : "超 \(-r)")
-                    .font(.caption2)
-                    .foregroundStyle(r >= 0 ? Color.secondary : Color.orange)
-                    .monospacedDigit()
+                // **大きく出すのは残り。** 「あと何を食べるか」を決めるのに
+                // 合計は要らない。超えたぶんは正の数で出して色で分ける
+                HStack(spacing: 1) {
+                    Text(r >= 0 ? "残" : "超").font(.caption2)
+                    Text("\(abs(r))").font(.headline).monospacedDigit()
+                        .accessibilityIdentifier(id)
+                }
+                .foregroundStyle(r >= 0 ? Color.primary : Color.orange)
+
+                Text("計 \(value)")
+                    .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
+            } else {
+                // 目標が無ければ残りを出せない。今までどおり合計だけ
+                Text("\(value)").font(.headline).monospacedDigit()
+                    .accessibilityIdentifier(id)
             }
         }
         .frame(maxWidth: .infinity)
