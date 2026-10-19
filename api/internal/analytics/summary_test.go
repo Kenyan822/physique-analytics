@@ -208,3 +208,54 @@ func TestInWindow_左端を含めない(t *testing.T) {
 		})
 	}
 }
+
+// **1食しか記録していない日を「記録した日」に数えない。** 数えると平均摂取が
+// 実際より低く出て、TDEE が低く→推奨摂取まで低く出る（食べる量が足りなくなる）。
+// 外すと日数の条件を満たさず「TDEE を推定できない」と見える形で止まる（#325）
+func TestWeeklyStats_摂取が少なすぎる日は記録日に数えない(t *testing.T) {
+	t.Parallel()
+
+	// 21日すべてに記録があるが、1日おきに1食だけ（500kcal）
+	points := series(21, func(d int) analytics.DailyPoint {
+		kcal := 2500.0
+		if d%2 == 0 {
+			kcal = 500
+		}
+
+		return analytics.DailyPoint{WeightKg: ptrF(75), Kcal: ptrF(kcal)}
+	})
+
+	got := analytics.WeeklyStats(points, asof)
+
+	if got.KcalDays21d != 10 {
+		t.Errorf("KcalDays21d = %d, want 10", got.KcalDays21d)
+	}
+	if got.MeanKcal21d == nil || math.Abs(*got.MeanKcal21d-2500) > 1e-9 {
+		t.Errorf("MeanKcal21d = %v, want 2500", got.MeanKcal21d)
+	}
+}
+
+func TestBuildStallInput_摂取が少なすぎる日は変動係数に入らない(t *testing.T) {
+	t.Parallel()
+
+	// 2日前だけ1食（300kcal）。残りは 2000kcal で一定
+	points := series(30, func(d int) analytics.DailyPoint {
+		kcal := 2000.0
+		if d == 2 {
+			kcal = 300
+		}
+
+		return analytics.DailyPoint{Kcal: ptrF(kcal)}
+	})
+
+	got := analytics.BuildStallInput(points, asof, -0.35, nil)
+
+	// 記録漏れを実データとして混ぜると「摂取が不安定」を誤検知する
+	if got.KcalCVPct == nil || *got.KcalCVPct != 0 {
+		t.Errorf("KcalCVPct = %v, want 0", got.KcalCVPct)
+	}
+	// 記録した日としても数えない
+	if got.MissingKcalDays != 1 {
+		t.Errorf("MissingKcalDays = %d, want 1", got.MissingKcalDays)
+	}
+}

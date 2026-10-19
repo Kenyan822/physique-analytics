@@ -390,7 +390,11 @@ func phaseName(p openapi.Plan, asof time.Time) string {
 	return ""
 }
 
+// **「記録が無い」と書かない。** 1食ずつ記録していても、1日の合計が
+// MinPlausibleKcal に届かない日は母数から外している（#325）。
+// 「記録していない」と言われると、記録した本人には何を直せばいいか分からない。
 func noteForMissingTDEE(kcalDays int) string {
-	return fmt.Sprintf("TDEE を推定できない（直近%d日で摂取の記録が%d日 / 必要%d日）。"+
+	return fmt.Sprintf("TDEE を推定できない（直近%d日のうち、1日分の食事がそろっている日が%d日 / 必要%d日）。"+
+		"1食でも抜けている日は平均が低く出るので母数に入れていない。"+
 		"摂取量の意思決定にはこれが要る", analytics.TrendWindowDays, kcalDays, TDEEMinDays)
 }

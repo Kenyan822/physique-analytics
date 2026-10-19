@@ -312,7 +312,9 @@ func registerAnalysisTools(s *mcp.Server, d Deps) {
 			"計画: profile / plan_phases / plan_blocks / nutrition_settings / volume_ranges / contests。" +
 			"検査: blood_tests / blood_test_items。" +
 			"すべて deleted_at による論理削除なので、生きている行だけ見るなら deleted_at is null を付ける。" +
-			"日付は workout_sessions.date / daily_metrics.date など（いずれも JST の日付）。",
+			"日付は workout_sessions.date / daily_metrics.date など（いずれも JST の日付）。" +
+			"**摂取カロリーと PFC は meals を日付で合計して出す。** daily_metrics にも " +
+			"kcal / protein_g / fat_g / carb_g があるが誰も書かないので常に null。",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in queryIn) (*mcp.CallToolResult, queryOut, error) {
 		limit := in.Limit
 		if limit <= 0 || limit > maxQueryRows {
