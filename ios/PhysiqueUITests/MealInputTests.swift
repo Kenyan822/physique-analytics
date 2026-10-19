@@ -194,6 +194,13 @@ final class MealInputTests: XCTestCase {
         type("5", into: "draftF")
         type("0", into: "draftC")
 
+        // **逃げ道を主操作と入れ替えない。** 打つと「完了」が「記録」に
+        // 置き換わる作りだったので、打っている最中に降ろせなかった（#332）。
+        // 閉じたくなるのは打っている最中なので、要るときにだけ無かった
+        let done = app.buttons["keyboardDone"]
+        XCTAssertTrue(done.waitForExistence(timeout: UITimeout.normal), "打っている最中も完了が出ること")
+        XCTAssertTrue(done.isHittable, "完了が押せる位置にあること")
+
         // **キーボードが出たまま押せること。** Form の中のボタンはキーボードの
         // 下に隠れるので、バーに逃がしてある（#202 がこれを検出した）
         let onKeyboard = app.buttons["keyboardPrimaryAction"]
