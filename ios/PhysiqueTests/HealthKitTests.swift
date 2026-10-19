@@ -364,6 +364,38 @@ struct BodyLoadTests {
         #expect(m.previousWeightKg == 79.2)
     }
 
+    /// #338。**前回がいつかを出さないと、差分の意味が決まらない。**
+    /// 昨日の -0.3kg と2週間前の -0.3kg はまったく別の話になる
+    @Test("**前回がいつかも持つ**")
+    func previousDate() async {
+        let (m, t) = model(date: "2026-10-08")
+        t.responses = [(Data(daily.utf8), 200), (Data("null".utf8), 200)]
+
+        await m.load(date: "2026-10-08")
+
+        #expect(m.previousWeightDate == "2026-10-05")
+        #expect(m.previousBodyfatDate == "2026-10-05")
+    }
+
+    /// **体重だけ測った日と体脂肪率だけ測った日がある。** 日付は別々に持つ
+    @Test("**体重と体脂肪率で前回の日が違うことがある**")
+    func previousDatesDiffer() async {
+        let (m, t) = model(date: "2026-10-08")
+        let mixed = #"""
+        {"items":[
+         {"id":"44444444-4444-4444-8444-444444444444","date":"2026-10-07","weightKg":78.9},
+         {"id":"55555555-5555-4555-8555-555555555555","date":"2026-10-03","bodyfatPct":19.4}]}
+        """#
+        t.responses = [(Data(mixed.utf8), 200), (Data("null".utf8), 200)]
+
+        await m.load(date: "2026-10-08")
+
+        #expect(m.previousWeightKg == 78.9)
+        #expect(m.previousWeightDate == "2026-10-07")
+        #expect(m.previousBodyfatPct == 19.4)
+        #expect(m.previousBodyfatDate == "2026-10-03")
+    }
+
     @Test("**記録が無い日に移ると空欄になる**")
     func clearsOnEmptyDay() async {
         let (m, t) = model(date: "2026-10-08")

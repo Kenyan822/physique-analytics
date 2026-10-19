@@ -63,8 +63,12 @@ DEVICE="${found[0]%%	*}"
 DEV_MODE="${found[0]##*	}"
 
 if [ "$DEV_MODE" != "enabled" ]; then
+  # **`${VAR}` で閉じる。** macOS の bash 3.2 は、変数名の直後に全角文字が
+  # 来ると**その1バイト目を名前に取り込む**。`set -u` と合わさって
+  # 「DEV_MODE?: unbound variable」で落ちる。
+  # デベロッパモードが無効だと教えるメッセージが、出る瞬間に死んでいた
   cat >&2 <<MSG
-"$DEVICE" のデベロッパモードが無効（$DEV_MODE）。
+"${DEVICE}" のデベロッパモードが無効（${DEV_MODE}）。
 
   設定 > プライバシーとセキュリティ > デベロッパモード をオン（再起動する）
 
