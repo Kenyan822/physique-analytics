@@ -800,6 +800,9 @@ struct MealView: View {
                 Total(label: "C", value: Int(model.totals.carbG),
                       remaining: model.remaining.map { Int($0.carbG) })
             }
+            // **読むだけの行。** ここを叩いたらキーボードを閉じる（#229）。
+            // 見出しの文字だけでは細すぎて当たらなかった（実機で出た）
+            .dismissesKeyboardWhenTapped()
 
             if model.totals.withoutMacros > 0 {
                 Text("PFC 未入力が \(model.totals.withoutMacros) 件。合計はその分少ない")
@@ -807,8 +810,6 @@ struct MealView: View {
             }
         } header: {
             Text(model.remaining == nil ? "今日の合計" : "今日の合計 / 残り")
-                // **読むだけの場所。** ここを叩いたらキーボードを閉じる（#229）。
-                // 画面全体に付けるとコントロールからタップを奪う
                 .dismissesKeyboardWhenTapped()
         }
     }
