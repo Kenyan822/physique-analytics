@@ -147,6 +147,7 @@ struct BodyView: View {
                 set: { model.parts[part] = $0 }
             ),
             previous: model.previousMeasurement?.value(for: part),
+            previousDate: model.previousMeasurement?.date,
             max: part.maxCm
         )
     }
@@ -161,12 +162,14 @@ struct BodyView: View {
         Section {
             NumberRow(
                 label: "体重", unit: "kg", value: $model.weightKg,
-                previous: model.previousWeightKg, max: 300,
+                previous: model.previousWeightKg,
+                previousDate: model.previousWeightDate, max: 300,
                 readOnly: model.healthGranted
             )
             NumberRow(
                 label: "体脂肪率", unit: "%", value: $model.bodyfatPct,
-                previous: model.previousBodyfatPct, max: 70,
+                previous: model.previousBodyfatPct,
+                previousDate: model.previousBodyfatDate, max: 70,
                 readOnly: model.healthGranted
             )
             // 除脂肪体重は計算値（要件 A-06）。**常に手では入れない**
@@ -176,6 +179,10 @@ struct BodyView: View {
                     weightKg: model.weightKg, bodyfatPct: model.bodyfatPct)),
                 previous: leanBodyMass(
                     weightKg: model.previousWeightKg, bodyfatPct: model.previousBodyfatPct),
+                // **体重と体脂肪率が別の日なら日付を出さない。** 2日分を
+                // 掛け合わせた値なので、片方の日付を書くと実際より確かに見える
+                previousDate: model.previousWeightDate == model.previousBodyfatDate
+                    ? model.previousWeightDate : nil,
                 max: 0, readOnly: true
             )
 
@@ -252,18 +259,31 @@ private struct NumberRow: View {
     let unit: String
     @Binding var value: Double?
     let previous: Double?
+    /// 前回がいつのものか "YYYY-MM-DD"（#338）。
+    /// **日付が無いと差分の意味が決まらない。** 無ければ日付だけ出さない
+    var previousDate: String?
     let max: Double
     /// 取り込んだ値は手で入れない（#288）
     var readOnly = false
 
     @State private var text = ""
 
+    /// 「前回 78.4kg（10/5(日)）」。日付が無ければ今までどおり値だけ
+    private var previousLabel: String {
+        guard let p = previous else { return "前回なし" }
+
+        let value = "前回 \(bodyText(p))\(unit)"
+        guard let d = previousDate else { return value }
+
+        return "\(value)（\(JST.displayString(from: d))）"
+    }
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
                 HStack(spacing: 6) {
-                    Text(previous.map { "前回 \(bodyText($0))\(unit)" } ?? "前回なし")
+                    Text(previousLabel)
                     if let diff = formatDiff(current: value, previous: previous) {
                         Text(diff).foregroundStyle(Color.accentColor)
                     }
