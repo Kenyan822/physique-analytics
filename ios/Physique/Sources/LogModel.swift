@@ -45,14 +45,21 @@ final class LogModel {
     }
 
     private(set) var logged: [PendingSet] = []
-    private(set) var last: LastPerformance?
-    private(set) var loadingLast = false
+    /// 前回の実施。**種目ごとに持つ**（#337。複数開くので1つでは足りない）
+    private(set) var lastByExercise: [UUID: LastPerformance] = [:]
+    private(set) var loadingLast: Set<UUID> = []
     private(set) var pendingMessage = ""
 
-    var selectedExerciseId: UUID? {
+    /// 入力欄を開いている種目（#337）。**複数を同時に開く。**
+    ///
+    /// 1つ開くと他が閉じる作りだったので、種目を行き来するたびに開き直して
+    /// いた。ジムではスーパーセットや種目間の確認で行ったり来たりする。
+    ///
+    /// **「開いている種目」と「いま打っている種目」は別物。** 打っている方は
+    /// 行自身が `exerciseId` で持つ
+    var openExerciseIds: Set<UUID> = [] {
         didSet {
-            guard selectedExerciseId != oldValue else { return }
-            drafts = []
+            guard openExerciseIds != oldValue else { return }
             rebuildDrafts()
         }
     }
@@ -66,6 +73,8 @@ final class LogModel {
     struct SetDraft: Identifiable, Hashable {
         /// クライアント生成の UUID。そのままセットの id になる（ADR-0014）
         let id: UUID
+        /// どの種目の行か。**複数の種目を同時に開く**ので行自身が持つ（#337）
+        let exerciseId: UUID
         /// サーバ上の番号。**順序と同一性のための内部の値。**
         /// 途中を消すと飛ぶので、そのまま画面に出さない
         var setNo: Int
@@ -97,24 +106,35 @@ final class LogModel {
     }
 
     /// 記録済みから行を組み直す。**打ちかけの行は残す**
+    ///
+    /// 開いている種目すべてぶんを1本の配列に並べる（#337）。
+    /// **並びは rows に合わせる。** 画面はこれを種目で絞って出す
     func rebuildDrafts() {
-        guard let ex = selectedExerciseId else {
-            drafts = []
+        // 閉じた種目の打ちかけは捨てる。開き直せば記録済みから組み直る
+        let unsaved = drafts.filter { !$0.recorded && openExerciseIds.contains($0.exerciseId) }
 
-            return
+        var out: [SetDraft] = []
+        for ex in rows.map(\.exerciseId) where openExerciseIds.contains(ex) {
+            out += sets(of: ex).map { s in
+                SetDraft(id: s.id, exerciseId: ex, setNo: s.setNo,
+                         weightText: numberText(s.weightKg), repsText: String(s.reps),
+                         rirText: s.rir.map(String.init) ?? "", recorded: true)
+            }
+            out += unsaved.filter { $0.exerciseId == ex }
+
+            // **常に打てる行を1つ用意する。** 記録済みだけだと打つ場所が無い（実機で踏んだ）
+            if !out.contains(where: { $0.exerciseId == ex && !$0.recorded }) {
+                out.append(newRow(for: ex, after: out.filter { $0.exerciseId == ex }))
+            }
         }
 
-        let unsaved = drafts.filter { !$0.recorded }
-        drafts = sets(of: ex).map { s in
-            SetDraft(id: s.id, setNo: s.setNo,
-                     weightText: numberText(s.weightKg), repsText: String(s.reps),
-                     rirText: s.rir.map(String.init) ?? "", recorded: true)
-        } + unsaved
-
-        // **常に打てる行を1つ用意する。** 記録済みだけだと打つ場所が無い（実機で踏んだ）
-        if !drafts.contains(where: { !$0.recorded }) { addSetRow() }
-
+        drafts = out
         renumber()
+    }
+
+    /// その種目の行だけ。**画面はこれで出す**
+    func drafts(of exerciseId: UUID) -> [SetDraft] {
+        drafts.filter { $0.exerciseId == exerciseId }
     }
 
     /// 表示番号を 1 から振り直す（#262）。
@@ -122,17 +142,31 @@ final class LogModel {
     /// サーバ側で `set_no` を詰め直すと、消すたびに後続セット全部を PATCH する
     /// ことになる。見た目の問題に書き込みを増やす価値はない
     private func renumber() {
-        for i in drafts.indices { drafts[i].displayNo = i + 1 }
+        // **種目ごとに 1 から振る**（#337）。通し番号にすると、2つ目の種目が
+        // 4セット目から始まっているように見える
+        var seen: [UUID: Int] = [:]
+        for i in drafts.indices {
+            let n = (seen[drafts[i].exerciseId] ?? 0) + 1
+            seen[drafts[i].exerciseId] = n
+            drafts[i].displayNo = n
+        }
     }
 
     /// セットを1行足す。**直前の値を引き継ぐ。** 大半は「前と同じか少し増やす」
-    func addSetRow() {
-        let prev = drafts.last
-        drafts.append(SetDraft(
-            id: UUID(), setNo: (drafts.map(\.setNo).max() ?? 0) + 1,
-            weightText: prev?.weightText ?? "", repsText: prev?.repsText ?? "",
-            rirText: prev?.rirText ?? "", recorded: false))
+    func addSetRow(for exerciseId: UUID) {
+        drafts.append(newRow(for: exerciseId, after: drafts(of: exerciseId)))
         renumber()
+    }
+
+    /// 打てる空行を1つ作る。**同じ種目の直前の値を引き継ぐ**
+    private func newRow(for exerciseId: UUID, after mine: [SetDraft]) -> SetDraft {
+        let prev = mine.last
+
+        return SetDraft(
+            id: UUID(), exerciseId: exerciseId,
+            setNo: (mine.map(\.setNo).max() ?? 0) + 1,
+            weightText: prev?.weightText ?? "", repsText: prev?.repsText ?? "",
+            rirText: prev?.rirText ?? "", recorded: false)
     }
 
     /// 行を確定する。**欄から離れたときに呼ぶ。**
@@ -140,9 +174,11 @@ final class LogModel {
     /// 未記録なら記録、記録済みで値が変わっていれば直す。
     /// **変わっていなければ何も送らない**（欄を移動するたびに往復しない）
     func commitDraft(_ id: UUID) async {
-        guard let i = drafts.firstIndex(where: { $0.id == id }),
-              let exerciseId = selectedExerciseId else { return }
+        guard let i = drafts.firstIndex(where: { $0.id == id }) else { return }
         let d = drafts[i]
+        // **行が自分で持つ**（#337）。複数の種目が同時に開いているので、
+        // 「いま選んでいる種目」では間違った種目に記録される
+        let exerciseId = d.exerciseId
         guard d.isComplete, let w = d.weightKg, let r = d.reps else { return }
 
         if !d.recorded {
@@ -200,7 +236,8 @@ final class LogModel {
 
     /// 「10/1(木)  80×8 / 80×7」。**前回この種目をやったセッションの全セット**。
     /// 直前の1セットではない（それは今日の記録として上に並んでいる）
-    var lastSummary: String? {
+    func lastSummary(of exerciseId: UUID) -> String? {
+        let last = lastByExercise[exerciseId]
         guard let date = last?.date, let sets = last?.sets, !sets.isEmpty else { return nil }
 
         let body = sets
@@ -211,9 +248,16 @@ final class LogModel {
         return "\(JST.displayString(from: date))  \(body)"
     }
 
-    /// 種目を開く／閉じる。**同じ行を押したら閉じる**（#232）
+    /// 種目を開く／閉じる。**同じ行を押したら閉じる**（#232）。
+    ///
+    /// **他の種目は閉じない**（#337）。開いたものは閉じるまで開いたまま
     func toggleExercise(_ id: UUID) {
-        selectedExerciseId = selectedExerciseId == id ? nil : id
+        touchedExerciseIds.insert(id)
+        if openExerciseIds.contains(id) {
+            openExerciseIds.remove(id)
+        } else {
+            openExerciseIds.insert(id)
+        }
     }
 
     // MARK: - その日の種目リスト（#242 / #247）
@@ -236,6 +280,11 @@ final class LogModel {
     private(set) var savingRows = false
 
     /// 行を組み直す。**保存された並びが正、無ければルーティン**（#242）
+    private func rebuildRowsAndOpen() {
+        rebuildRows()
+        openNewRows()
+    }
+
     private func rebuildRows() {
         let fromRoutine = (currentDay?.items ?? []).map {
             Row(exerciseId: $0.exerciseId, name: $0.exerciseName,
@@ -256,6 +305,18 @@ final class LogModel {
             return Row(exerciseId: e.id, name: e.name, muscleGroup: e.muscleGroup)
         }
     }
+
+    /// 並んだ種目を**既定で開く**（#337）。
+    ///
+    /// 足すたびにタップして開くのは手間。閉じたいときだけ閉じればよい。
+    /// **すでに開き閉じした種目には触らない** —— 閉じたものを読み直しで
+    /// 開き直すと、閉じた意味が無くなる
+    private func openNewRows() {
+        openExerciseIds.formUnion(rows.map(\.exerciseId).filter { !touchedExerciseIds.contains($0) })
+    }
+
+    /// 手で開き閉じした種目。**既定で開く対象から外す**
+    private var touchedExerciseIds: Set<UUID> = []
 
     /// 並べ替える。**先に画面を動かしてから保存する**（ドラッグが固まらないように）
     func moveRows(from source: IndexSet, to destination: Int) async {
@@ -314,7 +375,8 @@ final class LogModel {
 
     /// 今日の想定に無い種目を足す。**末尾に入る**
     func addExercise(_ id: UUID) async {
-        defer { selectedExerciseId = id }
+        // 足した種目は開く。**他は閉じない**（#337）
+        defer { openExerciseIds.insert(id) }
         guard !rows.contains(where: { $0.exerciseId == id }) else { return }
         guard let e = exercises.first(where: { $0.id == id }) else { return }
 
@@ -411,7 +473,10 @@ final class LogModel {
         // **手でずらした Day も足した種目も持ち越さない。**
         // 別の日の選択が残ると混乱する
         pickedOrder = nil
-        selectedExerciseId = nil
+        openExerciseIds = []
+        // **日が変われば前回も変わる**。残すと別の日の前回が出る
+        lastByExercise = [:]
+        touchedExerciseIds = []
         savedOrder = []
         rows = []
         knownSessionID = nil
@@ -445,7 +510,7 @@ final class LogModel {
         // **失敗しても握る。** 今日の想定が出ないだけで、記録はできる
         routine = try? await api.todayRoutine(date: date)
 
-        rebuildRows()
+        rebuildRowsAndOpen()
         rebuildDrafts()
         updatePendingMessage()
     }
@@ -459,7 +524,8 @@ final class LogModel {
     /// nil で自動に戻す。**全 Day を持っているので引き直さない。**
     func pickDay(_ day: RoutineDay?) {
         pickedOrder = day?.dayOrder
-        rebuildRows()
+        rebuildRowsAndOpen()
+        rebuildDrafts()
     }
 
     /// その種目を今日やったか。行の印に使う
@@ -467,24 +533,35 @@ final class LogModel {
         logged.contains { $0.exerciseId == exerciseId }
     }
 
-    func selectExercise(_ id: UUID?) async {
-        last = nil
-        restStartedAt = nil
-        guard let id else { return }
+    /// 開いている種目の前回の実施をまとめて引く。
+    ///
+    /// **`didSet` から Task を投げない**（#337）。投げっぱなしだと順序が読めず、
+    /// テストで「どのリクエストが最後か」が決まらない。画面の `.task` で駆動する
+    func loadLastForOpen() async {
+        for id in openExerciseIds {
+            await loadLast(for: id)
+        }
+    }
 
-        loadingLast = true
-        defer { loadingLast = false }
+    /// その種目の前回の実施を引く。**開いたときに呼ぶ**（#337）
+    func loadLast(for id: UUID) async {
+        guard lastByExercise[id] == nil, !loadingLast.contains(id) else { return }
+
+        loadingLast.insert(id)
+        defer { loadingLast.remove(id) }
 
         do {
             // **表示日より前**で引く。今日を含めると、今打った値が「前回」になる（#257）
             let res = try await api.lastPerformance(exerciseId: id, before: date)
-            last = res
+            lastByExercise[id] = res
             // **前回値をそのまま初期値にする（要件 T-02）。**
             // ジムでの入力の大半は「前回と同じか少し増やす」。
             // 打ちかけが1行も無いときだけ（打った値を上書きしない）
             // **まだ何も打っていない行にだけ入れる。** 打った値を上書きしない
             if let top = res.sets?.first,
-               let i = drafts.firstIndex(where: { !$0.recorded && $0.weightText.isEmpty }) {
+               let i = drafts.firstIndex(where: {
+                   $0.exerciseId == id && !$0.recorded && $0.weightText.isEmpty
+               }) {
                 let w = (top.weightKg / Self.weightStep).rounded() * Self.weightStep
                 drafts[i].weightText = numberText(w)
                 drafts[i].repsText = String(top.reps)
@@ -618,8 +695,8 @@ final class LogModel {
         return "\(name) \(s.setNo)セット目 \(format(s.weightKg))kg × \(s.reps)回\(rirText)"
     }
 
-    func describeLastSets() -> String {
-        (last?.sets ?? [])
+    func describeLastSets(of exerciseId: UUID) -> String {
+        (lastByExercise[exerciseId]?.sets ?? [])
             .map { "\(format($0.weightKg))×\($0.reps)" + ($0.rir.map { "@\($0)" } ?? "") }
             .joined(separator: "  ")
     }

@@ -92,7 +92,7 @@ struct RegisterExerciseTests {
         #expect(m.exercises.contains { $0.name == "ケーブルクロスオーバー" })
         #expect(m.rows.contains { $0.name == "ケーブルクロスオーバー" })
         // 登録したらそのまま打てる
-        #expect(m.selectedExerciseId == m.rows.last?.exerciseId)
+        #expect(m.rows.last.map { m.openExerciseIds.contains($0.exerciseId) } == true)
     }
 
     @Test("**名前が空なら送らない**")
