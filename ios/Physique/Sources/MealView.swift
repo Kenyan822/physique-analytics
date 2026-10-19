@@ -1126,7 +1126,7 @@ private struct Total: View {
 private enum EditorField: Hashable {
     case name
     case totalP, totalF, totalC
-    case compName(Int), compUnit(Int), compAmount(Int)
+    case compName(Int), compAmount(Int)
     case compP(Int), compF(Int), compC(Int)
 }
 
@@ -1143,8 +1143,13 @@ private struct FoodEditorScreen: View {
     private var fieldOrder: [EditorField] {
         var out: [EditorField] = [.name, .totalP, .totalF, .totalC]
         for (i, c) in model.foodComponents.enumerated() {
-            out += [.compName(i), .compUnit(i), .compAmount(i)]
-            // 「全部」の引数は PFC 欄を出していないので飛ばす
+            // **出していない欄を並びに入れない。** 「次へ」で飛べない場所に
+            // 進もうとしてキーボードが固まる（#345）。
+            // 「全部」は名前を聞かず、単位は押して選ぶ形にした
+            if !c.coversAll {
+                out.append(.compName(i))
+            }
+            out.append(.compAmount(i))
             if !c.coversAll {
                 out += [.compP(i), .compF(i), .compC(i)]
             }
@@ -1243,21 +1248,25 @@ private struct FoodEditorScreen: View {
     /// 引数1つの編集。
     private func componentEditor(_ c: Binding<FoodComponentDraft>, at i: Int) -> some View {
         VStack(spacing: 8) {
-            HStack(spacing: 8) {
+            // **「全部」は名前を聞かない**（#345）。合計そのものを表すので、
+            // 「鶏むね」のような名前を付ける意味が無い
+            if !c.coversAll.wrappedValue {
                 TextField("名前（鶏ひき肉 / 砂糖）", text: c.name)
                     .accessibilityIdentifier("componentName")
                     .focused($focus, equals: .compName(i))
-                Field(text: c.unit, width: 44, placeholder: "g")
-                    .focused($focus, equals: .compUnit(i))
             }
 
             // **量は1つだけ**（#224）。「あたり」と「いつもの量」を持つと
-            // 区別がつかないと言われたので統合した
+            // 区別がつかないと言われたので統合した。
+            //
+            // **単位は量の隣に置く**（#345）。名前の横に離して置いていたら、
+            // 量の欄が2つあるように見えると言われた
             HStack(spacing: 6) {
                 Field(text: c.amount, width: 56, placeholder: "200")
                     .accessibilityIdentifier("componentAmountInput")
                     .focused($focus, equals: .compAmount(i))
-                Text("\(c.unit.wrappedValue) ぶんの PFC")
+                UnitPicker(unit: c.unit)
+                Text("ぶんの PFC")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
             }
@@ -1275,6 +1284,52 @@ private struct FoodEditorScreen: View {
     }
 }
 
+
+/// 単位の選択（#345）。
+///
+/// **枠だけの入力欄にしない。** `g` が入った四角を置いていたら、
+/// 「これは何」と2回聞かれた。押すと選べると分かる形にする。
+/// ただし**背景も色も足さない**。Form の行の中で浮く。
+///
+/// 自由入力も残す。「枚」「本」「カップ」まで並べると選ぶのが遅くなる
+private struct UnitPicker: View {
+    @Binding var unit: String
+    @State private var editing = false
+    @State private var typed = ""
+
+    /// よく使うものだけ。**多すぎると探す時間の方が長くなる**
+    private static let common = ["g", "ml", "個", "杯"]
+
+    var body: some View {
+        Menu {
+            ForEach(Self.common, id: \.self) { u in
+                Button(u) { unit = u }
+            }
+            Button("その他…") {
+                typed = unit
+                editing = true
+            }
+        } label: {
+            // **色も背景も足さない。** 四角で囲うと入力欄に見え、
+            // 色を変えると Form の行の中で浮く。矢印だけで足りる
+            HStack(spacing: 2) {
+                Text(unit.isEmpty ? "g" : unit)
+                Image(systemName: "chevron.down").font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .font(.callout)
+        }
+        .accessibilityIdentifier("componentUnit")
+        .alert("単位", isPresented: $editing) {
+            TextField("枚 / 本 / カップ", text: $typed)
+            Button("やめる", role: .cancel) {}
+            Button("使う") {
+                let t = typed.trimmingCharacters(in: .whitespaces)
+                if !t.isEmpty { unit = t }
+            }
+        }
+    }
+}
 
 /// 文章の中に置く小さな入力欄。**ラベルを持たない**（前後の文が説明する）
 private struct Field: View {
