@@ -24,6 +24,17 @@ final class BodyModel {
     /// 表示日より前の直近の体脂肪率
     private(set) var previousBodyfatPct: Double?
 
+    /// 前回の体重がいつのものか（要件 B-03 / #338）。
+    ///
+    /// **日付が無いと差分の意味が決まらない。** 昨日の -0.3kg と
+    /// 2週間前の -0.3kg はまったく別の話になる。
+    ///
+    /// **体重と体脂肪率で別に持つ。** 体重だけ測った日があるので、
+    /// 同じ日とは限らない
+    private(set) var previousWeightDate: String?
+    /// 前回の体脂肪率がいつのものか
+    private(set) var previousBodyfatDate: String?
+
     private(set) var message: String?
     private(set) var isSaving = false
 
@@ -193,8 +204,12 @@ final class BodyModel {
             fatigue = onDate?.fatigue
 
             let before = daily.filter { $0.date < date }
-            previousWeightKg = before.first { $0.weightKg != nil }?.weightKg
-            previousBodyfatPct = before.first { $0.bodyfatPct != nil }?.bodyfatPct
+            let lastWeight = before.first { $0.weightKg != nil }
+            let lastBodyfat = before.first { $0.bodyfatPct != nil }
+            previousWeightKg = lastWeight?.weightKg
+            previousWeightDate = lastWeight?.date
+            previousBodyfatPct = lastBodyfat?.bodyfatPct
+            previousBodyfatDate = lastBodyfat?.date
 
             // 表示日より後のものを「前回」にしない。
             // 日付を移せるようになったので、未来の値が出ることがある（#291）
