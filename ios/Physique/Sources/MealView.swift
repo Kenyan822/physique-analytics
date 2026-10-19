@@ -18,10 +18,30 @@ struct MealView: View {
 
     /// 行き先は1つだけ。新規と編集の出し分けは `model.editingFoodID` が持つ
     private enum FoodEditorRoute: Hashable { case editor }
+
+    /// 写真から推定する流れ（#321）。
+    ///
+    /// **補足と解析中を1枚のシートで出し分ける。** 別々のモーダルにすると、
+    /// 補足シートを閉じるのと解析中を出すのが同じ瞬間になり、
+    /// SwiftUI が後から出す方を黙って捨てる（実機で解析中が出なかった）。
+    private enum PhotoFlow {
+        /// 補足を書いている。写真を持ったまま待つ
+        case note(Data)
+        /// 解析中。**閉じられないようにする**
+        case estimating
+    }
     @FocusState private var focus: Field?
     /// 写真を選んでいる（#253）
     @State private var pickingPhoto = false
     @State private var photo: PhotosPickerItem?
+    /// カメラで撮っている（#321）
+    @State private var capturing = false
+    /// 写真から推定する流れ。**1枚のシートで出し分ける**（#321）
+    @State private var photoFlow: PhotoFlow?
+    /// 写真に添える自然言語の補足。**量を添えると精度が大きく上がる**
+    @State private var photoNote = ""
+    /// 解析中に止めるため、走っている処理を持つ
+    @State private var estimateTask: Task<Void, Never>?
     /// ざっくり入力（#261）。**シートにする** —— 入力セクションに行を足すと
     /// 記録ボタンがキーボードの下に落ちる（#202 / #253）
     @State private var enteringRough = false
@@ -90,6 +110,21 @@ struct MealView: View {
             // **カメラではなくライブラリから選ぶ。** 撮影は標準の UI に任せる
             .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
             .sheet(isPresented: $enteringRough) { roughSheet }
+            .fullScreenCover(isPresented: $capturing) {
+                CameraPicker { data in
+                    capturing = false
+                    if let data { startNote(with: data) }
+                }
+                .ignoresSafeArea()
+            }
+            // **写真を選んだらすぐ送らない。** 補足を書いてもらう（#321）。
+            // 解析中も同じシートのまま中身だけ差し替える
+            .sheet(isPresented: Binding(
+                get: { photoFlow != nil },
+                set: { if !$0 { cancelPhotoFlow() } }
+            )) {
+                photoSheet
+            }
             .onChange(of: photo) { _, item in
                 guard let item else { return }
                 Task {
@@ -97,9 +132,130 @@ struct MealView: View {
                     guard let data = try? await item.loadTransferable(type: Data.self) else {
                         return
                     }
-                    await model.estimate(image: data, note: model.draft.qty)
+                    startNote(with: data)
                 }
             }
+        }
+    }
+
+    /// 写真を受け取ったら、補足を書く画面に進む（#321）。
+    private func startNote(with data: Data) {
+        // 入力中の量があれば初期値にする。無ければ空
+        photoNote = model.draft.qty
+        photoFlow = .note(data)
+    }
+
+    /// 写真からの推定をやめる。**走っている通信も止める**（#321）
+    private func cancelPhotoFlow() {
+        estimateTask?.cancel()
+        estimateTask = nil
+        model.cancelEstimate()
+        photoFlow = nil
+    }
+
+    /// 補足と解析中を1枚で出し分ける（#321）。
+    ///
+    /// **NavigationStack ごと入れ替えない。** 中身だけ差し替える。
+    /// 裸の VStack をシートに置くと高さの箱が決まらず、ボタンが
+    /// 画面の下にはみ出して押せなかった（UI テストが検出した）。
+    private var photoSheet: some View {
+        NavigationStack {
+            Form {
+                if isEstimating {
+                    estimatingSections
+                } else {
+                    noteSections
+                }
+            }
+            .navigationTitle("写真から推定")
+            .navigationBarTitleDisplayMode(.inline)
+            // **閉じる口が要る。** 文字を打つと改行キーになり、
+            // 狭いシートではスクロールでも降ろせない
+            .keyboardDoneButton()
+            .toolbar {
+                // 解析中のやめるは中身の側に置く。ここに出すと2つになる
+                if !isEstimating {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("やめる") { photoFlow = nil }
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        // **解析中は下に引いて閉じられないようにする。** 閉じると裏が触れる。
+        // やめるのはボタンからだけにする
+        .interactiveDismissDisabled(isEstimating)
+    }
+
+    private var isEstimating: Bool {
+        if case .estimating = photoFlow { return true }
+
+        return false
+    }
+
+    /// 写真に添える補足（#321）。
+    ///
+    /// **量を添えると精度が大きく上がる。** 写真だけでは食器の大きさが
+    /// 分からず、量を推定しにくい（要件 N-06）。
+    @ViewBuilder
+    private var noteSections: some View {
+        Section {
+            TextField(
+                "鶏むね200g、白米は丼で300gくらい",
+                text: $photoNote, axis: .vertical
+            )
+            .lineLimit(3...6)
+            .accessibilityIdentifier("photoNote")
+        } header: {
+            Text("補足（任意）")
+        } footer: {
+            Text("量や調理法を書くと精度が大きく上がる。写真だけでは食器の大きさが分からない")
+        }
+
+        Section {
+            Button("推定する") { runEstimate() }
+                .accessibilityIdentifier("runEstimate")
+        }
+    }
+
+    /// 解析中に出す（#321）。**他の操作をさせない。**
+    ///
+    /// 待っている間に別の画面を触って戻ると、何が起きているか分からなくなる。
+    /// ただし**止める口は残す。** 通信が詰まったときに閉じ込めない。
+    @ViewBuilder
+    private var estimatingSections: some View {
+        Section {
+            HStack(spacing: 12) {
+                ProgressView()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("写真から推定しています")
+                        // **スタックに付けても引けない。** Text に付ける（#319 と同じ）
+                        .accessibilityIdentifier("estimatingCover")
+                    Text("10秒ほどかかります")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+
+        Section {
+            Button("やめる", role: .destructive) { cancelPhotoFlow() }
+                .accessibilityIdentifier("cancelEstimate")
+        }
+    }
+
+    private func runEstimate() {
+        guard case .note(let image) = photoFlow else { return }
+
+        // **シートは閉じない。** 中身を解析中に差し替える（#321）
+        photoFlow = .estimating
+
+        // **送る前に縮める。** 大きい画像は精度を上げず、時間とトークンだけ増える
+        let note = photoNote
+        estimateTask = Task {
+            await model.estimate(image: downscaleForEstimate(image), note: note)
+            estimateTask = nil
+            // やめたあとに戻ってきても、もう閉じている
+            photoFlow = nil
         }
     }
 
@@ -110,11 +266,24 @@ struct MealView: View {
     /// ツールバーなら行数に影響しない
     private var unknownMacrosMenu: some View {
         Menu {
+            // **その場で撮れるようにする**（#321）。
+            // シミュレータにはカメラが無いので出さない
+            if cameraIsAvailable {
+                Button {
+                    focus = nil
+                    capturing = true
+                } label: {
+                    Label("カメラで撮る", systemImage: "camera")
+                }
+                .disabled(model.estimating)
+                .accessibilityIdentifier("estimateFromCamera")
+            }
+
             Button {
                 focus = nil
                 pickingPhoto = true
             } label: {
-                Label("写真から推定", systemImage: "camera")
+                Label("写真から選ぶ", systemImage: "photo")
             }
             .disabled(model.estimating)
             .accessibilityIdentifier("estimateFromPhoto")
@@ -126,6 +295,16 @@ struct MealView: View {
                 Label("飲み会などをざっくり", systemImage: "wineglass")
             }
             .accessibilityIdentifier("enterRough")
+
+            #if DEBUG
+            // **UI テスト専用。** 写真を選ぶ画面はシステムの UI で自動化できないが、
+            // 補足シートの「推定する」はキーボードの下に落ちやすい場所なので
+            // （#202 と同じ事故）、そこだけは見ておきたい
+            if UITestSupport.isActive {
+                Button("テスト用の写真") { startNote(with: Data([0xFF, 0xD8, 0xFF])) }
+                    .accessibilityIdentifier("estimateFromStubPhoto")
+            }
+            #endif
         } label: {
             if model.estimating {
                 ProgressView().controlSize(.mini)
