@@ -173,6 +173,12 @@ final class MealInputTests: XCTestCase {
             "保存した目標が画面に出ること"
         )
 
+        // **判断に使うのは残りの方**（#334）。合計ではなく残りを大きく出す。
+        // 何も記録していないので、残りは目標そのままになる
+        let bigP = app.staticTexts["mealTotalP"]
+        XCTAssertTrue(bigP.waitForExistence(timeout: UITimeout.normal), "P の欄が出ること")
+        XCTAssertEqual(bigP.label, "180", "大きく出ているのが残りであること")
+
         // **Form の中の既定スタイルの Button は action が呼ばれなかった**（#217）
         openTargetSheet()
         let clear = app.buttons["clearManualTarget"]
