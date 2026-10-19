@@ -138,6 +138,55 @@ func TestCreateFoodItem_引数つきで登録できる(t *testing.T) {
 	}
 }
 
+// **「全部」の引数は合計そのもの**（ADR-0017）。PFC を送ってこなくても
+// サーバが合計で埋める。埋めないと固定部が合計になり、**量が効かなくなる**（#344）
+func TestCreateFoodItem_全部の引数は合計で埋める(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubFoodItems{created: openapi.FoodItem{Id: uuid.New()}}
+	rec := postJSON(t, foodServer(stub), http.MethodPost, "/v1/food-items",
+		json.RawMessage(`{"name":"プロテイン","proteinG":21.1,"fatG":1.8,"carbG":4.7,
+			"components":[{"name":"量","unit":"g","amount":30,"coversAll":true}]}`))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+
+	got := (*stub.gotIn.Components)[0]
+	for _, m := range []struct {
+		field string
+		value *float32
+		want  float32
+	}{
+		{"proteinG", got.ProteinG, 21.1},
+		{"fatG", got.FatG, 1.8},
+		{"carbG", got.CarbG, 4.7},
+	} {
+		if m.value == nil || *m.value != m.want {
+			t.Errorf("%s = %v, want %v", m.field, m.value, m.want)
+		}
+	}
+}
+
+// 「全部」でない引数は触らない。送られた値がそのまま入る
+func TestCreateFoodItem_全部でない引数は埋めない(t *testing.T) {
+	t.Parallel()
+
+	stub := &stubFoodItems{created: openapi.FoodItem{Id: uuid.New()}}
+	rec := postJSON(t, foodServer(stub), http.MethodPost, "/v1/food-items",
+		json.RawMessage(`{"name":"そぼろ定食","proteinG":66,"components":[
+			{"name":"鶏むね","unit":"g","amount":200,"proteinG":46}]}`))
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body)
+	}
+
+	got := (*stub.gotIn.Components)[0]
+	if got.ProteinG == nil || *got.ProteinG != 46 {
+		t.Errorf("proteinG = %v, want 46", got.ProteinG)
+	}
+}
+
 func TestCreateFoodItem_名前が空なら422(t *testing.T) {
 	t.Parallel()
 
