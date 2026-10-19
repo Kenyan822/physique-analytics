@@ -14,6 +14,9 @@ extension View {
     /// | タップ | **読むだけの行**を押したとき（`dismissesKeyboardWhenTapped`） |
     /// | 「完了」／「次へ」 | 上2つが効かない場所でも確実に閉じられる逃げ道 |
     ///
+    /// **3つ目は常に出ていないと意味がない。** `keyboardFocusBar` の「完了」が
+    /// 主操作と入れ替わる作りだったので、打ち始めると消えていた。
+    ///
     /// **画面全体にタップ判定を付けない。** コントロールからタップを奪う（#229）。
     ///
     /// **`@FocusState` を経由しない。** 画面ごとに `@FocusState` の型が違うので、
@@ -96,6 +99,13 @@ extension View {
                 .accessibilityIdentifier("keyboardNext")
 
                 Spacer()
+
+                // **「完了」は主操作があっても出す。** 以前は打ち始めた瞬間に
+                // 「記録」と入れ替わって消えていた。打っている最中こそ
+                // 降ろしたいので、逃げ道が無くなっていた（実機で出た）
+                Button("完了") { focus.wrappedValue = nil }
+                    .accessibilityIdentifier("keyboardDone")
+
                 if let action {
                     Button(action.title) {
                         focus.wrappedValue = nil
@@ -105,9 +115,6 @@ extension View {
                     // **タブバーにも「記録」がある。** 名前だけでは引けないので
                     // UI テスト用に識別子を付ける（#202）
                     .accessibilityIdentifier("keyboardPrimaryAction")
-                } else {
-                    Button("完了") { focus.wrappedValue = nil }
-                        .accessibilityIdentifier("keyboardDone")
                 }
             }
         }
