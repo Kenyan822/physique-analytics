@@ -602,9 +602,25 @@ final class MealModel {
             draft = MealDraft(estimate: e)
             estimateNote = e.note
         } catch {
+            // **やめたときは何も出さない。** 自分で止めたのに
+            // 「キャンセルされました」と出るのは雑音（#321）
+            guard !isCancellation(error) else { return }
+
             estimateNote = nil
             errorMessage = (error as? APIError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    /// 自分で止めたか。
+    ///
+    /// `URLSession` は中断を `URLError.cancelled` で返す。Swift の
+    /// `CancellationError` とは別物なので、両方を見る
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if case .transport(let e) = error as? APIError,
+           (e as? URLError)?.code == .cancelled { return true }
+
+        return (error as? URLError)?.code == .cancelled
     }
 
     /// 推定をやめる（#321）。

@@ -311,14 +311,104 @@ ImageIO は macOS でも動くので、**縮小の判断（長辺・縦横比・
 
 ## 待たせる処理は「止める口」を残す
 
-```swift
-.fullScreenCover(isPresented: Binding(get: { model.estimating }, set: { _ in })) {
-    estimatingCover
-}
-```
-
 解析中に他を触らせないのは正しいが、**閉じられない画面は通信が詰まると
 閉じ込めになる。** 「やめる」を置いて `Task` を cancel できるようにする。
 
-`set: { _ in }` にしているのは、**利用者のスワイプで閉じさせない**ため。
-閉じるのは処理が終わったときだけ。
+スワイプで閉じさせないのは `.interactiveDismissDisabled()` でやる。
+閉じる口はボタンだけにする。
+
+やめたときにエラーを出さないこと。自分で止めたのに「キャンセルされました」が
+出るのは雑音になる。`URLSession` は中断を `CancellationError` ではなく
+`URLError.cancelled` で返すので、**両方を見る**。
+
+```swift
+private func isCancellation(_ error: Error) -> Bool {
+    if error is CancellationError { return true }
+    if case .transport(let e) = error as? APIError,
+       (e as? URLError)?.code == .cancelled { return true }
+
+    return (error as? URLError)?.code == .cancelled
+}
+```
+
+## モーダルを閉じながら別のモーダルを出すと、後の方が消える
+
+写真に補足を書くシートを閉じて、解析中の `fullScreenCover` を出す作りにした。
+
+```swift
+// 補足を書くシート
+.sheet(isPresented: Binding(get: { pendingImage != nil }, set: ...)) { photoNoteSheet }
+// 解析中
+.fullScreenCover(isPresented: Binding(get: { model.estimating }, set: { _ in })) {
+    estimatingCover
+}
+
+private func runEstimate() {
+    pendingImage = nil       // ここでシートが閉じ始める
+    estimateTask = Task {    // ほぼ同時に estimating が true になる
+        await model.estimate(...)
+    }
+}
+```
+
+**実機で解析中の画面が1度も出なかった。** ビルドもテストも緑だった。
+
+同じ view に付いた presentation は同時に1つしか動かない。閉じるのと
+出すのが同じ瞬間に重なると、**SwiftUI は後から出す方を黙って捨てる。**
+エラーも警告も出ない。
+
+直し方は**presentation を増やさないこと。** シートは1枚のままにして、
+中身だけ差し替える。
+
+```swift
+private enum PhotoFlow {
+    case note(Data)
+    case estimating
+}
+@State private var photoFlow: PhotoFlow?
+
+.sheet(isPresented: Binding(
+    get: { photoFlow != nil },
+    set: { if !$0 { cancelPhotoFlow() } }
+)) { photoSheet }
+```
+
+これなら `isPresented` は一度も false にならないので、閉じて開き直しが起きない。
+
+## 「出ている」と「押せる」の間に「閉じかけ」がある
+
+上の直しを入れたあと、UI テストはこう落ちた。
+
+```
+XCTAssertTrue failed - 押せる位置にあること
+Button, {{166.4, 1128.1}, {69.1, 33.0}}, identifier: 'cancelEstimate'
+```
+
+画面は 874pt しかないので、y=1128 は画面の外。**レイアウトを疑って
+2回直したが、どちらも直らなかった**（裸の VStack をやめて NavigationStack に
+入れる → さらに Form の行にする）。y は実行のたびに 1128 → 1161 → 1072 と動いた。
+
+動いているなら静的なレイアウトの問題ではない。**シートが閉じるアニメーションの
+途中を掴んでいた。**
+
+原因はテスト側のスタブ。
+
+```swift
+if path.hasSuffix("/v1/meals/estimate") {
+    try? await Task.sleep(for: .seconds(3))   // 短すぎた
+}
+```
+
+**XCUITest は要素を1つ探すのに1秒前後かける。** `waitForExistence` が
+通ってから `isHittable` を見るまでに数秒経つので、3秒で終わる処理は
+その間に完了して、シートが閉じ始めている。
+
+待たせる処理のスタブは**テストの手数より十分に長く**する。テストは
+「やめる」を押して打ち切るので、長くしても待たされない。
+
+| 症状 | 疑う順 |
+|---|---|
+| 要素が無い | 本当に出していない |
+| 要素はあるが画面外で、**座標が実行ごとに動く** | アニメーションの途中を見ている |
+| 要素はあるが画面外で、**座標が毎回同じ** | レイアウト |
+
