@@ -36,6 +36,13 @@ final class LogInputTests: XCTestCase {
         let row = rows.element(boundBy: index)
         XCTAssertTrue(row.isHittable, "ルーティンの種目が押せる位置にあること")
         row.tap()
+
+        // **シートが閉じきるまで待つ。** 続けて呼ぶと、閉じかけのシートの上で
+        // 「種目を足す」を押すことになり、2回目が効かない（CI でだけ出た）
+        XCTAssertTrue(
+            app.navigationBars["種目を足す"].waitForNonExistence(timeout: UITimeout.normal),
+            "シートが閉じること"
+        )
     }
 
     /// #336。**ルーティンは並べず、選ぶときに一番上に出す。**
@@ -160,6 +167,24 @@ final class LogInputTests: XCTestCase {
             tries += 1
         }
         XCTAssertTrue(added.isHittable, "スクロールすれば打てる位置に来ること")
+    }
+
+    /// #335。**懸垂・ディップスは重さに入れる数字が無い。**
+    /// 0 のままだとトン数も e1RM も 0 になる
+    func test_自重を選べる() {
+        // **空から始まる**（#336）。足した行はもう開いている（#337）
+        addFromRoutine(0)
+
+        let toggle = app.buttons["bodyweightToggle"].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: UITimeout.normal), "自重が出ること")
+        XCTAssertTrue(toggle.isHittable, "押せる位置にあること")
+
+        // **押した結果まで見る**（#217 の反省）。単位が「+kg」に変わる
+        toggle.tap()
+        XCTAssertTrue(
+            app.staticTexts["+kg"].firstMatch.waitForExistence(timeout: UITimeout.normal),
+            "自重にすると加重のぶんを入れる欄だと分かること"
+        )
     }
 
     /// #256。**記録済みも入力中も同じ行**で、その場で直せるところまで。

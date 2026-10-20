@@ -75,6 +75,9 @@ final class LogModel {
         let id: UUID
         /// どの種目の行か。**複数の種目を同時に開く**ので行自身が持つ（#337）
         let exerciseId: UUID
+        /// 自重でやったか（#335）。**種目ではなく行が持つ。**
+        /// 同じ懸垂でも、加重の日とそうでない日がある
+        var bodyweight = false
         /// サーバ上の番号。**順序と同一性のための内部の値。**
         /// 途中を消すと飛ぶので、そのまま画面に出さない
         var setNo: Int
@@ -121,7 +124,7 @@ final class LogModel {
         var out: [SetDraft] = []
         for ex in ordered + rest {
             out += sets(of: ex).map { s in
-                SetDraft(id: s.id, exerciseId: ex, setNo: s.setNo,
+                SetDraft(id: s.id, exerciseId: ex, bodyweight: s.bodyweight, setNo: s.setNo,
                          weightText: numberText(s.weightKg), repsText: String(s.reps),
                          rirText: s.rir.map(String.init) ?? "", recorded: true)
             }
@@ -169,9 +172,25 @@ final class LogModel {
 
         return SetDraft(
             id: UUID(), exerciseId: exerciseId,
+            // **直前の行を引き継ぐ。** 自重の種目は全セット自重になる
+            bodyweight: prev?.bodyweight ?? false,
             setNo: (mine.map(\.setNo).max() ?? 0) + 1,
             weightText: prev?.weightText ?? "", repsText: prev?.repsText ?? "",
             rirText: prev?.rirText ?? "", recorded: false)
+    }
+
+    /// 自重かどうかを切り替える（#335）。
+    ///
+    /// **記録済みの行も切り替えられる。** 「自重だったのに忘れていた」を
+    /// あとから直せないと、間違ったまま分析に残り続ける
+    func setBodyweight(_ on: Bool, for id: UUID) {
+        guard let i = drafts.firstIndex(where: { $0.id == id }) else { return }
+        drafts[i].bodyweight = on
+
+        guard drafts[i].recorded,
+              let w = drafts[i].weightKg, let r = drafts[i].reps else { return }
+
+        Task { await updateSet(id: id, weightKg: w, reps: r, rir: drafts[i].rir, bodyweight: on) }
     }
 
     /// 行を確定する。**欄から離れたときに呼ぶ。**
@@ -189,7 +208,8 @@ final class LogModel {
         if !d.recorded {
             let item = PendingSet(
                 id: d.id, date: date, exerciseId: exerciseId, setNo: d.setNo,
-                weightKg: w, reps: r, rir: d.rir, queuedAt: Date())
+                weightKg: w, bodyweight: d.bodyweight, reps: r, rir: d.rir,
+                queuedAt: Date())
 
             // **積んだ時点で記録は確定。** 送信の成否は表示で伝えるだけにする
             queue.push(item)
@@ -506,7 +526,8 @@ final class LogModel {
             logged = (sessions.first?.sets ?? []).map {
                 PendingSet(
                     id: $0.id, date: date, exerciseId: $0.exerciseId, setNo: $0.setNo,
-                    weightKg: $0.weightKg, reps: $0.reps, rir: $0.rir, queuedAt: Date()
+                    weightKg: $0.weightKg, bodyweight: $0.bodyweight,
+                    reps: $0.reps, rir: $0.rir, queuedAt: Date()
                 )
             }
             await flush()
@@ -604,13 +625,16 @@ final class LogModel {
     ///
     /// **キューを経由しない。** 未送信のものを直す経路まで作ると、同じ id が
     /// キューとサーバの両方にある状態を考えることになる。直せるのは送信済みだけ
-    func updateSet(id: UUID, weightKg: Double, reps: Int, rir: Int?) async {
+    func updateSet(id: UUID, weightKg: Double, reps: Int, rir: Int?,
+                   bodyweight: Bool? = nil) async {
         guard let i = logged.firstIndex(where: { $0.id == id }) else { return }
+        let bw = bodyweight ?? logged[i].bodyweight
 
         do {
             _ = try await api.updateSet(id: id, WorkoutSetInput(
                 id: id, exerciseId: logged[i].exerciseId, setNo: logged[i].setNo,
-                weightKg: weightKg, reps: reps, rir: rir))
+                weightKg: weightKg, bodyweight: bw, reps: reps, rir: rir))
+            logged[i].bodyweight = bw
             logged[i].weightKg = weightKg
             logged[i].reps = reps
             logged[i].rir = rir
@@ -639,7 +663,8 @@ final class LogModel {
                     sessionId: sid,
                     WorkoutSetInput(
                         id: item.id, exerciseId: item.exerciseId, setNo: item.setNo,
-                        weightKg: item.weightKg, reps: item.reps, rir: item.rir
+                        weightKg: item.weightKg, bodyweight: item.bodyweight,
+                        reps: item.reps, rir: item.rir
                     )
                 )
                 sent.append(item.id)

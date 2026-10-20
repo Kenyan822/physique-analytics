@@ -45,8 +45,37 @@ struct WorkoutSet: Codable, Identifiable, Hashable, Sendable {
     let exerciseId: UUID
     let setNo: Int
     let weightKg: Double
+    /// 自重の種目か（#335）。**立っているときの挙上重量は
+    /// 「その日の体重 + weightKg」。** weightKg は加重のぶん
+    var bodyweight = false
     let reps: Int
     var rir: Int?
+
+    // **合成の Codable は既定値を使わない。** キーが無いと decode が投げ、
+    // セットが1件も読めなくなる。足したばかりの項目は必ず decodeIfPresent で読む
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        sessionId = try c.decode(UUID.self, forKey: .sessionId)
+        exerciseId = try c.decode(UUID.self, forKey: .exerciseId)
+        setNo = try c.decode(Int.self, forKey: .setNo)
+        weightKg = try c.decode(Double.self, forKey: .weightKg)
+        bodyweight = try c.decodeIfPresent(Bool.self, forKey: .bodyweight) ?? false
+        reps = try c.decode(Int.self, forKey: .reps)
+        rir = try c.decodeIfPresent(Int.self, forKey: .rir)
+    }
+
+    init(id: UUID, sessionId: UUID, exerciseId: UUID, setNo: Int,
+         weightKg: Double, bodyweight: Bool = false, reps: Int, rir: Int? = nil) {
+        self.id = id
+        self.sessionId = sessionId
+        self.exerciseId = exerciseId
+        self.setNo = setNo
+        self.weightKg = weightKg
+        self.bodyweight = bodyweight
+        self.reps = reps
+        self.rir = rir
+    }
 }
 
 struct WorkoutSession: Codable, Identifiable, Hashable, Sendable {
@@ -94,6 +123,7 @@ struct WorkoutSetInput: Codable, Sendable {
     var exerciseId: UUID
     var setNo: Int
     var weightKg: Double
+    var bodyweight: Bool = false
     var reps: Int
     var rir: Int?
 }
