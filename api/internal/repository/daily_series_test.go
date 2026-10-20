@@ -15,7 +15,7 @@ func TestDailySeries_期間内の記録を返す(t *testing.T) {
 	body := repository.NewBody(tx)
 	repo := repository.NewAnalysis(tx)
 
-	for i, d := range []struct {
+	for _, d := range []struct {
 		day    int
 		weight float64
 	}{
@@ -26,7 +26,6 @@ func TestDailySeries_期間内の記録を返す(t *testing.T) {
 		if _, err := body.PutDaily(ctx, repository.DailyInput{
 			Date:     jstDate(2032, 1, d.day),
 			WeightKg: ptr(float32(d.weight)),
-			Kcal:     ptr(2000 + i),
 			Fatigue:  ptr(2),
 		}); err != nil {
 			t.Fatalf("PutDaily: %v", err)

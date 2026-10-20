@@ -19,14 +19,14 @@ func TestPutDaily_日付をキーに上書きする(t *testing.T) {
 		t.Fatalf("PutDaily（1回目）: %v", err)
 	}
 
-	// 同じ日に別の項目だけを書く。朝に体重、夜に食事という入力を想定する
-	got, err := repo.PutDaily(ctx, repository.DailyInput{Date: date, Kcal: ptr(2700)})
+	// 同じ日に別の項目だけを書く。朝に体重、夜に歩数という入力を想定する
+	got, err := repo.PutDaily(ctx, repository.DailyInput{Date: date, Steps: ptr(9000)})
 	if err != nil {
 		t.Fatalf("PutDaily（2回目）: %v", err)
 	}
 
-	if got.Kcal == nil || *got.Kcal != 2700 {
-		t.Errorf("kcal = %v, want 2700", got.Kcal)
+	if got.Steps == nil || *got.Steps != 9000 {
+		t.Errorf("steps = %v, want 9000", got.Steps)
 	}
 	// **省略した項目が消えないことがこのテストの本題。**
 	// 上書きしてしまうと、朝に入れた体重が夜の食事入力で消える
