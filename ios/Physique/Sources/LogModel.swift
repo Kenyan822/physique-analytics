@@ -320,7 +320,12 @@ final class LogModel {
         // その日やったものが埋もれる。空から始めて、やった種目だけ足す。
         // ルーティンは「種目を足す」の一番上にまとまる
         guard !savedOrder.isEmpty else {
-            rows = []
+            // **記録のある種目だけは並べる。** これは想定ではなく事実。
+            //
+            // 落とすと、種目を足したときに「その1件だけ」を送ることになり、
+            // サーバが「セットを記録済みの種目は外せない」で 422 を返す。
+            // 本番で踏んだ（session_exercises が空で、セットだけある日）
+            rows = orderedRecorded()
 
             return
         }
@@ -332,6 +337,21 @@ final class LogModel {
 
             return Row(exerciseId: e.id, name: e.name, muscleGroup: e.muscleGroup)
         }
+    }
+
+    /// セットを記録した種目を、記録した順に並べる。
+    ///
+    /// **session_exercises が空の日の土台。** 名前はマスタから引く
+    private func orderedRecorded() -> [Row] {
+        var seen = Set<UUID>()
+        var out: [Row] = []
+        for set in logged.sorted(by: { $0.queuedAt < $1.queuedAt }) {
+            guard seen.insert(set.exerciseId).inserted,
+                  let e = exercises.first(where: { $0.id == set.exerciseId }) else { continue }
+            out.append(Row(exerciseId: e.id, name: e.name, muscleGroup: e.muscleGroup))
+        }
+
+        return out
     }
 
     /// 並んだ種目を**既定で開く**（#337）。
