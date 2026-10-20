@@ -62,9 +62,9 @@ struct LogView: View {
                 Task { await model.commitDraft(old.set) }
             }
             .task { await model.load() }
-            .onChange(of: model.selectedExerciseId) { _, id in
-                Task { await model.selectExercise(id) }
-            }
+            // **開いている種目の前回値を引く。** モデルの didSet から
+            // Task を投げると順序が読めない（#337）
+            .task(id: model.openExerciseIds) { await model.loadLastForOpen() }
             // **カテゴリ別に全種目。** 今日の想定に無いものをその日だけ足す（#232）
             .sheet(isPresented: $addingExercise) { addExerciseSheet }
             .sheet(isPresented: $changingDay) { changeDaySheet }
@@ -128,8 +128,29 @@ struct LogView: View {
             List {
                 // **大分類は6つ**（#288）。13の見出しが並ぶと目的の種目まで遠い。
                 // `MuscleGroup` 自体は13のまま —— 分析がそれを前提にしている
+                // **今日のルーティンを一番上に**（#336）。並べはしないが、
+                // 探す手間を増やさずに「今日やる想定のもの」を先に見せる
+                let hits = ExerciseFilter.apply(model.exercises, query: exerciseQuery)
+                let routine = model.routineExerciseIds.compactMap { id in
+                    hits.first { $0.id == id }
+                }
+                if !routine.isEmpty {
+                    Section {
+                        ForEach(routine) { e in exerciseRow(e) }
+                    } header: {
+                        Text("今日のルーティン")
+                    } footer: {
+                        Text("足してもルーティンは変わらない")
+                            .font(.caption2)
+                    }
+                }
+
+                // **下の分類からは外す。** 同じ種目が2回出ると、
+                // どちらを押したか分からなくなる
+                let routineIds = Set(routine.map(\.id))
                 ForEach(MuscleArea.allCases, id: \.self) { area in
-                    let items = ExerciseFilter.apply(model.exercises, query: exerciseQuery)
+                    let items = hits
+                        .filter { !routineIds.contains($0.id) }
                         .filter { MuscleArea.of($0.muscleGroup) == area }
                     if !items.isEmpty {
                         Section(area.label) {
@@ -194,6 +215,8 @@ struct LogView: View {
         // **名前で引けるようにする。** 付けないとラベルが行の中身
         // （名前・部位）を繋いだ1つの文字列になり、UI テストから引けない
         .accessibilityLabel(e.name)
+        // 並び順で引く用（#336）。名前を知らなくても「上から n 番目」を押せる
+        .accessibilityIdentifier("pickExercise")
         // **論理削除。** 記録は残る（#264）
         .swipeActions {
             Button("消す", role: .destructive) {
@@ -326,8 +349,8 @@ struct LogView: View {
 
                 // **その行の下に開く。** 画面の一番下に入力欄があると、
                 // どの種目を打っているのか分からなくなる（#232）
-                if model.selectedExerciseId == row.exerciseId {
-                    lastLine
+                if model.openExerciseIds.contains(row.exerciseId) {
+                    lastLine(for: row.exerciseId)
                     setRows(for: row.exerciseId)
                 }
             }
@@ -378,7 +401,7 @@ struct LogView: View {
 
             Spacer()
 
-            if model.selectedExerciseId == row.exerciseId {
+            if model.openExerciseIds.contains(row.exerciseId) {
                 Image(systemName: "chevron.down")
                     .font(.caption).foregroundStyle(.tertiary)
             }
@@ -392,7 +415,8 @@ struct LogView: View {
     /// 保存する。ジムで「記録を押し忘れて1セット消えた」が起きないようにする。
     @ViewBuilder
     private func setRows(for exerciseId: UUID) -> some View {
-        ForEach(model.drafts) { d in
+        // **自分の種目の行だけ**（#337）。複数の種目が同時に開いている
+        ForEach(model.drafts(of: exerciseId)) { d in
             HStack(spacing: 4) {
                 Text("\(d.displayNo)")
                     .font(.caption).foregroundStyle(.secondary)
@@ -443,7 +467,7 @@ struct LogView: View {
 
         Button {
             commitFocused()
-            model.addSetRow()
+            model.addSetRow(for: exerciseId)
         } label: {
             Label("セットを足す", systemImage: "plus")
                 .font(.callout)
@@ -504,10 +528,10 @@ struct LogView: View {
 
     /// 前回この種目をやったセッション（#251）。**超えられるかをその場で決める**
     @ViewBuilder
-    private var lastLine: some View {
-        if model.loadingLast {
+    private func lastLine(for exerciseId: UUID) -> some View {
+        if model.loadingLast.contains(exerciseId) {
             line("前回", "取得中…")
-        } else if let summary = model.lastSummary {
+        } else if let summary = model.lastSummary(of: exerciseId) {
             line("前回", summary)
         } else {
             line("前回", "この種目は初回")

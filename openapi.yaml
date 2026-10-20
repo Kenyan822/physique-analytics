@@ -2128,10 +2128,6 @@ components:
               description: JST の日付（ADR-0013）。1日1行
             weightKg: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
             bodyfatPct: { type: [number, "null"], minimum: 0, maximum: 70 }
-            kcal: { type: [integer, "null"], minimum: 0 }
-            proteinG: { type: [integer, "null"], minimum: 0 }
-            fatG: { type: [integer, "null"], minimum: 0 }
-            carbG: { type: [integer, "null"], minimum: 0 }
             sleepH: { type: [number, "null"], minimum: 0, maximum: 24 }
             steps: { type: [integer, "null"], minimum: 0 }
             fatigue:
@@ -2151,10 +2147,6 @@ components:
         date: { type: string, format: date }
         weightKg: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
         bodyfatPct: { type: [number, "null"], minimum: 0, maximum: 70 }
-        kcal: { type: [integer, "null"], minimum: 0 }
-        proteinG: { type: [integer, "null"], minimum: 0 }
-        fatG: { type: [integer, "null"], minimum: 0 }
-        carbG: { type: [integer, "null"], minimum: 0 }
         sleepH: { type: [number, "null"], minimum: 0, maximum: 24 }
         steps: { type: [integer, "null"], minimum: 0 }
         fatigue: { type: [integer, "null"], minimum: 1, maximum: 5 }
@@ -2797,6 +2789,14 @@ components:
         confidence:
           type: [string, "null"]
           description: low / medium / high。量が分からないときは low
+        fromLabel:
+          type: boolean
+          default: false
+          description: |
+            **栄養成分表示から読んだ値か。** 見た目からの推定より確かなので、
+            直す必要があるかの判断に使う（#350）。
+            「100g あたり」の表示を1食分に換算できなかったときは、
+            qty にその旨が入り confidence が low になる。
         note:
           type: [string, "null"]
           description: 推定の根拠。直すときの手がかりになる

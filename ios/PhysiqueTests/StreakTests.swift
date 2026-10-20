@@ -106,8 +106,39 @@ struct StreakModelTests {
         #expect(m.mealStreak == 2)
     }
 
-    @Test("未達で切れる")
-    func falseBreaks() async {
+    /// #348。**一日の途中は当たり前に未達。** 食べ終わるまで 0 に見えると、
+    /// 続けること自体が目的の表示なのに効き目が無くなる
+    @Test("**今日がまだでも昨日までの連続が出る**")
+    func todayPendingKeepsStreak() async {
+        let run = #"""
+        {"items":[
+         {"date":"2026-10-05","mealGoalMet":true,"trained":false},
+         {"date":"2026-10-06","mealGoalMet":true,"trained":false},
+         {"date":"2026-10-07","mealGoalMet":true,"trained":false},
+         {"date":"2026-10-08","mealGoalMet":false,"trained":false}]}
+        """#
+        let (m, _) = await loaded(run, today: "2026-10-08")
+
+        #expect(m.mealStreak == 3)
+    }
+
+    /// **今日を達成したら足す。** 昨日までが2日なら3日になる
+    @Test("**今日を達成すると1増える**")
+    func todayDoneAddsOne() async {
+        let run = #"""
+        {"items":[
+         {"date":"2026-10-06","mealGoalMet":true,"trained":false},
+         {"date":"2026-10-07","mealGoalMet":true,"trained":false},
+         {"date":"2026-10-08","mealGoalMet":true,"trained":false}]}
+        """#
+        let (m, _) = await loaded(run, today: "2026-10-08")
+
+        #expect(m.mealStreak == 3)
+    }
+
+    /// **昨日で切れていれば、今日を達成しても1**
+    @Test("**昨日が未達なら今日を達成しても1**")
+    func yesterdayBrokenGivesOne() async {
         let run = #"""
         {"items":[
          {"date":"2026-10-06","mealGoalMet":true,"trained":false},
@@ -117,6 +148,35 @@ struct StreakModelTests {
         let (m, _) = await loaded(run, today: "2026-10-08")
 
         #expect(m.mealStreak == 1)
+    }
+
+    /// 筋トレ側にも同じく効く
+    @Test("**筋トレも今日がまだでは切れない**")
+    func trainedTodayPending() async {
+        let run = #"""
+        {"items":[
+         {"date":"2026-10-06","mealGoalMet":null,"trained":true},
+         {"date":"2026-10-07","mealGoalMet":null,"trained":true},
+         {"date":"2026-10-08","mealGoalMet":null,"trained":false}]}
+        """#
+        let (m, _) = await loaded(run, today: "2026-10-08")
+
+        #expect(m.trainedStreak == 2)
+    }
+
+    /// **過去の未達では切れる。** 切れないのは「今日がまだ」のときだけ
+    @Test("未達で切れる")
+    func falseBreaks() async {
+        let run = #"""
+        {"items":[
+         {"date":"2026-10-05","mealGoalMet":true,"trained":false},
+         {"date":"2026-10-06","mealGoalMet":false,"trained":false},
+         {"date":"2026-10-07","mealGoalMet":true,"trained":false},
+         {"date":"2026-10-08","mealGoalMet":true,"trained":false}]}
+        """#
+        let (m, _) = await loaded(run, today: "2026-10-08")
+
+        #expect(m.mealStreak == 2)
     }
 }
 

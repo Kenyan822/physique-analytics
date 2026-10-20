@@ -305,8 +305,8 @@ final class MealInputTests: XCTestCase {
         // 閉じずに移れる道が要る。**閉じてから押す回避策は書かない**
         let next = app.buttons["keyboardNext"]
         XCTAssertTrue(next.waitForExistence(timeout: UITimeout.normal), "次へが出ること")
-        next.tap()   // 名前 → 単位
-        next.tap()   // 単位 → 量
+        // **単位は入力欄ではなくなった**（#345）。押して選ぶので並びに入らない
+        next.tap()   // 名前 → 量
 
         // **量は必須**（#224）。空だと登録が弾かれる
         app.typeText("30")
