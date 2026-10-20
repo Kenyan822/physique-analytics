@@ -32,8 +32,13 @@ data/sample/             ← コミットする（架空の記録）
 config.example.json      ← コミットする（設定の雛形）
 ```
 
-**月次目標の表は保存しない**（ADR-0015）。`GET /v1/plan/monthly-targets` で
-毎回計算するのが正。ファイルに落とすと、実測とずれたまま残る。
+計画の文書は 2026-10-15 に `private/docs/` から `analytics/plan/` へ移した。
+分析のたびに読み書きするので、分析の記録と同じ場所に置く。
+
+**数値の正は DB**（[ADR-0015](0015-plan-settings-in-db.md)）。文書が持つのは
+「なぜそう決めたか」の方。**月次目標の表は保存しない** ——
+`GET /v1/plan/monthly-targets` が毎回計算する。ファイルに落とすと、
+引き直したあとも古い表が正に見える。
 
 分析スクリプトのデフォルトパスを `private/` に向け、デモ実行時のみ `--data-dir data/sample` で切り替える。
 
