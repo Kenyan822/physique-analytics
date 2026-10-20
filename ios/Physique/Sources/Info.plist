@@ -8,6 +8,8 @@
 	<string>Physique</string>
 	<!-- HealthKit の利用目的（要件 B-01 / B-09）。
 	     **読み取りのみ。** 書き込みの権限は要求しない -->
+	<key>NSCameraUsageDescription</key>
+	<string>食事の写真を撮って栄養素を推定します。写真は推定にだけ使い、端末には保存しません。</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>体重・体脂肪率・歩数・睡眠を読み取り、TDEE の推定と回復の判定に使います。Apple Health への書き込みは行いません。</string>
 	<!-- 位置情報の利用目的（要件 N-08）。

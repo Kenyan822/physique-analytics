@@ -28,6 +28,8 @@ Go 側は [docs/go/](../go/)。
 | [offline.md](offline.md) | `PendingQueue`。電波が切れても記録が消えない仕組み（要件 T-07） |
 | [build-config.md](build-config.md) | xcconfig → `Info.plist` → `AppConfig`。署名と bundle ID |
 | [testing.md](testing.md) | Swift Testing、偽物の注入、タイムゾーン依存の落とし方 |
+| [ui-layout.md](ui-layout.md) | **レイアウトとタップ領域**。`.roundedBorder` の枠が大きくならない話、44pt、横幅の数え方 |
+| [healthkit.md](healthkit.md) | **Apple Health の取り込み**。`HKUnit.percent()` が割合を返す話、entitlement、読み取り権限が問い合わせられない理由 |
 
 ## 全体像
 
@@ -38,21 +40,21 @@ Go 側は [docs/go/](../go/)。
                     ┌─────┴─────┐
               LoginView      MainTabs
                                 │
-                    ┌───────┬───┴───┬────────┐
-                 LogView  MealView BodyView SettingsView
-                    │        │        │
-                 LogModel MealModel BodyModel     ← @Observable @MainActor
-                    │        │        │
-                    └────────┼────────┘
-                             │
-                        APIClient                  ← struct / Sendable
-                             │
-                   ┌─────────┴─────────┐
-              tokenProvider        HTTPTransport
-                   │                    │
-               AuthModel            URLSession
-                   │
-        AuthClient ─┴─ SessionStore（Keychain）
+      ┌────────┬────────┼─────────┬──────────┐
+  LogView  MealView  BodyView StreakView SettingsView
+      │        │        │         │
+  LogModel MealModel BodyModel StreakModel      ← @Observable @MainActor
+      │        │        │         │
+      └────────┴────┬───┴─────────┘
+                    │
+                APIClient                        ← struct / Sendable
+                    │
+          ┌─────────┴─────────┐
+     tokenProvider        HTTPTransport
+          │                    │
+      AuthModel            URLSession
+          │
+AuthClient ┴─ SessionStore（Keychain）
 ```
 
 **画面 → モデル → APIClient** の一方向。モデルは `View` を知らない。

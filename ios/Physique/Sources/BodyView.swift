@@ -5,12 +5,16 @@ import SwiftUI
 /// 記録画面と違って**測れた項目だけ入れる**。体脂肪率も周囲長も
 /// 毎日測るものではないので、空欄をそのままにできることが要る。
 struct BodyView: View {
+    /// 推移グラフに渡すために持つ。**BodyModel の api は private なので使えない**
+    private let api: APIClient
     @State private var model: BodyModel
-    private let date: String
+    /// 周囲長の「詳しく測る」を開いているか（#277）
+    @State private var showingAllParts = false
+    @State private var pickingDate = false
 
     init(api: APIClient, health: HealthSource? = nil, date: String = JST.dateString()) {
-        _model = State(initialValue: BodyModel(api: api, health: health))
-        self.date = date
+        self.api = api
+        _model = State(initialValue: BodyModel(api: api, health: health, date: date))
     }
 
     var body: some View {
@@ -20,50 +24,181 @@ struct BodyView: View {
                 compositionSection
                 fatigueSection
                 measurementSection
-
-                if let message = model.message {
-                    Section {
-                        Text(message).font(.footnote).foregroundStyle(.secondary)
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            // **食事・記録と同じ形**（#193 / #232 と揃える・#275）
+            .toolbar {
+                ToolbarItem(placement: .principal) { dateNav }
+                // 推移を見る口（要件 A-06 / #307）。**毎日触るのがここなので、
+                // Web ではなくアプリの中に置く**
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        BodyChartView(api: api)
+                    } label: {
+                        Image(systemName: "chart.xyaxis.line")
                     }
+                    .accessibilityIdentifier("bodyChart")
                 }
             }
-            .navigationTitle("体組成 \(date)")
             .dismissesKeyboardOnTap()
             .keyboardDoneButton()
-            .task { await model.load(date: date) }
+            // **.task(id:) で日付が変わるたびに読み直す**
+            .task(id: model.date) { await model.load(date: model.date) }
+            // **一度許可したら黙って取り込む**（#274）
+            .task { await model.syncHealthIfGranted(today: model.date) }
         }
+    }
+
+    /// 中央上部に置き、左右で1日ずつ（食事・記録と同じ・#275）
+    private var dateNav: some View {
+        HStack(spacing: 8) {
+            Button { Task { await model.goToPreviousDay() } } label: {
+                Image(systemName: "chevron.left")
+            }
+
+            Button { pickingDate = true } label: {
+                Text(model.dateLabel).font(.headline)
+            }
+            .buttonStyle(.plain)
+
+            // **未来には進めない。** 測りようがない日を開いても意味が無い
+            Button { Task { await model.goToNextDay() } } label: {
+                Image(systemName: "chevron.right")
+            }
+            .disabled(!model.canGoNext)
+        }
+        .sheet(isPresented: $pickingDate) {
+            NavigationStack {
+                DatePicker("日付", selection: pickedDate, displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .padding()
+                    .navigationTitle("日付")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("閉じる") { pickingDate = false }
+                        }
+                    }
+            }
+            .presentationDetents([.medium])
+        }
+    }
+
+    /// モデルは "YYYY-MM-DD" で持っているので載せ替える（食事と同じ）
+    private var pickedDate: Binding<Date> {
+        Binding(
+            get: { JST.date(from: model.date) ?? Date() },
+            set: { d in
+                Task { await model.goTo(JST.dateString(from: d)) }
+                pickingDate = false
+            }
+        )
     }
 
     /// Apple Health からの取り込み（要件 B-01 / B-09）。
     ///
-    /// **自動では取り込まない。** 起動のたびに権限ダイアログが出るのは
-    /// 邪魔だし、いつ何が入ったか分からないまま数字が変わる方が怖い。
+    /// **最初の1回だけ押してもらう。** 起動のたびに権限ダイアログが出るのは
+    /// 邪魔なので、許可を通すまでは自動で走らせない。
+    /// 一度通したあとは画面を開くたびに黙って取り込む（#274）。
     @ViewBuilder
     private var healthSection: some View {
+        if !model.canSyncHealth, let message = model.message {
+            // HealthKit が無い端末でも、保存の結果は出す
+            Section { Text(message).font(.footnote).foregroundStyle(.secondary) }
+        }
+
         if model.canSyncHealth {
             Section {
-                Button(model.isSaving ? "取り込み中…" : "Apple Health から取り込む") {
-                    Task { await model.syncHealth(today: date) }
+                Button(label(for: model)) {
+                    Task { await model.syncHealth(today: model.date) }
                 }
                 .disabled(model.isSaving)
+                .accessibilityIdentifier("syncHealth")
+
+                // 体脂肪率が壊れて入っていた期間があるので、入れ直せるようにする（#291）
+                if model.healthGranted {
+                    Button("30日ぶん取り込み直す") {
+                        Task { await model.resyncHealth(today: model.date) }
+                    }
+                    .font(.callout)
+                    .disabled(model.isSaving)
+                    .accessibilityIdentifier("resyncHealth")
+                }
+
+                // **押したボタンのすぐ下に出す。** 画面の一番下に出していたので、
+                // 押しても何も起きないように見えていた
+                if let message = model.message {
+                    Text(message).font(.footnote).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("bodyMessage")
+                }
             } footer: {
-                Text("体重・体脂肪率・歩数・睡眠。Watch があれば HRV・安静時心拍・深睡眠も")
+                Text(model.healthGranted
+                     ? "開くたびに自動で取り込む。押すと今すぐ取り込む"
+                     : "体重・体脂肪率・歩数・睡眠。Watch があれば HRV・安静時心拍・深睡眠も")
             }
         }
     }
 
+    private func partRow(_ part: BodyPart) -> some View {
+        NumberRow(
+            label: part.label, unit: "cm",
+            value: Binding(
+                get: { model.parts[part] },
+                set: { model.parts[part] = $0 }
+            ),
+            previous: model.previousMeasurement?.value(for: part),
+            previousDate: model.previousMeasurement?.date,
+            max: part.maxCm
+        )
+    }
+
+    private func label(for model: BodyModel) -> String {
+        if model.isSaving { return "取り込み中…" }
+
+        return model.healthGranted ? "今すぐ取り込む" : "Apple Health から取り込む"
+    }
+
     private var compositionSection: some View {
-        Section("体組成") {
+        Section {
             NumberRow(
                 label: "体重", unit: "kg", value: $model.weightKg,
-                previous: model.previousWeightKg, max: 300
+                previous: model.previousWeightKg,
+                previousDate: model.previousWeightDate, max: 300,
+                readOnly: model.healthGranted
             )
-            NumberRow(label: "体脂肪率", unit: "%", value: $model.bodyfatPct, previous: nil, max: 70)
+            NumberRow(
+                label: "体脂肪率", unit: "%", value: $model.bodyfatPct,
+                previous: model.previousBodyfatPct,
+                previousDate: model.previousBodyfatDate, max: 70,
+                readOnly: model.healthGranted
+            )
+            // 除脂肪体重は計算値（要件 A-06）。**常に手では入れない**
+            NumberRow(
+                label: "除脂肪体重", unit: "kg",
+                value: .constant(leanBodyMass(
+                    weightKg: model.weightKg, bodyfatPct: model.bodyfatPct)),
+                previous: leanBodyMass(
+                    weightKg: model.previousWeightKg, bodyfatPct: model.previousBodyfatPct),
+                // **体重と体脂肪率が別の日なら日付を出さない。** 2日分を
+                // 掛け合わせた値なので、片方の日付を書くと実際より確かに見える
+                previousDate: model.previousWeightDate == model.previousBodyfatDate
+                    ? model.previousWeightDate : nil,
+                max: 0, readOnly: true
+            )
 
-            Button(model.isSaving ? "保存中…" : "体組成を保存") {
-                Task { await model.saveDaily(date: date) }
+            // 取り込んでいる間は保存する必要が無い
+            if !model.healthGranted {
+                Button(model.isSaving ? "保存中…" : "体組成を保存") {
+                    Task { await model.saveDaily(date: model.date) }
+                }
+                .disabled(model.isSaving)
             }
-            .disabled(model.isSaving)
+        } header: {
+            Text("体組成")
+        } footer: {
+            if model.healthGranted {
+                Text("Apple Health から取り込んだ値。手では入れない")
+            }
         }
     }
 
@@ -92,26 +227,28 @@ struct BodyView: View {
 
     private var measurementSection: some View {
         Section {
-            ForEach(BodyPart.allCases, id: \.self) { part in
-                NumberRow(
-                    label: part.label, unit: "cm",
-                    value: Binding(
-                        get: { model.parts[part] },
-                        set: { model.parts[part] = $0 }
-                    ),
-                    previous: model.previousMeasurement?.value(for: part),
-                    max: part.maxCm
-                )
+            // **既定は首とウエストだけ**（#277）。海軍式の体脂肪率推定に要る2つ。
+            // 残りは見た目を追うためのもので、毎回は測らない
+            ForEach(BodyPart.essentials, id: \.self) { partRow($0) }
+
+            if showingAllParts {
+                ForEach(BodyPart.optionals, id: \.self) { partRow($0) }
+            } else {
+                Button("詳しく測る") { showingAllParts = true }
+                    .font(.callout)
+                    .accessibilityIdentifier("showAllParts")
             }
 
             Button(model.isSaving ? "保存中…" : "周囲長を保存") {
-                Task { await model.saveMeasurement(date: date) }
+                Task { await model.saveMeasurement(date: model.date) }
             }
             .disabled(model.isSaving || model.parts.isEmpty)
         } header: {
             Text("周囲長")
         } footer: {
-            Text(model.previousMeasurement.map { "前回 \($0.date)" } ?? "起床直後・食事前に測る")
+            Text(model.previousMeasurement.map { "前回 \($0.date)" }
+                 ?? "起床直後・食事前に測る。体組成計の体脂肪率は水分量でぶれるので、"
+                 + "月1で首とウエストを測ると答え合わせになる")
         }
     }
 }
@@ -122,16 +259,31 @@ private struct NumberRow: View {
     let unit: String
     @Binding var value: Double?
     let previous: Double?
+    /// 前回がいつのものか "YYYY-MM-DD"（#338）。
+    /// **日付が無いと差分の意味が決まらない。** 無ければ日付だけ出さない
+    var previousDate: String?
     let max: Double
+    /// 取り込んだ値は手で入れない（#288）
+    var readOnly = false
 
     @State private var text = ""
+
+    /// 「前回 78.4kg（10/5(日)）」。日付が無ければ今までどおり値だけ
+    private var previousLabel: String {
+        guard let p = previous else { return "前回なし" }
+
+        let value = "前回 \(bodyText(p))\(unit)"
+        guard let d = previousDate else { return value }
+
+        return "\(value)（\(JST.displayString(from: d))）"
+    }
 
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
                 HStack(spacing: 6) {
-                    Text(previous.map { "前回 \($0)\(unit)" } ?? "前回なし")
+                    Text(previousLabel)
                     if let diff = formatDiff(current: value, previous: previous) {
                         Text(diff).foregroundStyle(Color.accentColor)
                     }
@@ -142,17 +294,23 @@ private struct NumberRow: View {
 
             Spacer()
 
-            TextField(previous.map { "\($0)" } ?? "—", text: $text)
-                .keyboardType(.decimalPad)
-                .multilineTextAlignment(.trailing)
-                .frame(width: 90)
-                .onChange(of: text) { _, new in
-                    // 空にしたら未入力に戻す。0 を入れたことにしない
-                    value = new.trimmingCharacters(in: .whitespaces).isEmpty
-                        ? nil
-                        : parseNumber(new).map { Swift.min($0, max) }
-                }
-                .onAppear { text = value.map { "\($0)" } ?? "" }
+            if readOnly {
+                Text(value.map(bodyText) ?? "—")
+                    .monospacedDigit()
+                    .foregroundStyle(value == nil ? .tertiary : .primary)
+            } else {
+                TextField(previous.map(bodyText) ?? "—", text: $text)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 90)
+                    .onChange(of: text) { _, new in
+                        // 空にしたら未入力に戻す。0 を入れたことにしない
+                        value = new.trimmingCharacters(in: .whitespaces).isEmpty
+                            ? nil
+                            : parseNumber(new).map { Swift.min($0, max) }
+                    }
+                    .onAppear { text = value.map(bodyText) ?? "" }
+            }
 
             Text(unit).font(.caption).foregroundStyle(.secondary)
         }

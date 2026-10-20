@@ -152,6 +152,11 @@ func validateMealInput(in openapi.MealInput) (field, message string) {
 			return "source", msg
 		}
 	}
+	// **ざっくり入力は kcal が要る。** 按分の元になる値が無いと、
+	// PFC も kcal も空の記録が rough として残り、欠測と区別できない
+	if isRough(in) && in.Kcal == nil && !hasMacros(in) {
+		return "kcal", "ざっくり入力は kcal を入れる（PFC を直接入れてもよい）"
+	}
 	if in.Name != nil && len([]rune(*in.Name)) > 200 {
 		return "name", "200文字以下にする"
 	}
@@ -209,6 +214,15 @@ func toMealInput(in openapi.MealInput) repository.MealInput {
 		}
 	}
 
+	// **ざっくり入力は kcal を P20% / F30% / C50% に按分する**（要件 N-01）。
+	// PFC が1つでも入っていれば触らない —— 手で直した値を黙って上書きしない。
+	// kcal は入力のまま残す（按分は丸めても kcal が変わらない形にしてある）
+	if isRough(in) && in.Kcal != nil && !hasMacros(in) {
+		p, f, c := analytics.RoughMacros(*in.Kcal)
+		pg, fg, cg := float32(p), float32(f), float32(c)
+		out.ProteinG, out.FatG, out.CarbG = &pg, &fg, &cg
+	}
+
 	// **明示された kcal を上書きしない。** AI 推定（N-06）は kcal を直接持ってくる。
 	//
 	// **空欄は 0 とみなす。** 鶏むねの C のように「本当に 0」で空のまま
@@ -223,6 +237,14 @@ func toMealInput(in openapi.MealInput) repository.MealInput {
 	}
 
 	return out
+}
+
+func isRough(in openapi.MealInput) bool {
+	return in.Source != nil && *in.Source == openapi.MealSourceRough
+}
+
+func hasMacros(in openapi.MealInput) bool {
+	return in.ProteinG != nil || in.FatG != nil || in.CarbG != nil
 }
 
 // zeroIfNil は未入力を 0 として読む。**kcal の計算にだけ使う。**

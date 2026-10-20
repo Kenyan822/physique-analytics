@@ -288,3 +288,51 @@ p, err := pgxpool.NewWithConfig(ctx, cfg)
 **判断**: `-parallel` を絞る手もあるが、テストが増えるたびに遅くなる。
 接続は安いので、上限を上げる方を選んだ。Postgres の `max_connections`（既定100）を
 食い潰さないよう上限は 80 で止める。
+
+## 「条件に当たる行がある群」ごと落とすのは `having ... filter`
+
+ざっくり入力（`source: rough`）がある日は、その日の摂取を**まるごと**
+集計から外したかった。rough の行だけ `where` で抜くと、同じ日の手入力との
+合計が1日分に足りず、平均が低く出る。
+
+```sql
+select date, sum(kcal)::float8
+from meals
+where deleted_at is null and date between $1 and $2
+group by date
+having count(*) filter (where source = 'rough') = 0
+```
+
+`filter (where ...)` は集約関数に付く条件。`count(*) filter (...)` で
+「群の中で条件に当たる行数」が取れるので、`having` で 0 と比べると
+**1行でも当たる群を落とせる**。
+
+`where` との違いは評価の順。`where` は group by の前なので行を間引くだけ、
+`having` は group by の後なので群ごと落とせる。
+
+## 複数テーブルから日付の系列を作るときは `union` を土台にする
+
+日次の系列を `daily_metrics` から select していたので、**食事だけ記録した日が
+行ごと落ちていた**。体重を測らなかった日は `daily_metrics` に行が無い。
+
+```sql
+with intake as (
+    select date, sum(kcal)::float8 as kcal from meals ... group by date
+),
+days as (
+    select date from daily_metrics where ...
+    union                                      -- union all ではない。重複を潰す
+    select date from intake
+)
+select d.date, m.weight_kg, i.kcal
+from days d
+left join daily_metrics m on m.date = d.date and m.deleted_at is null
+left join intake i on i.date = d.date
+order by d.date
+```
+
+**`union all` にしない。** 両方に日付があると2行返り、同じ日が系列に重複する。
+`union` は重複を潰すぶん遅いが、日付の集合は高々数百件なので問題にならない。
+
+**論理削除の条件は `on` 側に置く。** `where m.deleted_at is null` と書くと
+left join で null になった行まで落ちて、`inner join` と同じになる。

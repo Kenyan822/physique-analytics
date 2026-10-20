@@ -1,3 +1,10 @@
 allowBuilds:
   sharp: false
   unrs-resolver: false
+
+auditConfig:
+  # braces <=3.0.3 の DoS（GHSA-vfj7-8cjw-p6xm）。修正版が存在しない（latest=3.0.3）。
+  # eslint-config-next > @next/eslint-plugin-next > fast-glob > micromatch 経由の
+  # devDependency のみで、本番バンドルに入らない。上流が braces を上げたらこの除外を外す（#245）
+  ignoreGhsas:
+    - GHSA-vfj7-8cjw-p6xm

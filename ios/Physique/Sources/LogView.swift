@@ -6,6 +6,30 @@ import SwiftUI
 /// ステッパーで刻み、RIR は1タップで選ぶ。
 struct LogView: View {
     @State private var model: LogModel
+    @State private var addingExercise = false
+    @State private var changingDay = false
+    @State private var pickingDate = false
+    /// 種目マスタに登録する（#264）
+    @State private var registering = false
+    @State private var newExerciseName = ""
+    @State private var newExerciseGroup: MuscleGroup = .chest
+    @State private var newExerciseCompound = false
+    /// 種目の絞り込み（#288）
+    @State private var exerciseQuery = ""
+    @FocusState private var focus: Field?
+
+    /// 入力欄の位置。**行をまたいで移動できる**ように、どの行のどの欄かで持つ
+    private struct Field: Hashable {
+        enum Kind: Int, CaseIterable { case weight, reps, rir }
+
+        let set: UUID
+        let kind: Kind
+    }
+
+    /// キーボードの ↑↓ が送る順。行ごとに 重量 → レップ → RIR
+    private var fieldOrder: [Field] {
+        model.drafts.flatMap { d in Field.Kind.allCases.map { Field(set: d.id, kind: $0) } }
+    }
 
     init(api: APIClient = APIClient(baseURL: AppConfig.apiBaseURL)) {
         _model = State(initialValue: LogModel(api: api))
@@ -22,38 +46,28 @@ struct LogView: View {
                     }
                 }
 
-                Section("種目") {
-                    Picker("種目", selection: $model.selectedExerciseId) {
-                        Text("選ぶ").tag(UUID?.none)
-                        ForEach(model.exercises) { e in
-                            Text("\(e.name)（\(e.muscleGroup.rawValue)）\(model.doneMark(e.id))")
-                                .tag(UUID?.some(e.id))
-                        }
-                    }
-                    .pickerStyle(.navigationLink)
-                }
-
-                if model.selectedExerciseId != nil {
-                    lastPerformanceSection
-                    inputSection
-                    recordSection
-                }
-
-                if !model.logged.isEmpty {
-                    Section("今日の記録") {
-                        ForEach(model.logged) { s in
-                            Text(model.describe(s)).font(.callout).monospacedDigit()
-                        }
-                    }
-                }
+                // **セットは種目の下に出る**（#247）。ここに一覧を出すと
+                // 同じものが2か所に並び、どちらを直すのか分からなくなる
+                todaySection
             }
-            .navigationTitle("記録 \(JST.displayString(from: model.date))")
+            .navigationBarTitleDisplayMode(.inline)
+            // **食事と同じ形**（#193 と揃える）。中央上部に置き、左右で1日ずつ
+            .toolbar { ToolbarItem(placement: .principal) { dateNav } }
             .dismissesKeyboardOnTap()
-            .keyboardDoneButton()
-            .task { await model.load() }
-            .onChange(of: model.selectedExerciseId) { _, id in
-                Task { await model.selectExercise(id) }
+            // 食事と同じ（#229）。**行をまたいで ↑↓ で移動できる**
+            .keyboardFocusBar(focus: $focus, order: fieldOrder)
+            // **欄から離れたら保存する。** 確定ボタンを置かない（#256）
+            .onChange(of: focus) { old, _ in
+                guard let old else { return }
+                Task { await model.commitDraft(old.set) }
             }
+            .task { await model.load() }
+            // **開いている種目の前回値を引く。** モデルの didSet から
+            // Task を投げると順序が読めない（#337）
+            .task(id: model.openExerciseIds) { await model.loadLastForOpen() }
+            // **カテゴリ別に全種目。** 今日の想定に無いものをその日だけ足す（#232）
+            .sheet(isPresented: $addingExercise) { addExerciseSheet }
+            .sheet(isPresented: $changingDay) { changeDaySheet }
             .alert("エラー", isPresented: $model.showError) {
                 Button("閉じる", role: .cancel) {}
             } message: {
@@ -62,78 +76,480 @@ struct LogView: View {
         }
     }
 
-    /// 前回の実施内容（要件 T-02 / T-09）。その場で超えられるか判断できるようにする。
-    @ViewBuilder
-    private var lastPerformanceSection: some View {
-        Section("前回") {
-            if model.loadingLast {
-                Text("取得中…").foregroundStyle(.secondary)
-            } else if let last = model.last, let date = last.date {
-                HStack {
-                    Text(JST.displayString(from: date))
-                    Spacer()
-                    if let e1rm = last.estimatedOneRm {
-                        Text("推定1RM \(e1rm, specifier: "%.1f")kg")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
+    /// **中央上部に置く。** 左右で1日ずつ、タップで任意の日へ（食事と同じ）
+    private var dateNav: some View {
+        HStack(spacing: 8) {
+            Button { Task { await model.goToPreviousDay() } } label: {
+                Image(systemName: "chevron.left")
+            }
+
+            Button { pickingDate = true } label: {
+                Text(model.dateLabel).font(.headline)
+            }
+            .buttonStyle(.plain)
+
+            // **未来には進めない。** 記録できない日を開いても意味が無い
+            Button { Task { await model.goToNextDay() } } label: {
+                Image(systemName: "chevron.right")
+            }
+            .disabled(!model.canGoNext)
+        }
+        .sheet(isPresented: $pickingDate) {
+            NavigationStack {
+                DatePicker("日付", selection: pickedDate, displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .padding()
+                    .navigationTitle("日付")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("閉じる") { pickingDate = false }
+                        }
+                    }
+            }
+            .presentationDetents([.medium])
+        }
+    }
+
+    /// モデルは "YYYY-MM-DD" で持っているので載せ替える（食事と同じ）
+    private var pickedDate: Binding<Date> {
+        Binding(
+            get: { JST.date(from: model.date) ?? Date() },
+            set: { d in
+                Task { await model.goTo(JST.dateString(from: d)) }
+                pickingDate = false
+            }
+        )
+    }
+
+    /// 全種目をカテゴリ別に出す（#232）。**その日だけ足す。** ルーティンは変わらない。
+    private var addExerciseSheet: some View {
+        NavigationStack {
+            List {
+                // **大分類は6つ**（#288）。13の見出しが並ぶと目的の種目まで遠い。
+                // `MuscleGroup` 自体は13のまま —— 分析がそれを前提にしている
+                // **今日のルーティンを一番上に**（#336）。並べはしないが、
+                // 探す手間を増やさずに「今日やる想定のもの」を先に見せる
+                let hits = ExerciseFilter.apply(model.exercises, query: exerciseQuery)
+                let routine = model.routineExerciseIds.compactMap { id in
+                    hits.first { $0.id == id }
+                }
+                if !routine.isEmpty {
+                    Section {
+                        ForEach(routine) { e in exerciseRow(e) }
+                    } header: {
+                        Text("今日のルーティン")
+                    } footer: {
+                        Text("足してもルーティンは変わらない")
+                            .font(.caption2)
                     }
                 }
-                .font(.footnote)
 
-                Text(model.describeLastSets())
-                    .font(.callout)
-                    .monospacedDigit()
-            } else {
-                Text("この種目は初回").foregroundStyle(.secondary)
+                // **下の分類からは外す。** 同じ種目が2回出ると、
+                // どちらを押したか分からなくなる
+                let routineIds = Set(routine.map(\.id))
+                ForEach(MuscleArea.allCases, id: \.self) { area in
+                    let items = hits
+                        .filter { !routineIds.contains($0.id) }
+                        .filter { MuscleArea.of($0.muscleGroup) == area }
+                    if !items.isEmpty {
+                        Section(area.label) {
+                            ForEach(sorted(items)) { e in exerciseRow(e) }
+                        }
+                    }
+                }
+
+                if ExerciseFilter.apply(model.exercises, query: exerciseQuery).isEmpty {
+                    Text("「\(exerciseQuery)」に当たる種目が無い。右上の「新規」で登録できる")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            // **49種目から探すなら、畳むより打って絞る方が速い**（#288）
+            .searchable(text: $exerciseQuery, prompt: "種目名・部位")
+            .navigationTitle("種目を足す")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { addingExercise = false }
+                }
+                // **マスタに無い種目はここから登録する**（#264）。
+                // ジムで思いついたときに2回探さなくて済む
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("新規") { registering = true }
+                        .accessibilityIdentifier("openExerciseRegister")
+                }
+            }
+            .sheet(isPresented: $registering) { registerExerciseSheet }
+        }
+    }
+
+    /// 大分類の中は**細かい部位の順**に並べる。肩前部 → 肩中部 → 肩後部 のように
+    private func sorted(_ items: [Exercise]) -> [Exercise] {
+        let order = MuscleGroup.allCases.enumerated()
+            .reduce(into: [MuscleGroup: Int]()) { $0[$1.element] = $1.offset }
+
+        return items.sorted {
+            (order[$0.muscleGroup] ?? 0, $0.name) < (order[$1.muscleGroup] ?? 0, $1.name)
+        }
+    }
+
+    private func exerciseRow(_ e: Exercise) -> some View {
+        Button {
+            addingExercise = false
+            Task { await model.addExercise(e.id) }
+        } label: {
+            HStack {
+                Text(e.name)
+                if model.isDoneToday(e.id) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption).foregroundStyle(.green)
+                }
+                Spacer()
+                // **細かい部位を添える。** 畳んでも、どこに入るかは見えたまま
+                Text(e.muscleGroup.rawValue)
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // **名前で引けるようにする。** 付けないとラベルが行の中身
+        // （名前・部位）を繋いだ1つの文字列になり、UI テストから引けない
+        .accessibilityLabel(e.name)
+        // 並び順で引く用（#336）。名前を知らなくても「上から n 番目」を押せる
+        .accessibilityIdentifier("pickExercise")
+        // **論理削除。** 記録は残る（#264）
+        .swipeActions {
+            Button("消す", role: .destructive) {
+                Task { await model.removeExerciseFromMaster(e.id) }
             }
         }
     }
 
-    private var inputSection: some View {
-        Section("入力") {
-            Stepper(value: $model.weightKg, in: 0...500, step: LogModel.weightStep) {
-                LabeledContent("重量") {
-                    Text("\(model.weightKg, specifier: "%g") kg").monospacedDigit()
-                }
-            }
+    /// 種目マスタに登録する（#264）。
+    ///
+    /// **登録したらその日のリストにも入って開く。** 登録と「今日やる」を
+    /// 別操作にすると、ジムで種目を思いついたときに2回探すことになる
+    private var registerExerciseSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    LabeledContent("名前") {
+                        TextField("ケーブルクロスオーバー", text: $newExerciseName)
+                            .multilineTextAlignment(.trailing)
+                            .accessibilityIdentifier("newExerciseName")
+                    }
 
-            Stepper(value: $model.reps, in: 0...100) {
-                LabeledContent("レップ") {
-                    Text("\(model.reps) 回").monospacedDigit()
-                }
-            }
+                    // **自由入力にしない。** 部位がずれると分析の部位別集計が壊れる。
+                    // 13から選ぶので、大分類で区切って探しやすくする（#288）
+                    Picker("部位", selection: $newExerciseGroup) {
+                        ForEach(MuscleArea.allCases, id: \.self) { area in
+                            Section(area.label) {
+                                ForEach(area.groups, id: \.self) { g in
+                                    Text(g.rawValue).tag(g)
+                                }
+                            }
+                        }
+                    }
+                    .pickerStyle(.navigationLink)
+                    .accessibilityIdentifier("newExerciseGroup")
 
-            // RIR が無いと推定1RMが計算できず進捗が測れない（openapi.yaml）
-            Picker("RIR", selection: $model.rir) {
-                Text("—").tag(Int?.none)
-                ForEach(0...10, id: \.self) { n in
-                    Text("\(n)").tag(Int?.some(n))
+                    Toggle("多関節", isOn: $newExerciseCompound)
+                        .accessibilityIdentifier("newExerciseCompound")
+                } footer: {
+                    Text("多関節だとインターバルの既定が長くなる"
+                         + "（\(LogModel.compoundRestSec / 60)分 / \(LogModel.isolationRestSec)秒）。"
+                         + "**既にある種目を別表記で足さないこと。** 時系列が分断される")
                 }
             }
-            .pickerStyle(.menu)
+            .navigationTitle("種目を登録")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { registering = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("登録") {
+                        Task {
+                            await model.registerExercise(
+                                name: newExerciseName, muscleGroup: newExerciseGroup,
+                                isCompound: newExerciseCompound)
+                            if !model.showError {
+                                newExerciseName = ""
+                                registering = false
+                                addingExercise = false
+                            }
+                        }
+                    }
+                    .disabled(newExerciseName.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .accessibilityIdentifier("saveExercise")
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    /// Day を手でずらす（#232）。**予定が乱れた日に使う。**
+    @ViewBuilder
+    private var changeDaySheet: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button("自動に戻す") {
+                        model.pickDay(nil)
+                        changingDay = false
+                    }
+                } footer: {
+                    Text("やった日だけ進む。前回の次が自動で選ばれる")
+                }
+
+                Section("直接選ぶ") {
+                    ForEach(model.allDays) { d in
+                        Button {
+                            model.pickDay(d)
+                            changingDay = false
+                        } label: {
+                            HStack {
+                                Text("\(d.dayOrder)日目  \(d.templateName)")
+                                Spacer()
+                                if model.currentDay?.templateId == d.templateId {
+                                    Image(systemName: "checkmark").font(.caption)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .navigationTitle("今日やる日")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { changingDay = false }
+                }
+            }
         }
     }
 
-    private var recordSection: some View {
+    /// 今日やる種目（要件 T-01 / #232 / #247）。
+    ///
+    /// **ルーティンはプレースホルダ。** 並べ替え・追加・削除はその日だけに効き、
+    /// ルーティン自体は変わらない（#242）。
+    @ViewBuilder
+    private var todaySection: some View {
         Section {
-            Button {
-                Task { await model.record() }
-            } label: {
-                HStack {
-                    Spacer()
-                    Text("\(model.nextSetNo) セット目を記録").bold()
-                    Spacer()
+            ForEach(model.rows) { row in
+                Button {
+                    model.toggleExercise(row.exerciseId)
+                } label: {
+                    exerciseRow(row)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("routineRow")
+
+                // **その行の下に開く。** 画面の一番下に入力欄があると、
+                // どの種目を打っているのか分からなくなる（#232）
+                if model.openExerciseIds.contains(row.exerciseId) {
+                    lastLine(for: row.exerciseId)
+                    setRows(for: row.exerciseId)
                 }
             }
-            .disabled(model.recording)
+            .onMove { from, to in Task { await model.moveRows(from: from, to: to) } }
+            .onDelete { offsets in Task { await model.removeRows(offsets) } }
 
-            if let remaining = model.restRemaining {
-                LabeledContent("インターバル") {
-                    Text(remaining).monospacedDigit()
+            Button {
+                addingExercise = true
+            } label: {
+                Label("種目を足す", systemImage: "plus")
+            }
+            .accessibilityIdentifier("addExercise")
+        } header: {
+            HStack {
+                Text(model.dayLabel ?? "今日")
+                Spacer()
+                if model.savingRows {
+                    ProgressView().controlSize(.mini)
                 }
+                if !model.allDays.isEmpty {
+                    Button("変更") { changingDay = true }
+                        .font(.caption)
+                        .accessibilityIdentifier("changeDay")
+                }
+            }
+        } footer: {
+            if !model.rows.isEmpty {
+                Text("長押しで並べ替え・左スワイプで削除。ルーティンは変わらない")
+                    .font(.caption2)
             }
         }
     }
+
+    /// 1行。ルーティン由来なら目標、手で足したなら部位を添える
+    private func exerciseRow(_ row: LogModel.Row) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(row.name)
+                    if model.isDoneToday(row.exerciseId) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption).foregroundStyle(.green)
+                    }
+                }
+                Text(row.target ?? row.muscleGroup.rawValue)
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+
+            Spacer()
+
+            if model.openExerciseIds.contains(row.exerciseId) {
+                Image(systemName: "chevron.down")
+                    .font(.caption).foregroundStyle(.tertiary)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    /// セットの行（#247 / #251 / #256）。
+    ///
+    /// **記録済みも入力中も同じ行。** 確定ボタンを置かず、欄から離れた時点で
+    /// 保存する。ジムで「記録を押し忘れて1セット消えた」が起きないようにする。
+    @ViewBuilder
+    private func setRows(for exerciseId: UUID) -> some View {
+        // **自分の種目の行だけ**（#337）。複数の種目が同時に開いている
+        ForEach(model.drafts(of: exerciseId)) { d in
+            HStack(spacing: 4) {
+                Text("\(d.displayNo)")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(width: 16, alignment: .trailing)
+
+                box(d, .weight, width: 68, pad: .decimalPad)
+                // **自重のときは「+kg」。** 入れた数字は体重に足す加重分（#335）
+                Text(d.bodyweight ? "+kg" : "kg")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .frame(width: 26, alignment: .leading)
+                Text("×").font(.footnote).foregroundStyle(.tertiary).padding(.horizontal, 2)
+                box(d, .reps, width: 56, pad: .numberPad)
+                Text("回").font(.footnote).foregroundStyle(.secondary)
+                Text("RIR").font(.footnote).foregroundStyle(.secondary).padding(.leading, 6)
+                box(d, .rir, width: 46, pad: .numberPad)
+
+                Spacer(minLength: 4)
+
+                // **自重の切り替え**（#335）。懸垂・ディップスは weight_kg に
+                // 入れる数字が無い。0 のままだとトン数も e1RM も 0 になる
+                Button {
+                    commitFocused()
+                    model.setBodyweight(!d.bodyweight, for: d.id)
+                } label: {
+                    Text("自重")
+                        .font(.caption)
+                        .foregroundStyle(d.bodyweight ? Color.white : Color.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(d.bodyweight ? Color.accentColor : Color(.secondarySystemBackground))
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("bodyweightToggle")
+            }
+            // **保存済みの印は出さない。** 欄から離れれば黙って保存される。
+            // 未送信が溜まっていれば画面上部の「未送信 N 件」で分かる（#262）
+            // **行に identifier を付けない。** 付けると子の TextField まで
+            // それで上書きされ、weightInput などが引けなくなる
+            .swipeActions {
+                Button("削除", role: .destructive) {
+                    Task { await model.deleteDraft(d.id) }
+                }
+            }
+        }
+
+        Button {
+            commitFocused()
+            model.addSetRow(for: exerciseId)
+        } label: {
+            Label("セットを足す", systemImage: "plus")
+                .font(.callout)
+        }
+        .accessibilityIdentifier("addSet")
+    }
+
+    /// 枠の高さ。**44pt は Apple の最小タップ領域**（#309）。
+    /// ジムで素早く打つので、狙わなくても当たる大きさにする。
+    private static let boxHeight: CGFloat = 44
+
+    /// 数字の枠。**離れたら保存する**（確定ボタンを置かない）
+    ///
+    /// `.roundedBorder` を使わないのは、**枠が文字の大きさで決まってしまう**ため。
+    /// 高さを指定してもタップ領域が広がるだけで、見た目の枠は大きくならない。
+    private func box(
+        _ d: LogModel.SetDraft, _ kind: Field.Kind, width: CGFloat, pad: UIKeyboardType
+    ) -> some View {
+        TextField("", text: binding(d, kind))
+            .keyboardType(pad)
+            .multilineTextAlignment(.center)
+            .font(.title3.monospacedDigit())
+            .frame(width: width, height: Self.boxHeight)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(.secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color(.separator), lineWidth: 1)
+            )
+            .focused($focus, equals: Field(set: d.id, kind: kind))
+            .accessibilityIdentifier(identifier(kind))
+    }
+
+    private func binding(_ d: LogModel.SetDraft, _ kind: Field.Kind) -> Binding<String> {
+        switch kind {
+        case .weight: Binding(get: { d.weightText }, set: { model.setWeight($0, for: d.id) })
+        case .reps: Binding(get: { d.repsText }, set: { model.setReps($0, for: d.id) })
+        case .rir: Binding(get: { d.rirText }, set: { model.setRir($0, for: d.id) })
+        }
+    }
+
+    /// UI テストから引くため。**行が複数あるので firstMatch で使う**
+    private func identifier(_ kind: Field.Kind) -> String {
+        switch kind {
+        case .weight: "weightInput"
+        case .reps: "repsInput"
+        case .rir: "rirInput"
+        }
+    }
+
+    /// いま開いている行を保存する。欄を離れたときとキーボードを閉じたときに呼ぶ
+    private func commitFocused() {
+        guard let f = focus else { return }
+        Task { await model.commitDraft(f.set) }
+    }
+
+    /// 前回この種目をやったセッション（#251）。**超えられるかをその場で決める**
+    @ViewBuilder
+    private func lastLine(for exerciseId: UUID) -> some View {
+        if model.loadingLast.contains(exerciseId) {
+            line("前回", "取得中…")
+        } else if let summary = model.lastSummary(of: exerciseId) {
+            line("前回", summary)
+        } else {
+            line("前回", "この種目は初回")
+        }
+    }
+
+    /// 見出し + 中身の1行。**前回の表示に使う**
+    private func line(_ label: String, _ value: String) -> some View {
+        HStack(spacing: 8) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+                .frame(width: 40, alignment: .leading)
+            Text(value).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            Spacer()
+        }
+    }
+
+
+
 }
 
 #Preview {

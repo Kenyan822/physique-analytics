@@ -4,6 +4,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -43,7 +44,8 @@ type WorkoutRepository interface {
 	CreateSet(ctx context.Context, sessionID uuid.UUID, in repository.SetInput) (openapi.WorkoutSet, error)
 	UpdateSet(ctx context.Context, id uuid.UUID, in repository.SetInput) (openapi.WorkoutSet, error)
 	DeleteSet(ctx context.Context, id uuid.UUID) error
-	LastPerformance(ctx context.Context, exerciseID uuid.UUID) (repository.LastPerformanceResult, error)
+	ReplaceSessionExercises(ctx context.Context, sessionID uuid.UUID, exerciseIDs []uuid.UUID) ([]openapi.SessionExercise, error)
+	LastPerformance(ctx context.Context, exerciseID uuid.UUID, before *openapi_types.Date) (repository.LastPerformanceResult, error)
 }
 
 // TemplateRepository はトレーニングテンプレートへのアクセス。
@@ -120,9 +122,30 @@ type FoodItemRepository interface {
 //
 // **nil でもよい。** 未設定なら自動計算（A-02）だけが使われる
 type ManualTargetsRepository interface {
-	Get(ctx context.Context) (*openapi.ManualTargets, error)
+	// On は date に適用される目標。履歴が無い・date より前に始まる行が無ければ nil
+	On(ctx context.Context, date time.Time) (*openapi.ManualTargets, error)
+	// Put は今日（JST）から適用する目標として履歴に足す。同じ日なら上書き
 	Put(ctx context.Context, in openapi.ManualTargets) (openapi.ManualTargets, error)
+	// Delete は履歴を全部消す
 	Delete(ctx context.Context) error
+	List(ctx context.Context) ([]openapi.ManualTargetEntry, error)
+	Add(ctx context.Context, in openapi.ManualTargetEntryInput) (openapi.ManualTargetEntry, error)
+	// DeleteEntry は履歴の1件を消す。無ければ ErrNotFound
+	DeleteEntry(ctx context.Context, id uuid.UUID) error
+}
+
+// StreakRepository は日別の達成判定の元データを引く。
+//
+// **期間を数クエリで引く。** 1日ごとに引くと366日で往復が千を超える
+type StreakRepository interface {
+	Inputs(ctx context.Context, from, to time.Time) (repository.StreakInputs, error)
+}
+
+// DayRepository は1日ぶんの要約の元データを引く。
+//
+// **nil でもよい。** 未設定なら記録の無い日として返す
+type DayRepository interface {
+	Records(ctx context.Context, date time.Time) (repository.DayRecords, error)
 }
 
 // PlanRepository は計画の設定へのアクセス（要件 P-01 / P-05）。
@@ -220,6 +243,10 @@ type Server struct {
 	foodItems FoodItemRepository
 	// routines も任意。未設定なら「今日の想定」が出ないだけで記録はできる
 	routines RoutineRepository
+	// streaks も任意。未設定なら全日 null・未実施で返す
+	streaks StreakRepository
+	// days も任意。未設定なら記録の無い日として返す
+	days DayRepository
 }
 
 // WithFoodItems は食品マスタの置き場所を差す（要件 N-02）。
@@ -233,6 +260,20 @@ func (s *Server) WithFoodItems(r FoodItemRepository) *Server {
 // 既に多く、呼び出し側を全部直すことになる
 func (s *Server) WithRoutines(r RoutineRepository) *Server {
 	s.routines = r
+
+	return s
+}
+
+// WithStreaks は日別の達成判定の元データの置き場所を差す。
+func (s *Server) WithStreaks(r StreakRepository) *Server {
+	s.streaks = r
+
+	return s
+}
+
+// WithDays は1日ぶんの要約の元データの置き場所を差す。
+func (s *Server) WithDays(r DayRepository) *Server {
+	s.days = r
 
 	return s
 }
@@ -298,6 +339,17 @@ func NewRouter(s openapi.StrictServerInterface) http.Handler {
 }
 
 func handleResponseError(w http.ResponseWriter, r *http.Request, err error) {
+	// **制約違反は送った側の問題。** 500 にすると原因が画面からも分からず、
+	// ログも内部エラーに埋もれる（#263）。個別に変換していない経路の受け皿
+	if status, title, detail, ok := constraintProblem(err); ok {
+		slog.WarnContext(r.Context(), "制約違反を返した",
+			slog.String("method", r.Method), slog.String("path", r.URL.Path),
+			slog.String("constraint", repository.ConstraintName(err)))
+		writeProblem(w, status, title, detail)
+
+		return
+	}
+
 	// 内部エラーの中身はログにだけ残す。接続先やクエリが応答に混ざるのを避ける
 	slog.ErrorContext(r.Context(), "ハンドラがエラーを返した",
 		slog.String("method", r.Method), slog.String("path", r.URL.Path), slog.Any("error", err))
@@ -327,4 +379,26 @@ func writeProblem(w http.ResponseWriter, status int, title, detail string) {
 	if err := json.NewEncoder(w).Encode(p); err != nil {
 		slog.Error("problem の書き込みに失敗", slog.Any("error", err))
 	}
+}
+
+// constraintProblem は DB の制約違反を応答に直す。制約違反でなければ ok が false。
+//
+// detail には**制約名だけ**を出す。どの値が問題か分かれば足りる。
+// テーブルの列・SQL・送られた値は含めない（Postgres のメッセージをそのまま返さない）。
+func constraintProblem(err error) (status int, title, detail string, ok bool) {
+	name := repository.ConstraintName(err)
+
+	switch {
+	case repository.IsCheckViolation(err):
+		return http.StatusUnprocessableEntity, "入力が仕様に合わない",
+			fmt.Sprintf("値が許されていない（%s）", name), true
+	case repository.IsForeignKeyViolation(err):
+		return http.StatusUnprocessableEntity, "入力が仕様に合わない",
+			fmt.Sprintf("参照先が存在しない（%s）", name), true
+	case repository.IsUniqueViolation(err):
+		return http.StatusConflict, "既に存在する",
+			fmt.Sprintf("既に存在する（%s）", name), true
+	}
+
+	return 0, "", "", false
 }

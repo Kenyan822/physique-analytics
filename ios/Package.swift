@@ -21,11 +21,18 @@ let package = Package(
                 "Info.plist", "PhysiqueApp.swift",
                 // UI と HealthKit は iOS 専用。macOS ビルドで落ちる
                 "LogView.swift", "BodyView.swift", "HealthKitSource.swift", "LoginView.swift", "MealView.swift",
+                "StreakView.swift",
+                // Charts の画面も iOS 専用。**畳み方は TrendSeries.swift 側にあり、
+                // そちらはテストがある**
+                "BodyChartView.swift", "MealChartView.swift", "TrendChart.swift",
                 // CoreLocation は macOS にもあるが、権限の聞き方が違う。
                 // 判断は FoodPlaces / MealModel 側にあり、そちらはテストがある
                 "CoreLocationSource.swift",
                 // UIApplication は iOS 専用
                 "KeyboardDismiss.swift",
+                // UIImagePickerController は iOS 専用。**縮小は ImageDownscale.swift
+                // 側にあり、そちらはテストがある**
+                "CameraPicker.swift",
                 // UI テスト専用。swift test では使わない
                 "UITestSupport.swift",
             ]

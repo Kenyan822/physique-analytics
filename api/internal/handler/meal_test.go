@@ -32,6 +32,7 @@ type stubMeals struct {
 	gotSlot  *openapi.MealSlot
 
 	created   openapi.Meal
+	createErr error
 	updateErr error
 	deleteErr error
 }
@@ -42,7 +43,7 @@ func (s *stubMeals) List(context.Context, *openapi_types.Date, *openapi_types.Da
 
 func (s *stubMeals) Create(_ context.Context, in repository.MealInput) (openapi.Meal, error) {
 	s.gotInput = &in
-	return s.created, nil
+	return s.created, s.createErr
 }
 
 func (s *stubMeals) Update(_ context.Context, id uuid.UUID, in repository.MealInput) (openapi.Meal, error) {

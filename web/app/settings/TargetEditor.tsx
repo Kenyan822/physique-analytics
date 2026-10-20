@@ -77,7 +77,7 @@ export function TargetEditor({ current, save, clear }: Props) {
 
       <p className="mt-2 text-[11px] text-muted">
         {/* **3つで1組。** 1つ欠けた目標は意味を成さない */}
-        P・F・C を3つとも入れる。kcal は自動で出る（4/9/4）
+        P・F・C を3つとも入れる。kcal は自動で出る（4/9/4）。保存すると**今日から**この目標になり、前の目標は履歴に残る
       </p>
 
       <div className="mt-3 flex items-center gap-2">
@@ -97,7 +97,7 @@ export function TargetEditor({ current, save, clear }: Props) {
             disabled={pending}
             className="h-11 rounded-xl border border-line px-4 text-sm disabled:opacity-40"
           >
-            自動計算に戻す
+            自動計算に戻す（履歴も消える）
           </button>
         )}
       </div>

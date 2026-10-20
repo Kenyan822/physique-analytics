@@ -29,16 +29,47 @@ func NewAnalysis(db DBTX) *Analysis {
 //
 // **集計はしない。** 平均や回帰は analytics 側の責務にしてある（ADR-0011）。
 // SQL で avg や regr_slope を書くと、分析の正が SQL と Go に割れる。
+// ここで足しているのは1日の中の食事だけで、日をまたぐ集計はしていない。
 //
 // 未記録の項目は nil のまま返す。0 で埋めると「HRV 0」として
 // 回復不足を誤検知する。
+//
+// **摂取は meals が正。** daily_metrics にも kcal / PFC の列があるが誰も
+// 書かないので、そこから引くと摂取の記録日数が常に0になり、TDEE が
+// 永久に出なかった（#325）。daily_metrics へ写す同期は持たない（#316）。
+//
+// 行の土台は daily_metrics と meals の**日付の和**。daily_metrics から
+// select すると、食事だけ記録した日が系列ごと落ちる。
+//
+// **ざっくり入力（source: rough）がある日は、その日ごと摂取から外す。**
+// rough は飲み会・外食の当て推量なので TDEE の母数に入れない。rough の行
+// だけ抜くと、同じ日の手入力との合計が1日分に足りず、平均が低く出る。
 func (r *Analysis) DailySeries(ctx context.Context, from, to openapi_types.Date) ([]analytics.DailyPoint, error) {
 	const q = `
-		select date, weight_kg, bodyfat_pct, kcal, protein_g, fat_g, carb_g,
-		       sleep_h, steps, fatigue, hrv_ms, resting_hr, deep_sleep_min
-		from daily_metrics
-		where deleted_at is null and date >= $1 and date <= $2
-		order by date`
+		with intake as (
+			select date,
+			       sum(kcal)::float8      as kcal,
+			       sum(protein_g)::float8 as protein_g,
+			       sum(fat_g)::float8     as fat_g,
+			       sum(carb_g)::float8    as carb_g
+			from meals
+			where deleted_at is null and date >= $1 and date <= $2
+			group by date
+			having count(*) filter (where source = 'rough') = 0
+		),
+		days as (
+			select date from daily_metrics
+			where deleted_at is null and date >= $1 and date <= $2
+			union
+			select date from intake
+		)
+		select d.date, m.weight_kg, m.bodyfat_pct,
+		       i.kcal, i.protein_g, i.fat_g, i.carb_g,
+		       m.sleep_h, m.steps, m.fatigue, m.hrv_ms, m.resting_hr, m.deep_sleep_min
+		from days d
+		left join daily_metrics m on m.date = d.date and m.deleted_at is null
+		left join intake i on i.date = d.date
+		order by d.date`
 
 	rows, err := r.db.Query(ctx, q, from.Time, to.Time)
 	if err != nil {
@@ -63,6 +94,33 @@ func (r *Analysis) DailySeries(ctx context.Context, from, to openapi_types.Date)
 	return out, nil
 }
 
+// liftedKg は**実際に挙げた重さ**の SQL 式（#335）。
+//
+// 自重の種目（懸垂・ディップス）は weight_kg に入れる数字が無い。
+// 0 のまま集計すると、何セットやってもトン数も e1RM も 0 になる。
+//
+//	自重      →  その日の体重 + weight_kg（加重のぶん）
+//	それ以外  →  weight_kg
+//
+// **体重はその日以前の直近を使う。** 毎日測っているとは限らない。
+// 1つも無ければ null になり、`bodyweightKnown` で行ごと外す。
+//
+// `%[1]s` にはセットの別名、`%[2]s` には日付を持つ側の別名を入れる。
+const liftedKgFmt = `case when %[1]s.bodyweight
+	then (select d.weight_kg from daily_metrics d
+	      where d.deleted_at is null and d.weight_kg is not null
+	        and d.date <= %[2]s.date
+	      order by d.date desc limit 1) + %[1]s.weight_kg
+	else %[1]s.weight_kg end`
+
+// bodyweightKnown は**体重が分かる行だけ**に絞る条件（#335）。
+//
+// 自重なのに体重が1つも無い行を 0 として混ぜると、トン数が実態より低く出る。
+// **数えないより、間違った数を出す方が害が大きい。**
+const bodyweightKnownFmt = `(not %[1]s.bodyweight or exists (
+	select 1 from daily_metrics d
+	where d.deleted_at is null and d.weight_kg is not null and d.date <= %[2]s.date))`
+
 // DailyTonnage は1日のトン数。
 type DailyTonnage struct {
 	Date      openapi_types.Date
@@ -74,14 +132,17 @@ type DailyTonnage struct {
 // トレーニングをしていない日は行ごと無い。0 を埋めると「休んだ日」と
 // 「記録し忘れた日」が同じになり、相関が歪む。
 func (r *Analysis) DailyTonnage(ctx context.Context, from, to openapi_types.Date) ([]DailyTonnage, error) {
-	const q = `
-		select s.date, sum(ws.weight_kg * ws.reps) as tonnage
+	q := fmt.Sprintf(`
+		select s.date, sum((%[1]s) * ws.reps) as tonnage
 		from workout_sets ws
 		join workout_sessions s on s.id = ws.session_id
 		where ws.deleted_at is null and s.deleted_at is null
 		  and s.date >= $1 and s.date <= $2
+		  and %[2]s
 		group by s.date
-		order by s.date`
+		order by s.date`,
+		fmt.Sprintf(liftedKgFmt, "ws", "s"),
+		fmt.Sprintf(bodyweightKnownFmt, "ws", "s"))
 
 	rows, err := r.db.Query(ctx, q, from.Time, to.Time)
 	if err != nil {
@@ -116,17 +177,18 @@ type MuscleVolume struct {
 // 「有効セット数」は単純なセット数。ウォームアップを除く仕組みは持っていない
 // （RIR で区別できるが、記録の運用が固まってから入れる）。
 func (r *Analysis) WeeklyVolume(ctx context.Context, from, to openapi_types.Date) ([]MuscleVolume, error) {
-	const q = `
+	q := fmt.Sprintf(`
 		select e.muscle_group,
 		       count(*)::int as sets,
-		       coalesce(sum(s.weight_kg * s.reps), 0)::float8 as tonnage
+		       coalesce(sum((%[1]s) * s.reps), 0)::float8 as tonnage
 		from workout_sets s
 		join workout_sessions ws on ws.id = s.session_id and ws.deleted_at is null
 		join exercises e on e.id = s.exercise_id
 		where s.deleted_at is null
 		  and ws.date between $1::date and $2::date
 		group by e.muscle_group
-		order by sets desc`
+		order by sets desc`,
+		fmt.Sprintf(liftedKgFmt, "s", "ws"))
 
 	rows, err := r.db.Query(ctx, q, from.Time, to.Time)
 	if err != nil {
@@ -167,14 +229,17 @@ type E1RMPoint struct {
 func (r *Analysis) ExerciseHistory(ctx context.Context, exerciseID uuid.UUID, from, to openapi_types.Date) ([]E1RMPoint, error) {
 	// e1RM の計算は Go 側でやる。SQL に式を書くと analytics と二重管理になり、
 	// 「Python と一致すること」の検証対象が増える
-	const q = `
-		select ws.date, s.weight_kg, s.reps, s.rir
+	q := fmt.Sprintf(`
+		select ws.date, (%[1]s) as weight_kg, s.reps, s.rir
 		from workout_sets s
 		join workout_sessions ws on ws.id = s.session_id and ws.deleted_at is null
 		where s.exercise_id = $1
 		  and s.deleted_at is null
 		  and ws.date between $2::date and $3::date
-		order by ws.date`
+		  and %[2]s
+		order by ws.date`,
+		fmt.Sprintf(liftedKgFmt, "s", "ws"),
+		fmt.Sprintf(bodyweightKnownFmt, "s", "ws"))
 
 	rows, err := r.db.Query(ctx, q, exerciseID, from.Time, to.Time)
 	if err != nil {

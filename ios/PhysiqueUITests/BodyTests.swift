@@ -1,0 +1,122 @@
+import XCTest
+
+/// 体組成の「押せるか」（#274 / #275 / #277）。
+final class BodyTests: XCTestCase {
+    private var app: XCUIApplication!
+
+    override func setUp() {
+        continueAfterFailure = false
+        app = XCUIApplication()
+        app.launchArguments = ["-uiTesting"]
+        app.launch()
+
+        // **タブは identifier を持たない。** label で引く（docs/swift/testing.md）
+        let tab = app.tabBars.buttons["体組成"]
+        XCTAssertTrue(tab.waitForExistence(timeout: UITimeout.slow), "体組成タブが出ること")
+        tab.tap()
+    }
+
+    /// #275。食事・記録と同じ日付ナビ
+    func test_日付を前後に移せる() {
+        let back = app.buttons.matching(identifier: "chevron.left").firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: UITimeout.normal), "戻るが出ること")
+        XCTAssertTrue(back.isHittable, "押せる位置にあること")
+
+        // **未来には進めない**
+        let fwd = app.buttons.matching(identifier: "chevron.right").firstMatch
+        XCTAssertFalse(fwd.isEnabled, "翌日に進めないこと")
+
+        back.tap()
+        XCTAssertTrue(fwd.isEnabled, "戻ったら進めること")
+    }
+
+    /// #307。推移の入口。**押した先が開くところまで**見る
+    func test_推移のグラフに飛べる() {
+        let chart = app.buttons["bodyChart"]
+        XCTAssertTrue(chart.waitForExistence(timeout: UITimeout.normal), "推移の入口が出ること")
+        XCTAssertTrue(chart.isHittable, "押せる位置にあること")
+        chart.tap()
+
+        // 記録が無くても画面は開く。**空のグラフを描かず「記録が無い」と出す**
+        XCTAssertTrue(
+            app.segmentedControls["metricPicker"].waitForExistence(timeout: UITimeout.slow),
+            "推移の画面が開くこと"
+        )
+        XCTAssertTrue(
+            app.segmentedControls["spanPicker"].isHittable, "日/月を切り替えられること"
+        )
+
+        // **数値が読めるところまで見る。** グラフだけ出ても数字が分からない（#318）
+        let value = app.staticTexts["trendValue"]
+        XCTAssertTrue(value.waitForExistence(timeout: UITimeout.slow), "数値が出ること")
+
+        // 触っていないうちは一番新しい点
+        XCTAssertTrue(app.staticTexts["trendLatestHint"].exists, "最新と出ていること")
+
+        // **実際にタップする。** 「数値が出ている」だけでは、タップが
+        // 効いているか分からない。chartXSelection は単発のタップを拾わず、
+        // 表示されたままなのでテストが通ってしまっていた（#318）
+        let plot = app.otherElements["trendChart"].firstMatch
+        XCTAssertTrue(plot.waitForExistence(timeout: UITimeout.normal), "グラフがあること")
+        plot.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5)).tap()
+
+        XCTAssertFalse(
+            app.staticTexts["trendLatestHint"].exists,
+            "タップしたら最新ではなく選んだ点になること"
+        )
+    }
+
+    /// 実機で「押しても反応しない」と言われた件。**押した結果が見えるところまで**見る
+    func test_AppleHealthを押すと結果が出る() {
+        let sync = app.buttons["syncHealth"]
+        XCTAssertTrue(sync.waitForExistence(timeout: UITimeout.normal), "取り込みが出ること")
+        XCTAssertTrue(sync.isHittable, "押せる位置にあること")
+        sync.tap()
+
+        // **押したボタンのすぐ下に出る。** 画面の一番下だと見えない
+        XCTAssertTrue(
+            app.staticTexts["bodyMessage"].waitForExistence(timeout: UITimeout.slow),
+            "押した結果が出ること"
+        )
+    }
+
+    /// #288。取り込むので手では入れない
+    func test_取り込んだあとは体重を手で入れられない() {
+        let sync = app.buttons["syncHealth"]
+        XCTAssertTrue(sync.waitForExistence(timeout: UITimeout.normal), "取り込みが出ること")
+        sync.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["bodyMessage"].waitForExistence(timeout: UITimeout.slow),
+            "取り込みが終わること"
+        )
+
+        // 取り込み済みなら入力欄が消える
+        XCTAssertTrue(app.staticTexts["体組成"].exists, "体組成の見出しが出ること")
+        XCTAssertFalse(app.buttons["体組成を保存"].exists, "手で保存するボタンが無いこと")
+    }
+
+    /// #277。既定は首とウエストだけ。残りは畳む
+    func test_周囲長は既定で2つだけ出て開ける() {
+        XCTAssertTrue(app.staticTexts["首"].waitForExistence(timeout: UITimeout.normal),
+                      "首が出ること")
+        XCTAssertTrue(app.staticTexts["ウエスト（へそ）"].exists, "ウエストが出ること")
+        // 畳まれている
+        XCTAssertFalse(app.staticTexts["上腕（右）"].exists, "既定では出ないこと")
+
+        // **スクロールしてから見る。** 周囲長はフォームの一番下にある。
+        // キーボードに隠れているわけではないので、届かないのは問題ではない
+        //
+        // **exists もスクロールしてから見る。** Form は遅延描画なので、
+        // 画面の外にある行はアクセシビリティツリーに出てこない。
+        // 上に行を1つ足しただけで exists が false になった（#306）
+        let more = app.buttons["showAllParts"]
+        app.swipeUp()
+        XCTAssertTrue(more.waitForExistence(timeout: UITimeout.normal), "詳しく測るがあること")
+        XCTAssertTrue(more.isHittable, "スクロールすれば押せること")
+        more.tap()
+
+        XCTAssertTrue(app.staticTexts["上腕（右）"].waitForExistence(timeout: UITimeout.normal),
+                      "開くと出ること")
+    }
+}

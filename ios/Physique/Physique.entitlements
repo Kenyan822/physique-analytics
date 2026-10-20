@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- 体重・体脂肪率などの読み取りに要る（要件 B-01 / B-09）。
+	     **書き込みは要求しない** —— HealthKitSource は toShare: [] で、
+	     このアプリが Apple Health を汚す理由が無い -->
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+</dict>
+</plist>

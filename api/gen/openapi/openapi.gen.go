@@ -69,6 +69,7 @@ func (e MealSlot) Valid() bool {
 const (
 	MealSourceAiEstimated MealSource = "ai_estimated"
 	MealSourceManual      MealSource = "manual"
+	MealSourceRough       MealSource = "rough"
 )
 
 // Valid indicates whether the value is a known member of the MealSource enum.
@@ -77,6 +78,8 @@ func (e MealSource) Valid() bool {
 	case MealSourceAiEstimated:
 		return true
 	case MealSourceManual:
+		return true
+	case MealSourceRough:
 		return true
 	default:
 		return false
@@ -484,7 +487,6 @@ type ContestInput struct {
 // DailyMetrics defines model for DailyMetrics.
 type DailyMetrics struct {
 	BodyfatPct *float32  `json:"bodyfatPct,omitempty"`
-	CarbG      *int      `json:"carbG,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
 
 	// Date JST の日付（ADR-0013）。1日1行
@@ -493,15 +495,12 @@ type DailyMetrics struct {
 
 	// DeletedAt 論理削除。物理削除しない（ADR-0014）
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
-	FatG      *int       `json:"fatG,omitempty"`
 
 	// Fatigue 主観的な疲労度（要件 B-06）
 	Fatigue   *int               `json:"fatigue,omitempty"`
 	HrvMs     *int               `json:"hrvMs,omitempty"`
 	Id        openapi_types.UUID `json:"id"`
-	Kcal      *int               `json:"kcal,omitempty"`
 	Note      *string            `json:"note,omitempty"`
-	ProteinG  *int               `json:"proteinG,omitempty"`
 	RestingHr *int               `json:"restingHr,omitempty"`
 	SleepH    *float32           `json:"sleepH,omitempty"`
 	Steps     *int               `json:"steps,omitempty"`
@@ -514,15 +513,11 @@ type DailyMetrics struct {
 // DailyMetricsInput defines model for DailyMetricsInput.
 type DailyMetricsInput struct {
 	BodyfatPct   *float32           `json:"bodyfatPct,omitempty"`
-	CarbG        *int               `json:"carbG,omitempty"`
 	Date         openapi_types.Date `json:"date"`
 	DeepSleepMin *int               `json:"deepSleepMin,omitempty"`
-	FatG         *int               `json:"fatG,omitempty"`
 	Fatigue      *int               `json:"fatigue,omitempty"`
 	HrvMs        *int               `json:"hrvMs,omitempty"`
-	Kcal         *int               `json:"kcal,omitempty"`
 	Note         *string            `json:"note,omitempty"`
-	ProteinG     *int               `json:"proteinG,omitempty"`
 	RestingHr    *int               `json:"restingHr,omitempty"`
 	SleepH       *float32           `json:"sleepH,omitempty"`
 	Steps        *int               `json:"steps,omitempty"`
@@ -565,6 +560,57 @@ type DailyTargets struct {
 // DailyTargetsTargetSource `target` がどこから来たか。**手動値が自動計算を黙って上書きしていると、
 // 体重が動いても目標が変わらない理由が分からなくなる**ので明示する
 type DailyTargetsTargetSource string
+
+// DayBody defines model for DayBody.
+type DayBody struct {
+	BodyFatPct *float32 `json:"bodyFatPct,omitempty"`
+	WeightKg   *float32 `json:"weightKg,omitempty"`
+}
+
+// DayDetail defines model for DayDetail.
+type DayDetail struct {
+	// Body 体重・体脂肪率のどちらかがあれば。無ければ null
+	Body  *DayBody           `json:"body"`
+	Date  openapi_types.Date `json:"date"`
+	Meals DayMeals           `json:"meals"`
+
+	// Workout その日に `workout_sets` が1件でもあれば。無ければ null
+	Workout *DayWorkout `json:"workout"`
+}
+
+// DayMeals defines model for DayMeals.
+type DayMeals struct {
+	Consumed Macros `json:"consumed"`
+
+	// GoalMet P・F・C すべてが目標の ±10% 以内なら true。**目標が引けなければ null**
+	GoalMet *bool `json:"goalMet"`
+
+	// Shortfall 実績 − 目標。負なら足りない。目標が引けなければ null
+	Shortfall *MacroDiff `json:"shortfall"`
+
+	// Target その日に有効だった目標。引けなければ null
+	Target *Macros `json:"target"`
+}
+
+// DayWorkout defines model for DayWorkout.
+type DayWorkout struct {
+	// DayOrder 有効なルーティンの何日目か。ルーティンに無ければ null
+	DayOrder  *int                 `json:"dayOrder,omitempty"`
+	Exercises []DayWorkoutExercise `json:"exercises"`
+	SetCount  int                  `json:"setCount"`
+
+	// TemplateName その日のセッションのテンプレート名。無ければ null
+	TemplateName *string `json:"templateName,omitempty"`
+}
+
+// DayWorkoutExercise defines model for DayWorkoutExercise.
+type DayWorkoutExercise struct {
+	ExerciseName string `json:"exerciseName"`
+	SetCount     int    `json:"setCount"`
+
+	// TopWeightKg その日の最大重量（kg）
+	TopWeightKg float32 `json:"topWeightKg"`
+}
 
 // Exercise defines model for Exercise.
 type Exercise struct {
@@ -679,6 +725,13 @@ type ImportError struct {
 	Message string `json:"message"`
 }
 
+// MacroDiff defines model for MacroDiff.
+type MacroDiff struct {
+	CarbG    float32 `json:"carbG"`
+	FatG     float32 `json:"fatG"`
+	ProteinG float32 `json:"proteinG"`
+}
+
 // MacroRatio defines model for MacroRatio.
 type MacroRatio struct {
 	FatGPerKg     float32 `json:"fatGPerKg"`
@@ -693,17 +746,44 @@ type Macros struct {
 	ProteinG float32 `json:"proteinG"`
 }
 
-// ManualTargets 手で決めた摂取目標（要件 N-05）。**期間で1つ**しか持たない ——
-// フェーズ単位で変えるもので、日ごとに持つのは過剰。
+// ManualTargetEntry defines model for ManualTargetEntry.
+type ManualTargetEntry struct {
+	CarbG     float32            `json:"carbG"`
+	CreatedAt time.Time          `json:"createdAt"`
+	FatG      float32            `json:"fatG"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// Kcal PFC から計算した値（Atwater 4/9/4）
+	Kcal     int                `json:"kcal"`
+	Name     *string            `json:"name,omitempty"`
+	ProteinG float32            `json:"proteinG"`
+	StartsOn openapi_types.Date `json:"startsOn"`
+}
+
+// ManualTargetEntryInput defines model for ManualTargetEntryInput.
+type ManualTargetEntryInput struct {
+	CarbG    float32 `json:"carbG"`
+	FatG     float32 `json:"fatG"`
+	Name     *string `json:"name,omitempty"`
+	ProteinG float32 `json:"proteinG"`
+
+	// StartsOn この日から適用（JST の日付）。**active フラグは持たない** —— 開始日が最新の行がいまの目標
+	StartsOn openapi_types.Date `json:"startsOn"`
+}
+
+// ManualTargets 手で決めた摂取目標（要件 N-05）。履歴のうち、ある日に適用される1件。
 // これがあるときは自動計算（A-02）より優先する
 type ManualTargets struct {
 	CarbG float32 `json:"carbG"`
 	FatG  float32 `json:"fatG"`
 
 	// Kcal PFC から計算した値（Atwater 4/9/4）。**送っても無視する**
-	Kcal      *int       `json:"kcal,omitempty"`
-	ProteinG  float32    `json:"proteinG"`
-	UpdatedAt *time.Time `json:"updatedAt,omitempty"`
+	Kcal     *int    `json:"kcal,omitempty"`
+	ProteinG float32 `json:"proteinG"`
+
+	// StartsOn この目標の適用開始日。**送っても無視する**（PUT は今日になる）
+	StartsOn  *openapi_types.Date `json:"startsOn,omitempty"`
+	UpdatedAt *time.Time          `json:"updatedAt,omitempty"`
 }
 
 // Meal defines model for Meal.
@@ -745,6 +825,11 @@ type Meal struct {
 	// Source 手入力か AI 推定か（docs/02-データモデル.md）。
 	// 推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
 	// 分析の確度を下げて扱う。
+	//
+	// `rough` は飲み会・外食などの**ざっくり入力**（要件 N-01）。kcal だけ入れて
+	// PFC を P 20% / F 30% / C 50%（kcal 比）で按分したもの。**自分で計った
+	// `manual` と混ぜない** —— 混ぜると推定の良し悪しを後から検証できない。
+	// 精度より、記録が残ることを優先する入口。
 	Source MealSource `json:"source"`
 
 	// UpdatedAt 競合解決に使う（ADR-0014）
@@ -759,8 +844,14 @@ type MealEstimate struct {
 	// Confidence low / medium / high。量が分からないときは low
 	Confidence *string  `json:"confidence,omitempty"`
 	FatG       *float32 `json:"fatG,omitempty"`
-	Kcal       *int     `json:"kcal,omitempty"`
-	Name       string   `json:"name"`
+
+	// FromLabel **栄養成分表示から読んだ値か。** 見た目からの推定より確かなので、
+	// 直す必要があるかの判断に使う（#350）。
+	// 「100g あたり」の表示を1食分に換算できなかったときは、
+	// qty にその旨が入り confidence が low になる。
+	FromLabel *bool  `json:"fromLabel,omitempty"`
+	Kcal      *int   `json:"kcal,omitempty"`
+	Name      string `json:"name"`
 
 	// Note 推定の根拠。直すときの手がかりになる
 	Note     *string  `json:"note,omitempty"`
@@ -784,7 +875,9 @@ type MealInput struct {
 	// Id クライアント生成の UUID（冪等性のため）
 	Id *openapi_types.UUID `json:"id,omitempty"`
 
-	// Kcal 省くと PFC から計算される（Atwater 係数 4/9/4）
+	// Kcal 省くと PFC から計算される（Atwater 係数 4/9/4）。
+	// **`source: rough` で PFC を1つも送らないと、この kcal を P 20% / F 30% / C 50%
+	// で按分して PFC を決める**（保存後に手で直せる）
 	Kcal *int `json:"kcal,omitempty"`
 
 	// Name 任意。空白だけなら「無し」として扱う
@@ -798,6 +891,11 @@ type MealInput struct {
 	// Source 手入力か AI 推定か（docs/02-データモデル.md）。
 	// 推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
 	// 分析の確度を下げて扱う。
+	//
+	// `rough` は飲み会・外食などの**ざっくり入力**（要件 N-01）。kcal だけ入れて
+	// PFC を P 20% / F 30% / C 50%（kcal 比）で按分したもの。**自分で計った
+	// `manual` と混ぜない** —— 混ぜると推定の良し悪しを後から検証できない。
+	// 精度より、記録が残ることを優先する入口。
 	Source    *MealSource `json:"source,omitempty"`
 	UpdatedAt *time.Time  `json:"updatedAt,omitempty"`
 }
@@ -842,6 +940,11 @@ type MealSlot string
 // MealSource 手入力か AI 推定か（docs/02-データモデル.md）。
 // 推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
 // 分析の確度を下げて扱う。
+//
+// `rough` は飲み会・外食などの**ざっくり入力**（要件 N-01）。kcal だけ入れて
+// PFC を P 20% / F 30% / C 50%（kcal 比）で按分したもの。**自分で計った
+// `manual` と混ぜない** —— 混ぜると推定の良し悪しを後から検証できない。
+// 精度より、記録が残ることを優先する入口。
 type MealSource string
 
 // MealSuggestion defines model for MealSuggestion.
@@ -1037,6 +1140,39 @@ type RoutineDayItem struct {
 	TargetSets    int         `json:"targetSets"`
 }
 
+// SessionExercise defines model for SessionExercise.
+type SessionExercise struct {
+	ExerciseId   openapi_types.UUID `json:"exerciseId"`
+	ExerciseName string             `json:"exerciseName"`
+	ItemOrder    int                `json:"itemOrder"`
+
+	// MuscleGroup 部位。肩は前部/中部/後部、背中は広背筋/僧帽筋に分ける
+	MuscleGroup MuscleGroup `json:"muscleGroup"`
+}
+
+// SessionExercises defines model for SessionExercises.
+type SessionExercises struct {
+	Items []SessionExercise `json:"items"`
+}
+
+// SessionExercisesInput defines model for SessionExercisesInput.
+type SessionExercisesInput struct {
+	// ExerciseIds 並び順がそのまま itemOrder（1 から連番）になる。重複は不可
+	ExerciseIds []openapi_types.UUID `json:"exerciseIds"`
+}
+
+// StreakDay defines model for StreakDay.
+type StreakDay struct {
+	Date openapi_types.Date `json:"date"`
+
+	// MealGoalMet P・F・C すべてが当日の目標の ±10% 以内なら true。**目標が引けない日は null**
+	// （false ではない）
+	MealGoalMet *bool `json:"mealGoalMet"`
+
+	// Trained その日に `workout_sets` が1件でもある
+	Trained bool `json:"trained"`
+}
+
 // SyncConflict push で適用されなかった変更。サーバ側の `updatedAt` の方が新しい（ADR-0014）。
 // クライアントは pull し直してから再送する。
 type SyncConflict struct {
@@ -1127,7 +1263,11 @@ type WorkoutSession struct {
 	Date openapi_types.Date `json:"date"`
 
 	// DeletedAt 論理削除。物理削除しない（ADR-0014）
-	DeletedAt  *time.Time          `json:"deletedAt,omitempty"`
+	DeletedAt *time.Time `json:"deletedAt,omitempty"`
+
+	// Exercises その日の種目リスト（並び順）。**空 = まだ触っていない**ので、
+	// クライアントはルーティンの並びにフォールバックする（#242）。
+	Exercises  []SessionExercise   `json:"exercises"`
 	Id         openapi_types.UUID  `json:"id"`
 	Note       *string             `json:"note,omitempty"`
 	Sets       []WorkoutSet        `json:"sets"`
@@ -1151,7 +1291,12 @@ type WorkoutSessionInput struct {
 
 // WorkoutSet defines model for WorkoutSet.
 type WorkoutSet struct {
-	CreatedAt time.Time `json:"createdAt"`
+	// Bodyweight 自重の種目か（懸垂・ディップス・腕立て）。
+	// **立っているときの挙上重量は「その日の体重 + weightKg」。**
+	// `weightKg` に 0 を入れるだけだと、トン数も e1RM も 0 になり
+	// 何セットやってもボリュームに乗らない。
+	Bodyweight *bool     `json:"bodyweight,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
 
 	// DeletedAt 論理削除。物理削除しない（ADR-0014）
 	DeletedAt  *time.Time         `json:"deletedAt,omitempty"`
@@ -1168,12 +1313,15 @@ type WorkoutSet struct {
 	// UpdatedAt 競合解決に使う（ADR-0014）
 	UpdatedAt time.Time `json:"updatedAt"`
 
-	// WeightKg kg 固定（データモデル参照）
+	// WeightKg kg 固定（データモデル参照）。
+	// `bodyweight` が立っているときは**体重に足す追加分**（加重）で、
+	// 自重だけなら 0。
 	WeightKg float32 `json:"weightKg"`
 }
 
 // WorkoutSetInput defines model for WorkoutSetInput.
 type WorkoutSetInput struct {
+	Bodyweight *bool               `json:"bodyweight,omitempty"`
 	ExerciseId openapi_types.UUID  `json:"exerciseId"`
 	Id         *openapi_types.UUID `json:"id,omitempty"`
 	Reps       int                 `json:"reps"`
@@ -1245,6 +1393,14 @@ type ListExercisesParams struct {
 
 	// IncludeDeleted 論理削除済みを含めるか。同期用途以外では false
 	IncludeDeleted *IncludeDeleted `form:"includeDeleted,omitempty" json:"includeDeleted,omitempty"`
+}
+
+// GetLastPerformanceParams defines parameters for GetLastPerformance.
+type GetLastPerformanceParams struct {
+	// Before この日**を含まず**、それより前で最新のセッションを返す（#257）。
+	// 今日のセッションを開いている画面が、今日打った値を「前回」と
+	// 取り違えないための指定。省略時は今日を含めて最新。
+	Before *openapi_types.Date `form:"before,omitempty" json:"before,omitempty"`
 }
 
 // ExportCsvParams defines parameters for ExportCsv.
@@ -1356,6 +1512,15 @@ type GetTodayRoutineParams struct {
 	Date *openapi_types.Date `form:"date,omitempty" json:"date,omitempty"`
 }
 
+// GetStreaksParams defines parameters for GetStreaks.
+type GetStreaksParams struct {
+	// From JST の日付（ADR-0013）
+	From openapi_types.Date `form:"from" json:"from"`
+
+	// To JST の日付。`from` から最大 366 日
+	To openapi_types.Date `form:"to" json:"to"`
+}
+
 // PullSyncParams defines parameters for PullSync.
 type PullSyncParams struct {
 	// UpdatedSince 前回同期時にサーバが返した `serverTime` を渡す
@@ -1457,6 +1622,9 @@ type PushSyncJSONRequestBody PushSyncJSONBody
 // PutManualTargetsJSONRequestBody defines body for PutManualTargets for application/json ContentType.
 type PutManualTargetsJSONRequestBody = ManualTargets
 
+// CreateManualTargetEntryJSONRequestBody defines body for CreateManualTargetEntry for application/json ContentType.
+type CreateManualTargetEntryJSONRequestBody = ManualTargetEntryInput
+
 // CreateTemplateJSONRequestBody defines body for CreateTemplate for application/json ContentType.
 type CreateTemplateJSONRequestBody = TemplateInput
 
@@ -1468,6 +1636,9 @@ type CreateWorkoutSessionJSONRequestBody = WorkoutSessionInput
 
 // UpdateWorkoutSessionJSONRequestBody defines body for UpdateWorkoutSession for application/json ContentType.
 type UpdateWorkoutSessionJSONRequestBody UpdateWorkoutSessionJSONBody
+
+// ReplaceSessionExercisesJSONRequestBody defines body for ReplaceSessionExercises for application/json ContentType.
+type ReplaceSessionExercisesJSONRequestBody = SessionExercisesInput
 
 // CreateWorkoutSetJSONRequestBody defines body for CreateWorkoutSet for application/json ContentType.
 type CreateWorkoutSetJSONRequestBody = WorkoutSetInput
@@ -1516,6 +1687,9 @@ type ServerInterface interface {
 	// GetDailyMetrics 日次記録の取得
 	// (GET /v1/daily/{date})
 	GetDailyMetrics(w http.ResponseWriter, r *http.Request, date openapi_types.Date)
+	// GetDay 1日ぶんの要約（食事・筋トレ・体組成）
+	// (GET /v1/days/{date})
+	GetDay(w http.ResponseWriter, r *http.Request, date openapi_types.Date)
 	// ListExercises 種目の一覧
 	// (GET /v1/exercises)
 	ListExercises(w http.ResponseWriter, r *http.Request, params ListExercisesParams)
@@ -1533,7 +1707,7 @@ type ServerInterface interface {
 	UpdateExercise(w http.ResponseWriter, r *http.Request, exerciseId ExerciseId)
 	// GetLastPerformance 前回の実施内容
 	// (GET /v1/exercises/{exerciseId}/last-performance)
-	GetLastPerformance(w http.ResponseWriter, r *http.Request, exerciseId ExerciseId)
+	GetLastPerformance(w http.ResponseWriter, r *http.Request, exerciseId ExerciseId, params GetLastPerformanceParams)
 	// ExportCsv CSV エクスポート
 	// (GET /v1/export/csv)
 	ExportCsv(w http.ResponseWriter, r *http.Request, params ExportCsvParams)
@@ -1630,21 +1804,33 @@ type ServerInterface interface {
 	// GetTodayRoutine 今日やる想定の種目
 	// (GET /v1/routines/today)
 	GetTodayRoutine(w http.ResponseWriter, r *http.Request, params GetTodayRoutineParams)
+	// GetStreaks 日別の達成フラグ（食事の目標・筋トレ）
+	// (GET /v1/streaks)
+	GetStreaks(w http.ResponseWriter, r *http.Request, params GetStreaksParams)
 	// PullSync 差分の取得
 	// (GET /v1/sync)
 	PullSync(w http.ResponseWriter, r *http.Request, params PullSyncParams)
 	// PushSync ローカルの変更を一括送信
 	// (POST /v1/sync)
 	PushSync(w http.ResponseWriter, r *http.Request)
-	// DeleteManualTargets 手で決めた摂取目標を消す。自動計算（A-02）に戻る
+	// DeleteManualTargets 手動の目標をやめる。自動計算（A-02）に戻る
 	// (DELETE /v1/targets/manual)
 	DeleteManualTargets(w http.ResponseWriter, r *http.Request)
-	// GetManualTargets 手で決めた摂取目標を返す（要件 N-05）
+	// GetManualTargets いま（JST の今日）有効な、手で決めた摂取目標を返す（要件 N-05）
 	// (GET /v1/targets/manual)
 	GetManualTargets(w http.ResponseWriter, r *http.Request)
-	// PutManualTargets 手で決めた摂取目標を保存する（要件 N-05）
+	// PutManualTargets 今日からこの目標にする（要件 N-05）
 	// (PUT /v1/targets/manual)
 	PutManualTargets(w http.ResponseWriter, r *http.Request)
+	// ListManualTargetEntries 手動目標の履歴（適用開始日の新しい順）
+	// (GET /v1/targets/manual/entries)
+	ListManualTargetEntries(w http.ResponseWriter, r *http.Request)
+	// CreateManualTargetEntry 履歴に1件足す。未来の日付なら予約になる
+	// (POST /v1/targets/manual/entries)
+	CreateManualTargetEntry(w http.ResponseWriter, r *http.Request)
+	// DeleteManualTargetEntry 履歴の1件を消す
+	// (DELETE /v1/targets/manual/entries/{entryId})
+	DeleteManualTargetEntry(w http.ResponseWriter, r *http.Request, entryId openapi_types.UUID)
 	// GetDailyTargets その日の摂取目標と残量
 	// (GET /v1/targets/{date})
 	GetDailyTargets(w http.ResponseWriter, r *http.Request, date openapi_types.Date)
@@ -1678,6 +1864,9 @@ type ServerInterface interface {
 	// UpdateWorkoutSession セッションの更新
 	// (PATCH /v1/workout-sessions/{sessionId})
 	UpdateWorkoutSession(w http.ResponseWriter, r *http.Request, sessionId SessionId)
+	// ReplaceSessionExercises その日の種目リストを全置換する
+	// (PUT /v1/workout-sessions/{sessionId}/exercises)
+	ReplaceSessionExercises(w http.ResponseWriter, r *http.Request, sessionId SessionId)
 	// CreateWorkoutSet セットの追加
 	// (POST /v1/workout-sessions/{sessionId}/sets)
 	CreateWorkoutSet(w http.ResponseWriter, r *http.Request, sessionId SessionId)
@@ -1984,6 +2173,32 @@ func (siw *ServerInterfaceWrapper) GetDailyMetrics(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// GetDay operation middleware
+func (siw *ServerInterfaceWrapper) GetDay(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "date" -------------
+	var date openapi_types.Date
+
+	err = runtime.BindStyledParameterWithOptions("simple", "date", r.PathValue("date"), &date, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "date", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "date", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDay(w, r, date)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListExercises operation middleware
 func (siw *ServerInterfaceWrapper) ListExercises(w http.ResponseWriter, r *http.Request) {
 
@@ -2137,8 +2352,24 @@ func (siw *ServerInterfaceWrapper) GetLastPerformance(w http.ResponseWriter, r *
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetLastPerformanceParams
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetLastPerformance(w, r, exerciseId)
+		siw.Handler.GetLastPerformance(w, r, exerciseId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2953,6 +3184,52 @@ func (siw *ServerInterfaceWrapper) GetTodayRoutine(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// GetStreaks operation middleware
+func (siw *ServerInterfaceWrapper) GetStreaks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetStreaksParams
+
+	// ------------- Required query parameter "from" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "from", r.URL.Query(), &params.From, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "from"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "to" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "to", r.URL.Query(), &params.To, runtime.BindQueryParameterOptions{Type: "string", Format: "date"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "to"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStreaks(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // PullSync operation middleware
 func (siw *ServerInterfaceWrapper) PullSync(w http.ResponseWriter, r *http.Request) {
 
@@ -3033,6 +3310,60 @@ func (siw *ServerInterfaceWrapper) PutManualTargets(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PutManualTargets(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListManualTargetEntries operation middleware
+func (siw *ServerInterfaceWrapper) ListManualTargetEntries(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListManualTargetEntries(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateManualTargetEntry operation middleware
+func (siw *ServerInterfaceWrapper) CreateManualTargetEntry(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateManualTargetEntry(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteManualTargetEntry operation middleware
+func (siw *ServerInterfaceWrapper) DeleteManualTargetEntry(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "entryId" -------------
+	var entryId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "entryId", r.PathValue("entryId"), &entryId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "entryId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteManualTargetEntry(w, r, entryId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3338,6 +3669,32 @@ func (siw *ServerInterfaceWrapper) UpdateWorkoutSession(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// ReplaceSessionExercises operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceSessionExercises(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "sessionId" -------------
+	var sessionId SessionId
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sessionId", r.PathValue("sessionId"), &sessionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sessionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceSessionExercises(w, r, sessionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateWorkoutSet operation middleware
 func (siw *ServerInterfaceWrapper) CreateWorkoutSet(w http.ResponseWriter, r *http.Request) {
 
@@ -3547,6 +3904,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/workout-sessions/{sessionId}", wrapper.DeleteWorkoutSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/workout-sessions/{sessionId}", wrapper.GetWorkoutSession)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/workout-sessions/{sessionId}", wrapper.UpdateWorkoutSession)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/workout-sessions/{sessionId}/exercises", wrapper.ReplaceSessionExercises)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/workout-sessions/{sessionId}/sets", wrapper.CreateWorkoutSet)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/workout-sets/{setId}", wrapper.DeleteWorkoutSet)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/v1/workout-sets/{setId}", wrapper.UpdateWorkoutSet)
@@ -3584,6 +3942,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/targets/manual", wrapper.DeleteManualTargets)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/targets/manual", wrapper.GetManualTargets)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/v1/targets/manual", wrapper.PutManualTargets)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/targets/manual/entries", wrapper.ListManualTargetEntries)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/targets/manual/entries", wrapper.CreateManualTargetEntry)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/v1/targets/manual/entries/{entryId}", wrapper.DeleteManualTargetEntry)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/targets/{date}", wrapper.GetDailyTargets)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/blood-tests", wrapper.ListBloodTests)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/blood-tests", wrapper.CreateBloodTest)
@@ -3606,6 +3967,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/sync", wrapper.PushSync)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/export/csv", wrapper.ExportCsv)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/v1/import/csv", wrapper.ImportCsv)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/days/{date}", wrapper.GetDay)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/v1/streaks", wrapper.GetStreaks)
 
 	return m
 }
@@ -4330,6 +4693,44 @@ func (response GetDailyMetrics404ApplicationProblemPlusJSONResponse) VisitGetDai
 	return err
 }
 
+type GetDayRequestObject struct {
+	Date openapi_types.Date `json:"date"`
+}
+
+type GetDayResponseObject interface {
+	VisitGetDayResponse(w http.ResponseWriter) error
+}
+
+type GetDay200JSONResponse DayDetail
+
+func (response GetDay200JSONResponse) VisitGetDayResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetDay401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetDay401ApplicationProblemPlusJSONResponse) VisitGetDayResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListExercisesRequestObject struct {
 	Params ListExercisesParams
 }
@@ -4583,6 +4984,7 @@ func (response UpdateExercise409ApplicationProblemPlusJSONResponse) VisitUpdateE
 
 type GetLastPerformanceRequestObject struct {
 	ExerciseId ExerciseId `json:"exerciseId"`
+	Params     GetLastPerformanceParams
 }
 
 type GetLastPerformanceResponseObject interface {
@@ -4590,10 +4992,10 @@ type GetLastPerformanceResponseObject interface {
 }
 
 type GetLastPerformance200JSONResponse struct {
-	// Date 前回実施日。未実施なら null
+	// Date 前回実施日。未実施（before 指定時は、それより前が無い）なら null
 	Date *openapi_types.Date `json:"date,omitempty"`
 
-	// EstimatedOneRm 前回の推定1RM（Epley + RIR補正）
+	// EstimatedOneRm 前回の推定1RM（Epley + RIR補正）。返したセッションのセットから計算する
 	EstimatedOneRm *float32           `json:"estimatedOneRm,omitempty"`
 	ExerciseId     openapi_types.UUID `json:"exerciseId"`
 	Sets           *[]WorkoutSet      `json:"sets,omitempty"`
@@ -4607,6 +5009,22 @@ func (response GetLastPerformance200JSONResponse) VisitGetLastPerformanceRespons
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetLastPerformance400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response GetLastPerformance400ApplicationProblemPlusJSONResponse) VisitGetLastPerformanceResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(400)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6407,6 +6825,62 @@ func (response GetTodayRoutine200JSONResponse) VisitGetTodayRoutineResponse(w ht
 	return err
 }
 
+type GetStreaksRequestObject struct {
+	Params GetStreaksParams
+}
+
+type GetStreaksResponseObject interface {
+	VisitGetStreaksResponse(w http.ResponseWriter) error
+}
+
+type GetStreaks200JSONResponse struct {
+	Items []StreakDay `json:"items"`
+}
+
+func (response GetStreaks200JSONResponse) VisitGetStreaksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStreaks401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetStreaks401ApplicationProblemPlusJSONResponse) VisitGetStreaksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStreaks422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response GetStreaks422ApplicationProblemPlusJSONResponse) VisitGetStreaksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PullSyncRequestObject struct {
 	Params PullSyncParams
 }
@@ -6602,6 +7076,147 @@ func (response PutManualTargets422ApplicationProblemPlusJSONResponse) VisitPutMa
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListManualTargetEntriesRequestObject struct {
+}
+
+type ListManualTargetEntriesResponseObject interface {
+	VisitListManualTargetEntriesResponse(w http.ResponseWriter) error
+}
+
+type ListManualTargetEntries200JSONResponse struct {
+	Items []ManualTargetEntry `json:"items"`
+}
+
+func (response ListManualTargetEntries200JSONResponse) VisitListManualTargetEntriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListManualTargetEntries401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListManualTargetEntries401ApplicationProblemPlusJSONResponse) VisitListManualTargetEntriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualTargetEntryRequestObject struct {
+	Body *CreateManualTargetEntryJSONRequestBody
+}
+
+type CreateManualTargetEntryResponseObject interface {
+	VisitCreateManualTargetEntryResponse(w http.ResponseWriter) error
+}
+
+type CreateManualTargetEntry201JSONResponse ManualTargetEntry
+
+func (response CreateManualTargetEntry201JSONResponse) VisitCreateManualTargetEntryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualTargetEntry401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateManualTargetEntry401ApplicationProblemPlusJSONResponse) VisitCreateManualTargetEntryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateManualTargetEntry422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateManualTargetEntry422ApplicationProblemPlusJSONResponse) VisitCreateManualTargetEntryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteManualTargetEntryRequestObject struct {
+	EntryId openapi_types.UUID `json:"entryId"`
+}
+
+type DeleteManualTargetEntryResponseObject interface {
+	VisitDeleteManualTargetEntryResponse(w http.ResponseWriter) error
+}
+
+type DeleteManualTargetEntry204Response struct {
+}
+
+func (response DeleteManualTargetEntry204Response) VisitDeleteManualTargetEntryResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteManualTargetEntry401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteManualTargetEntry401ApplicationProblemPlusJSONResponse) VisitDeleteManualTargetEntryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteManualTargetEntry404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteManualTargetEntry404ApplicationProblemPlusJSONResponse) VisitDeleteManualTargetEntryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -7146,6 +7761,61 @@ func (response UpdateWorkoutSession409ApplicationProblemPlusJSONResponse) VisitU
 	return err
 }
 
+type ReplaceSessionExercisesRequestObject struct {
+	SessionId SessionId `json:"sessionId"`
+	Body      *ReplaceSessionExercisesJSONRequestBody
+}
+
+type ReplaceSessionExercisesResponseObject interface {
+	VisitReplaceSessionExercisesResponse(w http.ResponseWriter) error
+}
+
+type ReplaceSessionExercises200JSONResponse SessionExercises
+
+func (response ReplaceSessionExercises200JSONResponse) VisitReplaceSessionExercisesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceSessionExercises404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceSessionExercises404ApplicationProblemPlusJSONResponse) VisitReplaceSessionExercisesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceSessionExercises422ApplicationProblemPlusJSONResponse struct {
+	ValidationFailedApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceSessionExercises422ApplicationProblemPlusJSONResponse) VisitReplaceSessionExercisesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateWorkoutSetRequestObject struct {
 	SessionId SessionId `json:"sessionId"`
 	Body      *CreateWorkoutSetJSONRequestBody
@@ -7329,6 +7999,9 @@ type StrictServerInterface interface {
 	// GetDailyMetrics 日次記録の取得
 	// (GET /v1/daily/{date})
 	GetDailyMetrics(ctx context.Context, request GetDailyMetricsRequestObject) (GetDailyMetricsResponseObject, error)
+	// GetDay 1日ぶんの要約（食事・筋トレ・体組成）
+	// (GET /v1/days/{date})
+	GetDay(ctx context.Context, request GetDayRequestObject) (GetDayResponseObject, error)
 	// ListExercises 種目の一覧
 	// (GET /v1/exercises)
 	ListExercises(ctx context.Context, request ListExercisesRequestObject) (ListExercisesResponseObject, error)
@@ -7443,21 +8116,33 @@ type StrictServerInterface interface {
 	// GetTodayRoutine 今日やる想定の種目
 	// (GET /v1/routines/today)
 	GetTodayRoutine(ctx context.Context, request GetTodayRoutineRequestObject) (GetTodayRoutineResponseObject, error)
+	// GetStreaks 日別の達成フラグ（食事の目標・筋トレ）
+	// (GET /v1/streaks)
+	GetStreaks(ctx context.Context, request GetStreaksRequestObject) (GetStreaksResponseObject, error)
 	// PullSync 差分の取得
 	// (GET /v1/sync)
 	PullSync(ctx context.Context, request PullSyncRequestObject) (PullSyncResponseObject, error)
 	// PushSync ローカルの変更を一括送信
 	// (POST /v1/sync)
 	PushSync(ctx context.Context, request PushSyncRequestObject) (PushSyncResponseObject, error)
-	// DeleteManualTargets 手で決めた摂取目標を消す。自動計算（A-02）に戻る
+	// DeleteManualTargets 手動の目標をやめる。自動計算（A-02）に戻る
 	// (DELETE /v1/targets/manual)
 	DeleteManualTargets(ctx context.Context, request DeleteManualTargetsRequestObject) (DeleteManualTargetsResponseObject, error)
-	// GetManualTargets 手で決めた摂取目標を返す（要件 N-05）
+	// GetManualTargets いま（JST の今日）有効な、手で決めた摂取目標を返す（要件 N-05）
 	// (GET /v1/targets/manual)
 	GetManualTargets(ctx context.Context, request GetManualTargetsRequestObject) (GetManualTargetsResponseObject, error)
-	// PutManualTargets 手で決めた摂取目標を保存する（要件 N-05）
+	// PutManualTargets 今日からこの目標にする（要件 N-05）
 	// (PUT /v1/targets/manual)
 	PutManualTargets(ctx context.Context, request PutManualTargetsRequestObject) (PutManualTargetsResponseObject, error)
+	// ListManualTargetEntries 手動目標の履歴（適用開始日の新しい順）
+	// (GET /v1/targets/manual/entries)
+	ListManualTargetEntries(ctx context.Context, request ListManualTargetEntriesRequestObject) (ListManualTargetEntriesResponseObject, error)
+	// CreateManualTargetEntry 履歴に1件足す。未来の日付なら予約になる
+	// (POST /v1/targets/manual/entries)
+	CreateManualTargetEntry(ctx context.Context, request CreateManualTargetEntryRequestObject) (CreateManualTargetEntryResponseObject, error)
+	// DeleteManualTargetEntry 履歴の1件を消す
+	// (DELETE /v1/targets/manual/entries/{entryId})
+	DeleteManualTargetEntry(ctx context.Context, request DeleteManualTargetEntryRequestObject) (DeleteManualTargetEntryResponseObject, error)
 	// GetDailyTargets その日の摂取目標と残量
 	// (GET /v1/targets/{date})
 	GetDailyTargets(ctx context.Context, request GetDailyTargetsRequestObject) (GetDailyTargetsResponseObject, error)
@@ -7491,6 +8176,9 @@ type StrictServerInterface interface {
 	// UpdateWorkoutSession セッションの更新
 	// (PATCH /v1/workout-sessions/{sessionId})
 	UpdateWorkoutSession(ctx context.Context, request UpdateWorkoutSessionRequestObject) (UpdateWorkoutSessionResponseObject, error)
+	// ReplaceSessionExercises その日の種目リストを全置換する
+	// (PUT /v1/workout-sessions/{sessionId}/exercises)
+	ReplaceSessionExercises(ctx context.Context, request ReplaceSessionExercisesRequestObject) (ReplaceSessionExercisesResponseObject, error)
 	// CreateWorkoutSet セットの追加
 	// (POST /v1/workout-sessions/{sessionId}/sets)
 	CreateWorkoutSet(ctx context.Context, request CreateWorkoutSetRequestObject) (CreateWorkoutSetResponseObject, error)
@@ -7902,6 +8590,32 @@ func (sh *strictHandler) GetDailyMetrics(w http.ResponseWriter, r *http.Request,
 	}
 }
 
+// GetDay operation middleware
+func (sh *strictHandler) GetDay(w http.ResponseWriter, r *http.Request, date openapi_types.Date) {
+	var request GetDayRequestObject
+
+	request.Date = date
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetDay(ctx, request.(GetDayRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetDay")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetDayResponseObject); ok {
+		if err := validResponse.VisitGetDayResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListExercises operation middleware
 func (sh *strictHandler) ListExercises(w http.ResponseWriter, r *http.Request, params ListExercisesParams) {
 	var request ListExercisesRequestObject
@@ -8045,10 +8759,11 @@ func (sh *strictHandler) UpdateExercise(w http.ResponseWriter, r *http.Request, 
 }
 
 // GetLastPerformance operation middleware
-func (sh *strictHandler) GetLastPerformance(w http.ResponseWriter, r *http.Request, exerciseId ExerciseId) {
+func (sh *strictHandler) GetLastPerformance(w http.ResponseWriter, r *http.Request, exerciseId ExerciseId, params GetLastPerformanceParams) {
 	var request GetLastPerformanceRequestObject
 
 	request.ExerciseId = exerciseId
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.GetLastPerformance(ctx, request.(GetLastPerformanceRequestObject))
@@ -8972,6 +9687,32 @@ func (sh *strictHandler) GetTodayRoutine(w http.ResponseWriter, r *http.Request,
 	}
 }
 
+// GetStreaks operation middleware
+func (sh *strictHandler) GetStreaks(w http.ResponseWriter, r *http.Request, params GetStreaksParams) {
+	var request GetStreaksRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetStreaks(ctx, request.(GetStreaksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetStreaks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetStreaksResponseObject); ok {
+		if err := validResponse.VisitGetStreaksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // PullSync operation middleware
 func (sh *strictHandler) PullSync(w http.ResponseWriter, r *http.Request, params PullSyncParams) {
 	var request PullSyncRequestObject
@@ -9101,6 +9842,87 @@ func (sh *strictHandler) PutManualTargets(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutManualTargetsResponseObject); ok {
 		if err := validResponse.VisitPutManualTargetsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListManualTargetEntries operation middleware
+func (sh *strictHandler) ListManualTargetEntries(w http.ResponseWriter, r *http.Request) {
+	var request ListManualTargetEntriesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListManualTargetEntries(ctx, request.(ListManualTargetEntriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListManualTargetEntries")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListManualTargetEntriesResponseObject); ok {
+		if err := validResponse.VisitListManualTargetEntriesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateManualTargetEntry operation middleware
+func (sh *strictHandler) CreateManualTargetEntry(w http.ResponseWriter, r *http.Request) {
+	var request CreateManualTargetEntryRequestObject
+
+	var body CreateManualTargetEntryJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateManualTargetEntry(ctx, request.(CreateManualTargetEntryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateManualTargetEntry")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateManualTargetEntryResponseObject); ok {
+		if err := validResponse.VisitCreateManualTargetEntryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteManualTargetEntry operation middleware
+func (sh *strictHandler) DeleteManualTargetEntry(w http.ResponseWriter, r *http.Request, entryId openapi_types.UUID) {
+	var request DeleteManualTargetEntryRequestObject
+
+	request.EntryId = entryId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteManualTargetEntry(ctx, request.(DeleteManualTargetEntryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteManualTargetEntry")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteManualTargetEntryResponseObject); ok {
+		if err := validResponse.VisitDeleteManualTargetEntryResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -9409,6 +10231,39 @@ func (sh *strictHandler) UpdateWorkoutSession(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(UpdateWorkoutSessionResponseObject); ok {
 		if err := validResponse.VisitUpdateWorkoutSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReplaceSessionExercises operation middleware
+func (sh *strictHandler) ReplaceSessionExercises(w http.ResponseWriter, r *http.Request, sessionId SessionId) {
+	var request ReplaceSessionExercisesRequestObject
+
+	request.SessionId = sessionId
+
+	var body ReplaceSessionExercisesJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceSessionExercises(ctx, request.(ReplaceSessionExercisesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceSessionExercises")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceSessionExercisesResponseObject); ok {
+		if err := validResponse.VisitReplaceSessionExercisesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

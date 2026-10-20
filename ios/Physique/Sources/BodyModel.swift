@@ -19,32 +19,124 @@ final class BodyModel {
 
     /// 今日より前の直近の周囲長。差分の基準（要件 B-03）
     private(set) var previousMeasurement: BodyMeasurement?
-    /// 今日より前の直近の体重
+    /// 表示日より前の直近の体重
     private(set) var previousWeightKg: Double?
+    /// 表示日より前の直近の体脂肪率
+    private(set) var previousBodyfatPct: Double?
+
+    /// 前回の体重がいつのものか（要件 B-03 / #338）。
+    ///
+    /// **日付が無いと差分の意味が決まらない。** 昨日の -0.3kg と
+    /// 2週間前の -0.3kg はまったく別の話になる。
+    ///
+    /// **体重と体脂肪率で別に持つ。** 体重だけ測った日があるので、
+    /// 同じ日とは限らない
+    private(set) var previousWeightDate: String?
+    /// 前回の体脂肪率がいつのものか
+    private(set) var previousBodyfatDate: String?
 
     private(set) var message: String?
     private(set) var isSaving = false
 
     /// HealthKit の読み取り口。nil なら取り込みボタンを出さない
     private let health: HealthSource?
+    /// 覚えておく先。**テストで差し替える**ため注入する
+    /// （`.standard` を直に触るとテスト同士が汚し合う）
+    private let defaults: UserDefaults
+
     /// 最後に取り込んだ日。差分だけ取るために持つ
     private var lastSynced: String? {
-        get { UserDefaults.standard.string(forKey: "healthLastSynced") }
-        set { UserDefaults.standard.set(newValue, forKey: "healthLastSynced") }
+        get { defaults.string(forKey: "healthLastSynced") }
+        set { defaults.set(newValue, forKey: "healthLastSynced") }
     }
 
     var canSyncHealth: Bool { health != nil }
 
-    init(api: APIClient, health: HealthSource? = nil) {
+    /// 一度でも許可の応答を得たか（#274）。
+    ///
+    /// **読み取り権限は iOS から取れない。** プライバシー上、許可されたか
+    /// 拒否されたかを `authorizationStatus` では区別できない。
+    /// 「一度ダイアログを通した」ことだけを覚えておく
+    private(set) var healthGranted: Bool {
+        get { defaults.bool(forKey: "healthGranted") }
+        set { defaults.set(newValue, forKey: "healthGranted") }
+    }
+
+    /// 画面を開いたときに黙って取り込む（#274）。
+    ///
+    /// **まだ許可を通していなければ何もしない。** 起動のたびに権限ダイアログが
+    /// 出るのは邪魔なので、最初の1回だけはボタンを押してもらう。
+    /// **メッセージも出さない** —— 開くたびに「3日分を取り込んだ」と出ると邪魔
+    func syncHealthIfGranted(today: String) async {
+        guard healthGranted else { return }
+
+        await syncHealth(today: today, quiet: true)
+    }
+
+    /// 最初から取り込み直す（#291）。
+    ///
+    /// 体脂肪率が壊れて保存されていた期間があるので、直したあとに
+    /// 入れ直す手段が要る。差分取り込みの記録を消してから走らせる
+    func resyncHealth(today: String) async {
+        lastSynced = nil
+        await syncHealth(today: today)
+    }
+
+    /// テスト用。`UserDefaults` を直に触らせない
+    func resetHealthPermissionForTesting(granted: Bool) {
+        healthGranted = granted
+        lastSynced = nil
+    }
+
+    // MARK: - 日付の行き来（食事・記録と同じ形・#275）
+
+    /// 表示している日
+    private(set) var date: String
+    /// 「今日」。これより先には進めない。テストで固定するため引数にする
+    private let today: String
+
+    /// `10/9(金)` の形
+    var dateLabel: String { JST.displayString(from: date) }
+
+    /// **今日より先には進めない。** 測りようがない日を開いても意味が無い
+    var canGoNext: Bool { date < today }
+
+    func goToPreviousDay() async {
+        await move(to: JST.shift(date, days: -1))
+    }
+
+    func goToNextDay() async {
+        guard canGoNext else { return }
+        await move(to: JST.shift(date, days: 1))
+    }
+
+    /// 日付を選び直す。未来を選んだら今日に丸める
+    func goTo(_ newDate: String) async {
+        await move(to: min(newDate, today))
+    }
+
+    private func move(to newDate: String) async {
+        guard newDate != date else { return }
+        date = newDate
+        await load(date: newDate)
+    }
+
+    init(
+        api: APIClient, health: HealthSource? = nil, defaults: UserDefaults = .standard,
+        date: String = JST.dateString(), today: String = JST.dateString()
+    ) {
         self.api = api
         self.health = health
+        self.defaults = defaults
+        self.date = date
+        self.today = today
     }
 
     /// Apple Health から取り込む（要件 B-01 / B-09）。
     ///
     /// **手入力を上書きしない。** 送るのは HealthKit から来た項目だけで、
     /// 疲労度のような手入力の項目は触らない（API 側で nil は「変更しない」）。
-    func syncHealth(today: String) async {
+    func syncHealth(today: String, quiet: Bool = false) async {
         guard let health else { return }
 
         isSaving = true
@@ -53,9 +145,15 @@ final class BodyModel {
 
         do {
             try await health.requestAuthorization()
+            // ここまで来れば、少なくともダイアログは通っている。
+            // **許可されたかは分からない**（iOS が読み取り権限を教えない）が、
+            // 次回から黙って試すには十分
+            healthGranted = true
 
             let fromDay = HealthSync.syncFrom(lastSynced: lastSynced, today: today)
-            guard let from = JST.date(from: fromDay), let to = JST.date(from: today) else {
+            guard let from = JST.date(from: fromDay),
+                  let to = JST.date(from: HealthSync.syncTo(today: today))
+            else {
                 message = "日付を解釈できない"
 
                 return
@@ -73,10 +171,17 @@ final class BodyModel {
             }
 
             lastSynced = today
-            message = days.isEmpty ? "取り込むものが無かった" : "\(days.count)日分を取り込んだ"
+
+            // **load より先に結果を立てない。** load は先頭で message = nil するので、
+            // ここで入れると消える。押しても何も起きないように見えていた
             await load(date: today)
+
+            if !quiet {
+                message = days.isEmpty ? "取り込むものが無かった" : "\(days.count)日分を取り込んだ"
+            }
         } catch {
-            message = describe(error)
+            // 自動のときは黙る。**開くたびにエラーが出ると、手入力の邪魔になる**
+            if !quiet { message = describe(error) }
         }
     }
 
@@ -88,21 +193,35 @@ final class BodyModel {
         message = nil
 
         do {
+            // order by date desc で返る
             let daily = try await api.listDailyMetrics(from: shiftDays(date, -30), to: date)
-            if let today = daily.first(where: { $0.date == date }) {
-                weightKg = today.weightKg
-                bodyfatPct = today.bodyfatPct
-                fatigue = today.fatigue
-            }
-            previousWeightKg = daily.first { $0.date != date && $0.weightKg != nil }?.weightKg
+            let onDate = daily.first { $0.date == date }
 
+            // 記録が無い日に移ったら空にする。
+            // 残すと、前の日の値をその日の記録だと思って保存してしまう
+            weightKg = onDate?.weightKg
+            bodyfatPct = onDate?.bodyfatPct
+            fatigue = onDate?.fatigue
+
+            let before = daily.filter { $0.date < date }
+            let lastWeight = before.first { $0.weightKg != nil }
+            let lastBodyfat = before.first { $0.bodyfatPct != nil }
+            previousWeightKg = lastWeight?.weightKg
+            previousWeightDate = lastWeight?.date
+            previousBodyfatPct = lastBodyfat?.bodyfatPct
+            previousBodyfatDate = lastBodyfat?.date
+
+            // 表示日より後のものを「前回」にしない。
+            // 日付を移せるようになったので、未来の値が出ることがある（#291）
             let latest = try await api.latestMeasurement()
+            parts = [:]
+            previousMeasurement = nil
             if let latest {
                 if latest.date == date {
                     for part in BodyPart.allCases {
                         parts[part] = latest.value(for: part)
                     }
-                } else {
+                } else if latest.date < date {
                     previousMeasurement = latest
                 }
             }

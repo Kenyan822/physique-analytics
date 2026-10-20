@@ -24,7 +24,7 @@ func (s *Server) GetLastPerformance(ctx context.Context, req openapi.GetLastPerf
 		return nil, err
 	}
 
-	last, err := s.workouts.LastPerformance(ctx, req.ExerciseId)
+	last, err := s.workouts.LastPerformance(ctx, req.ExerciseId, req.Params.Before)
 	if err != nil {
 		return nil, err
 	}

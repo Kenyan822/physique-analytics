@@ -10,6 +10,8 @@ export type TargetResult = { ok: true } | { ok: false; message: string };
 /**
  * 手で決めた摂取目標を保存する（要件 N-05）。
  *
+ * **今日からこの目標にする。** 前の目標は履歴に残り、過去日はその値で評価される。
+ *
  * **計画（`PUT /v1/plan`）とは別のエンドポイント。** あちらはまるごと
  * 置き換える作りで、混ぜると基準値が消える（#127 で踏んだ）。
  */
@@ -26,10 +28,23 @@ export async function saveManualTargets(input: ManualTargets): Promise<TargetRes
   }
 }
 
-/** 手動の目標を消す。自動計算（A-02）に戻る。 */
+/** 手動の目標を履歴ごと全部消す。自動計算（A-02）に戻る。 */
 export async function clearManualTargets(): Promise<TargetResult> {
   try {
     await serverApi().deleteManualTargets();
+    revalidatePath("/settings");
+    revalidatePath("/meals");
+
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: reason(e, "消せなかった") };
+  }
+}
+
+/** 履歴の1件を消す。消した期間は1つ前の履歴で評価され、履歴が尽きた日は自動計算になる。 */
+export async function deleteTargetEntry(id: string): Promise<TargetResult> {
+  try {
+    await serverApi().deleteManualTargetEntry(id);
     revalidatePath("/settings");
     revalidatePath("/meals");
 

@@ -254,6 +254,26 @@ gh pr merge --squash --delete-branch
 
 **CI が緑になるまで待つ。** 待たずにマージしない。
 
+### サーバを先に出す
+
+**クライアントが新しい値や新しい呼び出しを送る変更は、サーバを先にマージ・デプロイする。**
+
+[ADR-0016](docs/adr/0016-auto-migrate-on-deploy.md) は「API ↔ スキーマ」の順序を自動化しているが、
+**「iOS ↔ API」の順序は誰も見ていない。**
+
+実際に踏んだ（[#263](https://github.com/Kenyan822/physique-analytics/issues/263)）: iOS が `source: "rough"` を送る変更を先に実機へ出し、
+`rough` を許す DB 制約がまだ無かったため**本番で 500**。
+
+| 変更の向き | 出す順 |
+|---|---|
+| クライアントが**新しい値を送る**（enum の追加など） | **サーバ → クライアント** |
+| クライアントが**新しいエンドポイントを呼ぶ** | **サーバ → クライアント** |
+| サーバが**レスポンスに項目を足す** | どちらでもよい（クライアントは知らない項目を無視する） |
+| サーバが**enum の値を増やす** | **クライアントを先に**（知らない値で落ちないようにしてから） |
+
+最後の行も実際に踏みかけた。iOS の `MealSource` は**知らない値を `unknown` に倒す**ようにしてあるので、
+いまは落ちない。新しい enum を Codable で受けるときは同じ形にする。
+
 ### マージ前に必ず確認を求めるケース
 
 以下に該当する場合は、**マージせず一度報告する**。
@@ -261,7 +281,7 @@ gh pr merge --squash --delete-branch
 | ケース | 理由 |
 |---|---|
 | **CI が赤い** | 原因を調べて報告する。CI を無視してマージしない |
-| **DB マイグレーションを含む** | 本番スキーマが変わる。**マージすると `deploy-api` が自動適用する**（[ADR-0016](docs/adr/0016-auto-migrate-on-deploy.md)）ので、戻せない変更が無人で流れる |
+| **戻せないマイグレーションを含む** | 列・テーブルの削除、データが落ちる型変更。**マージすると `deploy-api` が自動適用する**（[ADR-0016](docs/adr/0016-auto-migrate-on-deploy.md)）ので、無人で流れたあと戻せない。**足すだけのマイグレーション（テーブル追加・列追加）は報告不要** |
 | **ADR を追加・変更した** | 設計判断なので、内容の合意を取る |
 | **`infra/` を変更した** | `terraform apply` が必要になる |
 | **`private/` に関わる変更** | 個人データの扱いが変わる |
@@ -322,7 +342,7 @@ cd web && pnpm typecheck
 cd api && go generate ./...                    # openapi.yaml → gen/openapi/
 cd api && go test ./... -race -cover
 cd api && go test ./internal/analytics -run TestE1RM -v   # 単一テスト
-cd api && golangci-lint run ./...
+cd api && golangci-lint run ./...              # CI と同じ版を使う（docs/go/toolchain.md）
 
 # API をローカルで起動（先に docker compose up -d が必要）
 cd api && DATABASE_URL='postgres://physique:dev@localhost:5432/physique?sslmode=disable' go run ./cmd/server

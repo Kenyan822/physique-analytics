@@ -236,3 +236,95 @@ func TestQuery_エラーは内容を返す(t *testing.T) {
 		t.Errorf("エラーに原因が含まれていない: %v", err)
 	}
 }
+
+// **自重は 0 として集計しない**（#335）。懸垂を何セットやってもトン数が
+// 0 では、ボリュームが実態と合わない。その日の体重を足す
+func TestWeeklyVolume_自重はその日の体重で数える(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	tx := testdb.Begin(t)
+	repo := repository.NewAnalysis(tx)
+	w := repository.NewWorkout(tx)
+	ex := repository.NewExercise(tx)
+	body := repository.NewBody(tx)
+
+	date := jstDate(2033, 2, 10)
+	if _, err := body.PutDaily(ctx, repository.DailyInput{
+		Date: date, WeightKg: ptr(float32(70)),
+	}); err != nil {
+		t.Fatalf("PutDaily: %v", err)
+	}
+
+	pull := firstExercise(t, ex, openapi.Lats)
+	if _, err := w.CreateSession(ctx, repository.SessionInput{
+		Date: date,
+		Sets: []repository.SetInput{
+			// 自重のみ 10回 → 70 × 10 = 700
+			{ExerciseID: pull.Id, SetNo: 1, WeightKg: 0, Bodyweight: true, Reps: 10, RIR: ptr(2)},
+			// 加重 10kg 5回 → (70 + 10) × 5 = 400
+			{ExerciseID: pull.Id, SetNo: 2, WeightKg: 10, Bodyweight: true, Reps: 5, RIR: ptr(1)},
+		},
+	}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	got, err := repo.WeeklyVolume(ctx, jstDate(2033, 2, 1), jstDate(2033, 2, 28))
+	if err != nil {
+		t.Fatalf("WeeklyVolume: %v", err)
+	}
+
+	var tonnage float64
+	for _, v := range got {
+		if v.MuscleGroup == pull.MuscleGroup {
+			tonnage = v.TonnageKg
+		}
+	}
+	if tonnage != 1100 {
+		t.Errorf("トン数 = %v, want 1100（700 + 400）", tonnage)
+	}
+}
+
+// **体重が分からなくてもセットは数える。トン数だけ外す**（#335）。
+//
+// MEV/MRV はセット数で見るもので、重さが分からなくても「やった」事実は
+// 変わらない。一方トン数は 0 を混ぜると実態より低く出るので入れない
+func TestWeeklyVolume_体重が分からない自重はセットだけ数える(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	tx := testdb.Begin(t)
+	repo := repository.NewAnalysis(tx)
+	w := repository.NewWorkout(tx)
+	ex := repository.NewExercise(tx)
+
+	// **体重を1行も入れない**
+	if _, err := tx.Exec(ctx, "delete from daily_metrics"); err != nil {
+		t.Fatalf("daily_metrics を空にできない: %v", err)
+	}
+
+	pull := firstExercise(t, ex, openapi.Lats)
+	if _, err := w.CreateSession(ctx, repository.SessionInput{
+		Date: jstDate(2033, 3, 10),
+		Sets: []repository.SetInput{
+			{ExerciseID: pull.Id, SetNo: 1, WeightKg: 0, Bodyweight: true, Reps: 10, RIR: ptr(2)},
+		},
+	}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	got, err := repo.WeeklyVolume(ctx, jstDate(2033, 3, 1), jstDate(2033, 3, 31))
+	if err != nil {
+		t.Fatalf("WeeklyVolume: %v", err)
+	}
+
+	for _, v := range got {
+		if v.MuscleGroup != pull.MuscleGroup {
+			continue
+		}
+		if v.Sets != 1 {
+			t.Errorf("セット数 = %d, want 1（やった事実は変わらない）", v.Sets)
+		}
+		if v.TonnageKg != 0 {
+			t.Errorf("トン数 = %v, want 0（重さが分からないので入れない）", v.TonnageKg)
+		}
+	}
+}

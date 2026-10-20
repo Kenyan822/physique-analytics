@@ -197,3 +197,130 @@ func TestWeeklyActions_記録が無ければ記録を促す(t *testing.T) {
 
 2026-09〜10 にサンプルがあるなら、テストは 2028 年で書く。
 「記録が無いときの挙動」を確かめるテストが、手元でだけ落ちるのを防ぐ。
+
+## 依存が nil ならツールごと登録しない
+
+`Deps` の各フィールドは nil を許している。使う側（`cmd/mcp`）が全部を
+渡すとは限らないため。書き込みツールではこうした。
+
+```go
+func registerMealTools(s *mcp.Server, d Deps) {
+	if d.Meals == nil {
+		return
+	}
+	mcp.AddTool(s, &mcp.Tool{Name: "log_meal", ...}, ...)
+}
+```
+
+**nil チェックをハンドラの中に書かない。** 中でやると、ツール一覧には出るのに
+呼ぶと必ず失敗する、という状態になる。LLM から見ると「あるはずのものが
+動かない」で、原因を探って無駄なやり取りが増える。
+
+登録しなければ一覧に出ないので、そもそも呼ばれない。
+
+## `jsonschema` タグがそのまま LLM への説明になる
+
+```go
+type logMealIn struct {
+	Date string `json:"date,omitempty" jsonschema:"日付 YYYY-MM-DD（JST）。省略時は今日"`
+	Slot string `json:"slot,omitempty" jsonschema:"朝食/昼食/夕食/間食。省略可"`
+}
+```
+
+go-sdk がこれを読んでツールのスキーマを作る。**取りうる値をここに書いておくと、
+不正な値で呼ばれる回数が目に見えて減る。** enum をコードで持っていても、
+タグに書かなければ LLM には見えない。
+
+`Description` も同じ。「何ができるか」だけでなく**「やってはいけないこと」**を
+書く方が効く。
+
+```go
+Description: "食事を1件記録する。…" +
+	"**推定値をそのまま入れない。** 量が曖昧なときは qty に根拠を書き、" +
+	"分からない栄養素は省く（省いた項目は null になり、未記録として扱われる）。",
+```
+
+## 書き込みのテストは「引き直して」確かめる
+
+```go
+got, err := logMeal(t.Context(), d, logMealIn{...})
+// got だけ見ても、書き込みが起きた証明にならない
+items, err := meals.List(t.Context(), &from, &to)
+```
+
+戻り値は引数を詰め替えただけでも作れてしまう。**別の経路で引いて初めて
+DB に入ったことが分かる。**
+
+弾くケースでも同じで、「エラーが返った」だけでなく**「行が増えていない」**を
+見る。検証の前に一部だけ書いてしまう実装を、これが捕まえる。
+
+## Description に書いた約束は、コードで守る
+
+`log_meal` の入力にこう書いていた。
+
+```go
+Kcal *int `json:"kcal,omitempty" jsonschema:"カロリー。省くと PFC から計算される"`
+```
+
+**計算していなかった。** PFC から kcal を出す処理は HTTP のハンドラ側にあり、
+MCP は `repository` を直接使うのでそこを通らない（[ADR-0010](../adr/0010-mcp-over-analysis-ui.md)）。
+
+LLM はこの文字列を読んで「kcal は省いてよい」と判断する。
+**説明が嘘だと、エラーも出ないまま kcal の無い行が積まれる。**
+
+Description と `jsonschema` タグは**仕様書ではなく約束**で、
+読む相手が人ではなく LLM というだけ。書いたなら実装で守る。
+
+MCP が API を通らない設計である以上、**ハンドラ側の加工は自動では効かない。**
+同じ規則が要るなら、共有するか書き写すかを意識して決める。
+
+## `Truncate(24 * time.Hour)` で「今日」を作らない
+
+```go
+// 壊れている
+timeutil.Now().Truncate(24 * time.Hour)
+```
+
+`timeutil.Now()` は JST を返すが、`Truncate` は**ロケーションを見ない。**
+エポックからの絶対時刻を切るので、JST では **9時** に丸まる。
+
+```
+2026-10-14 06:53 JST = 2026-10-13 21:53 UTC
+          → Truncate(24h) → 2026-10-13 00:00 UTC = 2026-10-13 09:00 JST
+```
+
+**朝9時前に記録すると前日の行になる。** 筋トレ前の朝食が一番踏みやすい。
+
+```go
+// JST で年月日を取り出して組み直す
+j := now.In(timeutil.JST)
+time.Date(j.Year(), j.Month(), j.Day(), 0, 0, 0, 0, time.UTC)
+```
+
+### 返す Time のロケーションは UTC にする
+
+上で `timeutil.JST` のまま返したら、既存のテストが落ちた。
+
+`date` 列は**日付そのもの**で、時刻もタイムゾーンも持たない（ADR-0013）。
+`+09:00` の深夜を渡すと UTC に直されて `15:00 前日` になり、**1日ずれる。**
+
+**JST は「どの日か」を決めるためだけに使い、組み直した Time は UTC の深夜にする。**
+`time.Parse("2006-01-02", s)` が返すのと同じ形に揃う。
+
+## 書き込むツールには Annotations を付ける
+
+```go
+mcp.AddTool(s, &mcp.Tool{
+	Name: "log_meal",
+	Annotations: &mcp.ToolAnnotations{
+		ReadOnlyHint:    false,
+		DestructiveHint: ptr(false),   // 行を足すだけ
+		IdempotentHint:  false,        // 2回呼ぶと2行入る
+	},
+```
+
+このサーバは `log_meal` 以外すべて読み取り専用なので、**例外であることを
+型で示しておく。** クライアントはこれを見て確認を挟める。
+
+`DestructiveHint` と `IdempotentHint` が `*bool` なのは、
+**「false」と「言っていない」を区別するため。** 既定値が同じでない。

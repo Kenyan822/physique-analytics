@@ -473,6 +473,156 @@ XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5))
 まず「利用者はこれを押せるのか」を考える。
 
 
+## タブは SF Symbol 名で引けない（#232）
+
+`.tabItem { Label("記録", systemImage: "dumbbell") }` のタブボタンは、
+**accessibility identifier を持たない。** label が「記録」になる。
+
+```swift
+app.buttons["dumbbell"]          // ✗ 一致しない
+app.tabBars.buttons["記録"]       // ○
+```
+
+厄介なのは `app.buttons["dumbbell"]` が**たまに通ってしまう**こと。レイアウト途中の
+一時的な状態で別の要素に当たるため、同じコードで通ったり落ちたりする。
+半日これを「シミュレータの不調」「マシンの負荷」と誤診した。
+
+## 落ちた理由が分からないときは UI ツリーを出す
+
+`waitForExistence` が false を返すだけでは、**要素が無いのか、アプリが落ちたのか、
+別の画面にいるのか**が区別できない。木を出すと一発で分かる。
+
+```swift
+let tab = app.tabBars.buttons["記録"]
+if !tab.waitForExistence(timeout: 30) {
+    print("DBG state=\(app.state.rawValue)")   // 4 = フォアグラウンドで動作中
+    print("DBG tree=\(app.debugDescription)")
+}
+```
+
+`app.state` でクラッシュかどうかが切り分けられる。木は 180 行ほど出るので、
+**grep や head で切らずに全部ファイルに落として見る**こと。
+切った結果、肝心の `TabBar` が表示範囲の外にあって2回見落とした。
+
+## 並べ替えのドラッグは UI テストで見ない（#247）
+
+`press(forDuration:thenDragTo:)` は `Form` / `List` の中で不安定で、**落ちても
+製品の問題か XCUITest の問題か判別できない。** 判別できないテストは、赤を無視する
+習慣を作るだけなので持たない。
+
+代わりに:
+
+- **並び替えのロジック**は `swift test` で見る。`move(fromOffsets:toOffset:)` は
+  SwiftUI の拡張なので、モデル側に自前で持つとテストできる
+- **UI テストで見るのは「行が出るか・押せるか」まで**
+
+```swift
+// PhysiqueCore は SwiftUI に依存しない（swift test で回すため）
+static func moved(_ list: [Row], from source: IndexSet, to destination: Int) -> [Row]
+```
+
+## 行に identifier を付けると子が引けなくなる（#256）
+
+`HStack` に `.accessibilityIdentifier` を付けると、**中の `TextField` までその
+identifier で上書きされる。**
+
+```swift
+HStack {
+    TextField("", text: $w).accessibilityIdentifier("weightInput")
+    TextField("", text: $r).accessibilityIdentifier("repsInput")
+}
+.accessibilityIdentifier("setRow")   // ✗ 子が全部 setRow になる
+```
+
+ツリーを見ると分かる。
+
+```
+TextField, identifier: 'setRow'      ← weightInput のつもりだった
+StaticText, identifier: 'setRow', label: 'kg'
+```
+
+行そのものを引く必要が無いなら**付けない**。必要なら
+`.accessibilityElement(children: .contain)` を併用する。
+
+## Form に行を足す場所は「上」でも「下」でも駄目（#262）
+
+「写真から」「ざっくり」を入力セクションから別の場所に移すとき、2回失敗した。
+
+| 置き場所 | 何が起きたか |
+|---|---|
+| 記録ボタンより**下** | **その入口自体が画面外**に落ちて押せない |
+| 入力欄より**上** | 押し下げられて **`pickFromMaster` が押せない** |
+
+**Form の縦幅は有限なので、行を足す限り問題が移動するだけ。**
+行数に影響しない場所＝**ツールバー**に逃がした。
+
+```swift
+.toolbar {
+    ToolbarItem(placement: .principal) { dateNav }
+    ToolbarItem(placement: .topBarTrailing) { unknownMacrosMenu }  // Menu
+}
+```
+
+UI テストは `menu.tap()` を挟む。メニューの中身は開くまで木に出ない。
+
+## 行を1つ足すと記録ボタンが押せなくなる（#253 で再発）
+
+食事の入力セクションに「写真から」を1行足したら、
+`test_キーボードの上でもForm内でも記録できる` が落ちた。**記録ボタンが
+キーボードの下に落ちていた**（#202 で踏んだのと同じ事故）。
+
+このテストは `isHittable` だけでなく **押した結果まで**見ているので検出できた。
+
+```swift
+inForm.tap()
+XCTAssertTrue(app.staticTexts["30g"].waitForExistence(timeout: 5),
+              "Form の中の記録ボタンが本当に効くこと")
+```
+
+**入力セクションに行を足すときは1行に収める。** 2つの入口なら `HStack` に並べる。
+説明文は記録ボタンより**下**に置く。
+
+## シートの中からシートを開くテストは待ちを挟む（#276）
+
+`test_種目をマスタに登録してそのまま使える` が CI で**2回、別の箇所で**落ちた。
+どちらもローカルでは緑。
+
+| 落ちた場所 | 原因 |
+|---|---|
+| 登録後の入力欄 | シートが2枚閉じる途中を見ていた |
+| 登録画面の名前欄 | シートの中からシートが開き切る前に見ていた |
+
+**要素そのものではなく、画面が開いた／閉じたことを先に待つ。**
+
+```swift
+// 開く
+XCTAssertTrue(app.navigationBars["種目を登録"].waitForExistence(timeout: UITimeout.slow))
+// 閉じる
+XCTAssertTrue(app.navigationBars["種目を足す"].waitForNonExistence(timeout: UITimeout.slow))
+```
+
+`waitForNonExistence` を使う。`expectation(for:evaluatedWith:)` は
+`XCTestCase` が `Sendable` でないため Swift 6 で警告になる。
+
+## システムのダイアログが出るものは全部偽物を挿す（#288）
+
+CoreLocation は最初からそうしていたが、**HealthKit を挿し忘れていた。**
+手元のシミュレータは過去に許可済みで通り、**CI の素のシミュレータでだけ落ちた。**
+
+```swift
+private var health: HealthSource {
+    #if DEBUG
+    if UITestSupport.isActive { return UITestSupport.makeHealth() }
+    #endif
+    return HealthKitSource()
+}
+```
+
+判断は `HealthSync` のテストが見ているので、偽物は「1件返す」程度でよい。
+UI テストで見るのは**押したら結果が出るか**だけ。
+
+**手元で通って CI で落ちたら、まずシステム権限を疑う。**
+
 ## 入口ごとに1本足さない
 
 UI テストが 14本まで増え、**CI で約5分**かかるようになった（#227）。

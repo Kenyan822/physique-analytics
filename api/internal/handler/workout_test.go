@@ -22,6 +22,11 @@ type stubWorkouts struct {
 	set      openapi.WorkoutSet
 	last     repository.LastPerformanceResult
 
+	replaced       []openapi.SessionExercise
+	gotExerciseIDs []uuid.UUID
+	gotBefore      *openapi_types.Date
+	replaceErr     error
+
 	gotFilter   *repository.SessionFilter
 	gotInput    *repository.SessionInput
 	gotUpdate   *repository.SessionUpdate
@@ -74,6 +79,12 @@ func (s *stubWorkouts) UpdateSet(_ context.Context, id uuid.UUID, _ repository.S
 func (s *stubWorkouts) DeleteSet(_ context.Context, id uuid.UUID) error {
 	s.gotID = id
 	return s.deleteErr
+}
+
+func (s *stubWorkouts) ReplaceSessionExercises(_ context.Context, id uuid.UUID, ids []uuid.UUID) ([]openapi.SessionExercise, error) {
+	s.gotID = id
+	s.gotExerciseIDs = ids
+	return s.replaced, s.replaceErr
 }
 
 func workoutServer(w *stubWorkouts) http.Handler {
@@ -287,7 +298,8 @@ func TestDeleteWorkoutSet_204(t *testing.T) {
 	}
 }
 
-func (s *stubWorkouts) LastPerformance(_ context.Context, _ uuid.UUID) (repository.LastPerformanceResult, error) {
+func (s *stubWorkouts) LastPerformance(_ context.Context, _ uuid.UUID, before *openapi_types.Date) (repository.LastPerformanceResult, error) {
+	s.gotBefore = before
 	return s.last, s.listErr
 }
 

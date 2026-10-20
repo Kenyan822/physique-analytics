@@ -31,7 +31,7 @@ func (s *Server) EstimateMeal(ctx context.Context, req openapi.EstimateMealReque
 		return openapi.EstimateMeal503ApplicationProblemPlusJSONResponse{
 			ServiceUnavailableApplicationProblemPlusJSONResponse: openapi.ServiceUnavailableApplicationProblemPlusJSONResponse(
 				problem(503, "写真からの推定が未設定",
-					"ANTHROPIC_API_KEY と VISION_MODEL を設定すると使える。手で入力することもできる")),
+					"VISION_PROJECT_ID を設定すると使える。手で入力することもできる")),
 		}, nil
 	}
 	if req.Body == nil {
@@ -55,10 +55,13 @@ func (s *Server) EstimateMeal(ctx context.Context, req openapi.EstimateMealReque
 		}, nil
 	}
 
+	fromLabel := est.FromLabel
 	out := openapi.MealEstimate{
 		Name: est.Name,
 		Qty:  est.Qty,
 		Kcal: est.Kcal,
+		// 栄養成分表示から読んだか（#350）。推定より確かなので直す判断に使う
+		FromLabel: &fromLabel,
 		// 記録するときも ai_estimated を保つ（docs/02-データモデル.md）
 		Source: openapi.MealSourceAiEstimated,
 	}

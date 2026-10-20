@@ -38,6 +38,24 @@ enum UITestSupport {
     /// **本物の CoreLocation を挿さない。** システムのダイアログが出ると
     /// テストから押せない。決め打ちの場所を返す（要件 N-08）
     static func makeLocation() -> LocationSource { StubLocation() }
+
+    /// **本物の HealthKit を挿さない。** 同じ理由。
+    /// CI の素のシミュレータで権限ダイアログに当たり、テストが落ちた
+    static func makeHealth() -> HealthSource { StubHealth() }
+}
+
+/// いつでも許可して、体重を1件返す偽物。
+///
+/// **取り込みの判断は `HealthSync` のテストが見ている**ので、
+/// ここは「押したら結果が出る」ことを確かめるぶんだけあればよい
+private struct StubHealth: HealthSource {
+    func requestAuthorization() async throws {}
+
+    func samples(for kind: HealthKind, from: Date, to: Date) async throws -> [HealthSample] {
+        guard kind == .bodyMass else { return [] }
+
+        return [HealthSample(kind: .bodyMass, date: Date(), value: 72.4)]
+    }
 }
 
 /// いつでも許可して、決まった場所を返す偽物。
@@ -92,10 +110,21 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
     private var meals: [[String: Any]] = []
     private var manualTargets: [String: Any]?
     private var foodItems: [[String: Any]] = []
+    private var sessions: [[String: Any]] = []
+    private var addedExercises: [[String: Any]] = []
 
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let path = request.url?.path ?? ""
         let method = request.httpMethod ?? "GET"
+
+        // **推定だけはわざと遅くする。** 解析中の表示が出ているかを見たいので、
+        // 即答すると出た瞬間に消えてしまう。
+        // **数秒では足りない。** XCUITest は要素を探すのに毎回1秒前後かかり、
+        // 3秒にしたら「閉じかけのシート」を掴んで画面外だと判定していた。
+        // テストは「やめる」を押して打ち切るので、長くても待たされない
+        if path.hasSuffix("/v1/meals/estimate") {
+            try? await Task.sleep(for: .seconds(30))
+        }
         let body = request.httpBody.flatMap {
             try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
         } ?? [:]
@@ -117,6 +146,125 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
         path: String, method: String, body: [String: Any]
     ) -> ([String: Any], Int) {
         switch (method, path) {
+        // MARK: 筋トレ（#232）
+
+        case ("GET", let p) where p.hasSuffix("/v1/exercises"):
+            return (["items": Self.exercises + addedExercises], 200)
+
+        case ("POST", let p) where p.hasSuffix("/v1/exercises"):
+            var e = body
+            e["id"] = (body["id"] as? String) ?? UUID().uuidString.lowercased()
+            addedExercises.append(e)
+
+            return (e, 201)
+
+        case ("DELETE", let p) where p.contains("/v1/exercises/"):
+            addedExercises.removeAll { ($0["id"] as? String)?.lowercased() == lastPath(p).lowercased() }
+
+            return ([:], 204)
+
+        case ("GET", let p) where p.contains("/last-performance"):
+            // **前回のセッション**を返す。今日の記録は含めない（#257）
+            return ([
+                "exerciseId": lastPath(p, drop: 1),
+                "date": "2026-10-01",
+                "estimatedOneRm": 102.5,
+                "sets": [
+                    ["id": "88888888-0000-0000-0000-000000000001",
+                     "sessionId": "66666666-6666-6666-6666-666666666666",
+                     "exerciseId": lastPath(p, drop: 1),
+                     "setNo": 1, "weightKg": 80, "reps": 8, "rir": 2],
+                ],
+            ], 200)
+
+        case ("GET", let p) where p.hasSuffix("/v1/routines/today"):
+            return (Self.routine, 200)
+
+        case ("GET", let p) where p.hasSuffix("/v1/workout-sessions"):
+            return (["items": sessions], 200)
+
+        case ("POST", let p) where p.hasSuffix("/v1/workout-sessions"):
+            var s = body
+            s["id"] = UUID().uuidString.lowercased()
+            s["sets"] = []
+            s["exercises"] = []
+            sessions.append(s)
+
+            return (s, 201)
+
+        // その日の種目リストを全置換する（#242）
+        case ("PUT", let p) where p.hasSuffix("/exercises"):
+            let ids = (body["exerciseIds"] as? [String]) ?? []
+            // **登録したばかりの種目も引けるようにする。** ここから漏れると
+            // 全置換の応答に載らず、画面から行が消える
+            let byId = Dictionary(uniqueKeysWithValues:
+                (Self.exercises + addedExercises).map { ($0["id"] as? String ?? "", $0) })
+            let items = ids.enumerated().compactMap { i, id -> [String: Any]? in
+                guard let e = byId[id] else { return nil }
+
+                return ["exerciseId": id, "exerciseName": e["name"] as Any,
+                        "muscleGroup": e["muscleGroup"] as Any, "itemOrder": i + 1]
+            }
+            if let i = sessions.firstIndex(where: { $0["id"] as? String == lastPath(p, drop: 1) }) {
+                sessions[i]["exercises"] = items
+            }
+
+            return (["items": items], 200)
+
+        case ("PATCH", let p) where p.contains("/v1/workout-sets/"):
+            return (patchSet(id: lastPath(p), with: body), 200)
+
+        case ("DELETE", let p) where p.contains("/v1/workout-sets/"):
+            for i in sessions.indices {
+                var sets = (sessions[i]["sets"] as? [[String: Any]]) ?? []
+                sets.removeAll { $0["id"] as? String == lastPath(p) }
+                sessions[i]["sets"] = sets
+            }
+
+            return ([:], 204)
+
+        case ("POST", let p) where p.hasSuffix("/sets"):
+            let sessionId = lastPath(p, drop: 1)
+            var set = body
+            set["id"] = (body["id"] as? String) ?? UUID().uuidString.lowercased()
+            set["sessionId"] = sessionId
+            if let i = sessions.firstIndex(where: { $0["id"] as? String == sessionId }) {
+                var sets = (sessions[i]["sets"] as? [[String: Any]]) ?? []
+                sets.append(set)
+                sessions[i]["sets"] = sets
+            }
+
+            return (set, 201)
+
+        // 日別の達成（#248）。from〜to の全日を返す
+        // その日1日ぶん（#276）。**未達の理由まで返す**
+        case ("GET", let p) where p.contains("/v1/days/"):
+            return ([
+                "date": lastPath(p),
+                "meals": [
+                    "consumed": ["kcal": 1820, "proteinG": 150, "fatG": 60, "carbG": 200],
+                    "target": ["kcal": 2110, "proteinG": 180, "fatG": 70, "carbG": 250],
+                    "goalMet": false,
+                    // **kcal は無い**（サーバは MacroDiff を返す）
+                    "shortfall": ["proteinG": -30, "fatG": -10, "carbG": -50],
+                ],
+                "workout": [
+                    "templateName": "胸", "dayOrder": 1, "setCount": 12,
+                    "exercises": [["exerciseName": "ベンチプレス", "setCount": 5, "topWeightKg": 80]],
+                ],
+                "body": ["weightKg": 72.4, "bodyFatPct": 13.2],
+            ], 200)
+
+        case ("GET", let p) where p.hasSuffix("/v1/streaks"):
+            return (["items": Self.streakDays], 200)
+
+        // MARK: 体組成
+
+        case ("GET", let p) where p.hasSuffix("/v1/daily"):
+            return (["items": Self.dailyMetrics], 200)
+
+        // MARK: 食事
+
         case ("GET", let p) where p.hasSuffix("/v1/meals"):
             return (["items": meals], 200)
 
@@ -191,13 +339,77 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
         case ("GET", let p) where p.hasSuffix("/v1/meal-sets"):
             return (["items": []], 200)
 
+        // 写真からの推定（#321）。値は公開してよい架空のもの（ADR-0002）
+        case ("POST", let p) where p.hasSuffix("/v1/meals/estimate"):
+            return ([
+                "name": "鶏むねと白米",
+                "qty": "1皿",
+                "kcal": 520,
+                "proteinG": 45.0,
+                "fatG": 8.0,
+                "carbG": 62.0,
+                "confidence": "medium",
+                "note": "白米は茶碗1杯として見積もった",
+                "source": "ai_estimated",
+            ], 200)
+
         default:
             return (["items": []], 200)
         }
     }
 
-    private func lastPath(_ p: String) -> String {
-        String(p.split(separator: "/").last ?? "")
+    /// 推移グラフに点が出る状態を作る（#318）。
+    ///
+    /// **測っていない日を混ぜる。** 線が途切れず、0 に落ちないことを見たい。
+    /// 値は公開してよい架空の数字にする（ADR-0002）。
+    private static var dailyMetrics: [[String: Any]] {
+        let today = JST.dateString()
+
+        return (0..<14).map { i -> [String: Any] in
+            let date = shiftDays(today, -i)
+            // 3日に1回は測っていない日にする
+            let measured = i % 3 != 0
+
+            return [
+                "id": UUID().uuidString.lowercased(),
+                "date": date,
+                "weightKg": measured ? 70.0 + Double(i) * 0.1 : NSNull(),
+                "bodyfatPct": measured ? 20.0 + Double(i) * 0.05 : NSNull(),
+            ]
+        }
+    }
+
+    /// 判定できない日（null）も混ぜる。**未達と見分けられるか**を見たい
+    private static var streakDays: [[String: Any]] {
+        (1...28).map { d in
+            [
+                "date": String(format: "2026-10-%02d", d),
+                "mealGoalMet": d % 5 == 0 ? NSNull() : (d % 3 != 0),
+                "trained": d % 2 == 0,
+            ]
+        }
+    }
+
+    private func patchSet(id: String, with body: [String: Any]) -> [String: Any] {
+        for i in sessions.indices {
+            var sets = (sessions[i]["sets"] as? [[String: Any]]) ?? []
+            guard let j = sets.firstIndex(where: { $0["id"] as? String == id }) else { continue }
+            for (k, v) in body { sets[j][k] = v }
+            sessions[i]["sets"] = sets
+
+            return sets[j]
+        }
+
+        return [:]
+    }
+
+    /// 末尾から `drop` 個手前のセグメント。`.../{id}/sets` の id を取るのに使う
+    private func lastPath(_ p: String, drop: Int = 0) -> String {
+        let parts = p.split(separator: "/")
+        let i = parts.count - 1 - drop
+        guard parts.indices.contains(i) else { return "" }
+
+        return String(parts[i])
     }
 
     private func kcal(from m: [String: Any]) -> Int {
@@ -229,6 +441,50 @@ private final class StubTransport: HTTPTransport, @unchecked Sendable {
             "carbG": ((t["carbG"] as? Double) ?? 0) - sum("carbG"),
         ]
     }
+
+    // MARK: - 決め打ちのデータ
+
+    /// **id は固定。** 毎回作り直すと、開き直したときに選択が外れる
+    private static let ids = (1...6).map { String(format: "00000000-0000-4000-8000-%012d", $0) }
+
+    /// 部位で分かれていることを見るので、**最低2部位**入れる
+    private static var exercises: [[String: Any]] { [
+        ["id": ids[0], "name": "ベンチプレス", "muscleGroup": "胸", "isCompound": true],
+        ["id": ids[1], "name": "ダンベルフライ", "muscleGroup": "胸", "isCompound": false],
+        ["id": ids[2], "name": "スクワット", "muscleGroup": "大腿四頭", "isCompound": true],
+        ["id": ids[3], "name": "レッグエクステンション", "muscleGroup": "大腿四頭", "isCompound": false],
+    ] }
+
+    private static var routine: [String: Any] { [
+        "date": "2026-09-21",
+        "routineName": "テスト",
+        "todayOrder": 1,
+        "days": [
+            [
+                "dayOrder": 1, "templateId": ids[4], "templateName": "胸",
+                "items": [
+                    [
+                        "exerciseId": ids[0], "exerciseName": "ベンチプレス",
+                        "muscleGroup": "胸", "order": 1, "targetSets": 5,
+                        "targetRepsMin": 6, "targetRepsMax": 10,
+                    ],
+                    [
+                        "exerciseId": ids[1], "exerciseName": "ダンベルフライ",
+                        "muscleGroup": "胸", "order": 2, "targetSets": 3,
+                    ],
+                ],
+            ],
+            [
+                "dayOrder": 2, "templateId": ids[5], "templateName": "脚",
+                "items": [
+                    [
+                        "exerciseId": ids[2], "exerciseName": "スクワット",
+                        "muscleGroup": "大腿四頭", "order": 1, "targetSets": 4,
+                    ],
+                ],
+            ],
+        ],
+    ] }
 
     private func problem(_ detail: String) -> [String: Any] {
         ["type": "about:blank", "title": "目標を出せない", "status": 422, "detail": detail]

@@ -41,6 +41,10 @@ type Deps struct {
 	Contests *repository.Contest
 	// Body は直近の周囲長（要件 A-11）
 	Body *repository.Body
+
+	// Meals は食事の記録（要件 N-06）。**MCP で唯一の書き込み先**。
+	// nil なら log_meal を登録しない
+	Meals *repository.Meal
 }
 
 // New は MCP サーバを組み立てる。
@@ -55,6 +59,7 @@ func New(d Deps) *mcp.Server {
 	registerAnalysisTools(s, d)
 	registerWeeklyTools(s, d)
 	registerCorrelationTools(s, d)
+	registerMealTools(s, d)
 
 	return s
 }
@@ -307,7 +312,9 @@ func registerAnalysisTools(s *mcp.Server, d Deps) {
 			"計画: profile / plan_phases / plan_blocks / nutrition_settings / volume_ranges / contests。" +
 			"検査: blood_tests / blood_test_items。" +
 			"すべて deleted_at による論理削除なので、生きている行だけ見るなら deleted_at is null を付ける。" +
-			"日付は workout_sessions.date / daily_metrics.date など（いずれも JST の日付）。",
+			"日付は workout_sessions.date / daily_metrics.date など（いずれも JST の日付）。" +
+			"**摂取カロリーと PFC は meals を日付で合計して出す。** daily_metrics にも " +
+			"kcal / protein_g / fat_g / carb_g があるが誰も書かないので常に null。",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in queryIn) (*mcp.CallToolResult, queryOut, error) {
 		limit := in.Limit
 		if limit <= 0 || limit > maxQueryRows {
@@ -326,7 +333,7 @@ func registerAnalysisTools(s *mcp.Server, d Deps) {
 // dateRange は from / to を解釈する。空なら today-defaultDays 〜 today。
 func dateRange(from, to string, defaultDays int) (openapi_types.Date, openapi_types.Date, error) {
 	// 「今日」は JST で決める（ADR-0013）。UTC だと日付が1日ずれる
-	today := timeutil.Now().Truncate(24 * time.Hour)
+	today := timeutil.Today()
 
 	parse := func(s string, fallback time.Time) (openapi_types.Date, error) {
 		if s == "" {

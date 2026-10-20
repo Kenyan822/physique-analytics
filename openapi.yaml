@@ -263,6 +263,33 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /v1/workout-sessions/{sessionId}/exercises:
+    parameters:
+      - $ref: "#/components/parameters/SessionId"
+    put:
+      operationId: replaceSessionExercises
+      tags: [workouts]
+      summary: その日の種目リストを全置換する
+      description: |
+        並び順ごと全置換する（T-01 / #242）。追加・削除・並べ替えを個別の
+        エンドポイントに分けないのは、ドラッグ中の中間状態で順序が壊れるため。
+
+        セットを記録済みの種目をリストから外すと、記録が宙に浮くので 422 を返す。
+        同じ種目の重複、存在しない種目も 422。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SessionExercisesInput" }
+      responses:
+        "200":
+          description: 置換後のリスト
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionExercises" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
   /v1/workout-sessions/{sessionId}/sets:
     parameters:
       - $ref: "#/components/parameters/SessionId"
@@ -322,6 +349,15 @@ paths:
       description: |
         要件 T-02（前回値のデフォルト表示）のためのエンドポイント。
         入力速度を決める最重要機能であり、1リクエストで取得できるようにする。
+      parameters:
+        - name: before
+          in: query
+          required: false
+          schema: { type: string, format: date }
+          description: |
+            この日**を含まず**、それより前で最新のセッションを返す（#257）。
+            今日のセッションを開いている画面が、今日打った値を「前回」と
+            取り違えないための指定。省略時は今日を含めて最新。
       responses:
         "200":
           description: OK
@@ -335,14 +371,15 @@ paths:
                   date:
                     type: [string, "null"]
                     format: date
-                    description: 前回実施日。未実施なら null
+                    description: 前回実施日。未実施（before 指定時は、それより前が無い）なら null
                   sets:
                     type: array
                     items: { $ref: "#/components/schemas/WorkoutSet" }
                   estimatedOneRm:
                     type: [number, "null"]
-                    description: 前回の推定1RM（Epley + RIR補正）
+                    description: 前回の推定1RM（Epley + RIR補正）。返したセッションのセットから計算する
         "404": { $ref: "#/components/responses/NotFound" }
+        "400": { $ref: "#/components/responses/BadRequest" }
 
   /v1/routines/today:
     get:
@@ -987,7 +1024,10 @@ paths:
   /v1/targets/manual:
     get:
       operationId: getManualTargets
-      summary: 手で決めた摂取目標を返す（要件 N-05）
+      summary: いま（JST の今日）有効な、手で決めた摂取目標を返す（要件 N-05）
+      description: |
+        履歴（`/v1/targets/manual/entries`）のうち、今日に適用されている1件。
+        過去日の目標は `GET /v1/targets/{date}` がその日の履歴から引く
       tags: [nutrition]
       responses:
         "200":
@@ -1005,7 +1045,10 @@ paths:
 
     put:
       operationId: putManualTargets
-      summary: 手で決めた摂取目標を保存する（要件 N-05）
+      summary: 今日からこの目標にする（要件 N-05）
+      description: |
+        履歴に `startsOn = 今日（JST）` の行を足す。**同じ日に何度送っても1行**
+        （上書き）。前の目標は履歴に残り、過去日はその値で評価される
       tags: [nutrition]
       requestBody:
         required: true
@@ -1023,11 +1066,71 @@ paths:
 
     delete:
       operationId: deleteManualTargets
-      summary: 手で決めた摂取目標を消す。自動計算（A-02）に戻る
+      summary: 手動の目標をやめる。自動計算（A-02）に戻る
+      description: |
+        **履歴ごと全部消える。** 1件だけ消すときは
+        `DELETE /v1/targets/manual/entries/{entryId}`
       tags: [nutrition]
       responses:
         "204": { description: 消した。設定が無くても 204 }
         "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/targets/manual/entries:
+    get:
+      operationId: listManualTargetEntries
+      summary: 手動目標の履歴（適用開始日の新しい順）
+      tags: [nutrition]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ManualTargetEntry" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+    post:
+      operationId: createManualTargetEntry
+      summary: 履歴に1件足す。未来の日付なら予約になる
+      description: |
+        **同じ `startsOn` があれば上書き**する（`startsOn` は一意）
+      tags: [nutrition]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ManualTargetEntryInput" }
+      responses:
+        "201":
+          description: 追加した
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ManualTargetEntry" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /v1/targets/manual/entries/{entryId}:
+    parameters:
+      - name: entryId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      operationId: deleteManualTargetEntry
+      summary: 履歴の1件を消す
+      description: |
+        消した期間は、1つ前の履歴の目標で評価される。**履歴が0件になった日は
+        自動計算（A-02）にフォールバックする**
+      tags: [nutrition]
+      responses:
+        "204": { description: 消した }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /v1/targets/{date}:
     parameters:
@@ -1569,6 +1672,77 @@ paths:
                     items: { $ref: "#/components/schemas/ImportError" }
         "422": { $ref: "#/components/responses/ValidationFailed" }
 
+  /v1/days/{date}:
+    parameters:
+      - name: date
+        in: path
+        required: true
+        schema: { type: string, format: date }
+        description: JST の日付（ADR-0013）
+    get:
+      operationId: getDay
+      tags: [nutrition]
+      summary: 1日ぶんの要約（食事・筋トレ・体組成）
+      description: |
+        継続カレンダーで日をタップしたときの要約。**何往復もさせず1回で返す**。
+        **記録が無い日も 200**（`meals.consumed` は 0、`workout` と `body` は null）。
+
+        - `meals.goalMet` は `GET /v1/streaks` の `mealGoalMet` と**同じ判定**
+          （P・F・C すべてが目標の ±10% 以内）。目標は**その日に有効だったもの**。
+          **目標が引けない日は `target` と `goalMet` が null**（false ではない）
+        - `meals.shortfall` は**目標との素の差**（実績 − 目標）。負なら足りない。
+          許容幅の内外は見ない。目標が引けなければ null
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DayDetail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/streaks:
+    get:
+      operationId: getStreaks
+      tags: [nutrition]
+      summary: 日別の達成フラグ（食事の目標・筋トレ）
+      description: |
+        月カレンダーに印を出すための元データ。**記録が無い日も行として返す**
+        （カレンダーが歯抜けにならない）。
+
+        - `mealGoalMet`: P・F・C **すべて**がその日の目標の ±10% 以内なら true。
+          kcal は見ない（PFC から導けるので二重に判定しない）
+        - `trained`: その日に `workout_sets` が1件でもあれば true
+
+        **目標は「その日に有効だったもの」で判定する**（手動目標の履歴を
+        `starts_on <= 日付` で引く）。いまの目標で過去日を再計算すると、
+        目標を変えるたびにカレンダーが書き換わる。
+        **目標が引けない日は `mealGoalMet` が null。** 「未達」と「判定できない」を混ぜない。
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          description: JST の日付（ADR-0013）
+        - name: to
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          description: JST の日付。`from` から最大 366 日
+      responses:
+        "200":
+          description: OK。`from`〜`to` の全日を日付の昇順で返す
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/StreakDay" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1743,7 +1917,18 @@ components:
             weightKg:
               type: number
               minimum: 0
-              description: kg 固定（データモデル参照）
+              description: |
+                kg 固定（データモデル参照）。
+                `bodyweight` が立っているときは**体重に足す追加分**（加重）で、
+                自重だけなら 0。
+            bodyweight:
+              type: boolean
+              default: false
+              description: |
+                自重の種目か（懸垂・ディップス・腕立て）。
+                **立っているときの挙上重量は「その日の体重 + weightKg」。**
+                `weightKg` に 0 を入れるだけだと、トン数も e1RM も 0 になり
+                何セットやってもボリュームに乗らない。
             reps: { type: integer, minimum: 0 }
             rir:
               type: [integer, "null"]
@@ -1762,6 +1947,7 @@ components:
         exerciseId: { type: string, format: uuid }
         setNo: { type: integer, minimum: 1 }
         weightKg: { type: number, minimum: 0, maximum: 500 }
+        bodyweight: { type: boolean, default: false }
         reps: { type: integer, minimum: 0, maximum: 100 }
         rir: { type: [integer, "null"], minimum: 0, maximum: 10 }
         updatedAt: { type: string, format: date-time }
@@ -1770,7 +1956,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/Timestamps"
         - type: object
-          required: [id, date, sets]
+          required: [id, date, sets, exercises]
           properties:
             id: { type: string, format: uuid }
             date:
@@ -1782,6 +1968,38 @@ components:
             sets:
               type: array
               items: { $ref: "#/components/schemas/WorkoutSet" }
+            exercises:
+              type: array
+              description: |
+                その日の種目リスト（並び順）。**空 = まだ触っていない**ので、
+                クライアントはルーティンの並びにフォールバックする（#242）。
+              items: { $ref: "#/components/schemas/SessionExercise" }
+
+    SessionExercise:
+      type: object
+      required: [exerciseId, exerciseName, muscleGroup, itemOrder]
+      properties:
+        exerciseId: { type: string, format: uuid }
+        exerciseName: { type: string }
+        muscleGroup: { $ref: "#/components/schemas/MuscleGroup" }
+        itemOrder: { type: integer, minimum: 1 }
+
+    SessionExercises:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SessionExercise" }
+
+    SessionExercisesInput:
+      type: object
+      required: [exerciseIds]
+      properties:
+        exerciseIds:
+          type: array
+          description: 並び順がそのまま itemOrder（1 から連番）になる。重複は不可
+          items: { type: string, format: uuid }
 
     WorkoutSessionInput:
       type: object
@@ -1910,10 +2128,6 @@ components:
               description: JST の日付（ADR-0013）。1日1行
             weightKg: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
             bodyfatPct: { type: [number, "null"], minimum: 0, maximum: 70 }
-            kcal: { type: [integer, "null"], minimum: 0 }
-            proteinG: { type: [integer, "null"], minimum: 0 }
-            fatG: { type: [integer, "null"], minimum: 0 }
-            carbG: { type: [integer, "null"], minimum: 0 }
             sleepH: { type: [number, "null"], minimum: 0, maximum: 24 }
             steps: { type: [integer, "null"], minimum: 0 }
             fatigue:
@@ -1933,10 +2147,6 @@ components:
         date: { type: string, format: date }
         weightKg: { type: [number, "null"], exclusiveMinimum: 0, maximum: 300 }
         bodyfatPct: { type: [number, "null"], minimum: 0, maximum: 70 }
-        kcal: { type: [integer, "null"], minimum: 0 }
-        proteinG: { type: [integer, "null"], minimum: 0 }
-        fatG: { type: [integer, "null"], minimum: 0 }
-        carbG: { type: [integer, "null"], minimum: 0 }
         sleepH: { type: [number, "null"], minimum: 0, maximum: 24 }
         steps: { type: [integer, "null"], minimum: 0 }
         fatigue: { type: [integer, "null"], minimum: 1, maximum: 5 }
@@ -1989,8 +2199,13 @@ components:
         手入力か AI 推定か（docs/02-データモデル.md）。
         推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
         分析の確度を下げて扱う。
-      enum: [manual, ai_estimated]
-      x-enum-varnames: [Manual, AiEstimated]
+
+        `rough` は飲み会・外食などの**ざっくり入力**（要件 N-01）。kcal だけ入れて
+        PFC を P 20% / F 30% / C 50%（kcal 比）で按分したもの。**自分で計った
+        `manual` と混ぜない** —— 混ぜると推定の良し悪しを後から検証できない。
+        精度より、記録が残ることを優先する入口。
+      enum: [manual, ai_estimated, rough]
+      x-enum-varnames: [Manual, AiEstimated, Rough]
 
     Meal:
       allOf:
@@ -2058,7 +2273,10 @@ components:
           type: [integer, "null"]
           minimum: 0
           maximum: 10000
-          description: 省くと PFC から計算される（Atwater 係数 4/9/4）
+          description: |
+            省くと PFC から計算される（Atwater 係数 4/9/4）。
+            **`source: rough` で PFC を1つも送らないと、この kcal を P 20% / F 30% / C 50%
+            で按分して PFC を決める**（保存後に手で直せる）
         proteinG: { type: [number, "null"], minimum: 0, maximum: 1000 }
         fatG: { type: [number, "null"], minimum: 0, maximum: 1000 }
         carbG: { type: [number, "null"], minimum: 0, maximum: 2000 }
@@ -2257,8 +2475,7 @@ components:
       type: object
       required: [proteinG, fatG, carbG]
       description: |
-        手で決めた摂取目標（要件 N-05）。**期間で1つ**しか持たない ——
-        フェーズ単位で変えるもので、日ごとに持つのは過剰。
+        手で決めた摂取目標（要件 N-05）。履歴のうち、ある日に適用される1件。
         これがあるときは自動計算（A-02）より優先する
       properties:
         proteinG: { type: number, minimum: 0, maximum: 1000 }
@@ -2268,7 +2485,43 @@ components:
           type: [integer, "null"]
           readOnly: true
           description: PFC から計算した値（Atwater 4/9/4）。**送っても無視する**
+        startsOn:
+          type: string
+          format: date
+          readOnly: true
+          description: この目標の適用開始日。**送っても無視する**（PUT は今日になる）
         updatedAt: { type: string, format: date-time, readOnly: true }
+
+    ManualTargetEntryInput:
+      type: object
+      required: [startsOn, proteinG, fatG, carbG]
+      properties:
+        name:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 100
+        startsOn:
+          type: string
+          format: date
+          description: この日から適用（JST の日付）。**active フラグは持たない** —— 開始日が最新の行がいまの目標
+        proteinG: { type: number, minimum: 0, maximum: 1000 }
+        fatG: { type: number, minimum: 0, maximum: 1000 }
+        carbG: { type: number, minimum: 0, maximum: 2000 }
+
+    ManualTargetEntry:
+      type: object
+      required: [id, startsOn, proteinG, fatG, carbG, kcal, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: [string, "null"] }
+        startsOn: { type: string, format: date }
+        proteinG: { type: number }
+        fatG: { type: number }
+        carbG: { type: number }
+        kcal:
+          type: integer
+          description: PFC から計算した値（Atwater 4/9/4）
+        createdAt: { type: string, format: date-time }
 
     DailyTargets:
       type: object
@@ -2536,6 +2789,14 @@ components:
         confidence:
           type: [string, "null"]
           description: low / medium / high。量が分からないときは low
+        fromLabel:
+          type: boolean
+          default: false
+          description: |
+            **栄養成分表示から読んだ値か。** 見た目からの推定より確かなので、
+            直す必要があるかの判断に使う（#350）。
+            「100g あたり」の表示を1食分に換算できなかったときは、
+            qty にその旨が入り confidence が low になる。
         note:
           type: [string, "null"]
           description: 推定の根拠。直すときの手がかりになる
@@ -2608,6 +2869,93 @@ components:
             properties:
               field: { type: string }
               message: { type: string }
+
+    DayDetail:
+      type: object
+      required: [date, meals, workout, body]
+      properties:
+        date: { type: string, format: date }
+        meals: { $ref: "#/components/schemas/DayMeals" }
+        workout:
+          oneOf:
+            - $ref: "#/components/schemas/DayWorkout"
+            - type: "null"
+          description: その日に `workout_sets` が1件でもあれば。無ければ null
+        body:
+          oneOf:
+            - $ref: "#/components/schemas/DayBody"
+            - type: "null"
+          description: 体重・体脂肪率のどちらかがあれば。無ければ null
+
+    DayMeals:
+      type: object
+      required: [consumed, target, goalMet, shortfall]
+      properties:
+        consumed: { $ref: "#/components/schemas/Macros" }
+        target:
+          oneOf:
+            - $ref: "#/components/schemas/Macros"
+            - type: "null"
+          description: その日に有効だった目標。引けなければ null
+        goalMet:
+          type: [boolean, "null"]
+          description: P・F・C すべてが目標の ±10% 以内なら true。**目標が引けなければ null**
+        shortfall:
+          oneOf:
+            - $ref: "#/components/schemas/MacroDiff"
+            - type: "null"
+          description: 実績 − 目標。負なら足りない。目標が引けなければ null
+
+    MacroDiff:
+      type: object
+      required: [proteinG, fatG, carbG]
+      properties:
+        proteinG: { type: number }
+        fatG: { type: number }
+        carbG: { type: number }
+
+    DayWorkout:
+      type: object
+      required: [setCount, exercises]
+      properties:
+        templateName:
+          type: [string, "null"]
+          description: その日のセッションのテンプレート名。無ければ null
+        dayOrder:
+          type: [integer, "null"]
+          description: 有効なルーティンの何日目か。ルーティンに無ければ null
+        setCount: { type: integer }
+        exercises:
+          type: array
+          items: { $ref: "#/components/schemas/DayWorkoutExercise" }
+
+    DayWorkoutExercise:
+      type: object
+      required: [exerciseName, setCount, topWeightKg]
+      properties:
+        exerciseName: { type: string }
+        setCount: { type: integer }
+        topWeightKg: { type: number, description: その日の最大重量（kg） }
+
+    DayBody:
+      type: object
+      properties:
+        weightKg: { type: [number, "null"] }
+        bodyFatPct: { type: [number, "null"] }
+
+    StreakDay:
+      type: object
+      required: [date, mealGoalMet, trained]
+      properties:
+        date: { type: string, format: date }
+        mealGoalMet:
+          type: [boolean, "null"]
+          description: |
+            P・F・C すべてが当日の目標の ±10% 以内なら true。**目標が引けない日は null**
+            （false ではない）
+        trained:
+          type: boolean
+          description: その日に `workout_sets` が1件でもある
 
   responses:
     BadRequest:

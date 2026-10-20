@@ -12,6 +12,25 @@ struct MealDraft: Sendable, Equatable {
     var name = ""
     var qty = ""
 
+    /// 推定結果を下書きにする（#253）。**そのまま保存しない**ので、
+    /// 全部を編集できる文字列に移す
+    init(estimate e: MealEstimate) {
+        name = e.name
+        qty = e.qty ?? ""
+        proteinG = MealDraft.text(e.proteinG)
+        fatG = MealDraft.text(e.fatG)
+        carbG = MealDraft.text(e.carbG)
+    }
+
+    init() {}
+
+    /// 値が無ければ空欄。0 と「分からない」を混ぜない
+    private static func text(_ v: Double?) -> String {
+        guard let v else { return "" }
+
+        return v == v.rounded() ? String(Int(v)) : String(v)
+    }
+
     /// **PFC が1つでも入っていれば記録できる。** 名前は任意
     var isEmpty: Bool {
         [proteinG, fatG, carbG, name].allSatisfy {
@@ -85,6 +104,11 @@ final class MealModel {
 
     var draft = MealDraft()
 
+    /// 写真から推定している最中（#253）。**押しっぱなしを防ぐ**
+    private(set) var estimating = false
+    /// 推定の根拠。直すときの手がかりになるので出す
+    private(set) var estimateNote: String?
+
     /// 表示している日。**前日・翌日に移動できる**（#193）
     private(set) var date: String
     /// 「今日」。これより先には進めない。テストで固定するため引数にする
@@ -121,9 +145,13 @@ final class MealModel {
     /// 直前の値に戻る。「1.」の途中でも丸められる（MealDraft と同じ理由）
     var foodAmountText: [String: String] = [:]
 
-    /// 計算に渡す形。**空欄と読めない値は 0**（「今日は入れなかった」）
+    /// 計算に渡す形。
+    ///
+    /// **空欄はキーごと渡さない**（#345）。`expand` は渡さなかった引数を
+    /// 「登録時の量」として扱うので、0 に落とすと PFC が 0 になってしまう。
+    /// **「0 と打った」（今日は入れなかった）とは別物。**
     var foodAmounts: [String: Double] {
-        foodAmountText.mapValues { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+        foodAmountText.compactMapValues { Double($0.trimmingCharacters(in: .whitespaces)) }
     }
     /// 登録するときの入力。**いまの記録の入力とは別に持つ** ——
     /// 「これから食べるもの」と「登録しておきたいもの」は必ずしも同じではない
@@ -182,8 +210,10 @@ final class MealModel {
         }
 
         pickingFood = item
-        // 触らなければ登録したときの量
-        foodAmountText = item.defaultAmounts.mapValues { numberText($0) }
+        // **空で始める**（#345）。登録値が入っていると、打ち直すのにまず消す
+        // 手間が要る。登録値は「登録: 30g で P24」として画面に出ている。
+        // 空のまま確定すれば `expand` が登録時の量で計算する
+        foodAmountText = [:]
     }
 
     func confirmFoodPick() {
@@ -257,6 +287,18 @@ final class MealModel {
         foodComponents[index].coversAll = false
     }
 
+    /// 「全部」の引数に、いまの合計を写す。
+    ///
+    /// **送る直前に呼ぶ。** 入力中に毎回書き戻すと、合計を打ちかけの
+    /// 1文字ごとに引数が動いて落ち着かない
+    private func syncCoversAllWithTotal() {
+        for i in foodComponents.indices where foodComponents[i].coversAll {
+            foodComponents[i].proteinG = foodDraft.proteinG
+            foodComponents[i].fatG = foodDraft.fatG
+            foodComponents[i].carbG = foodDraft.carbG
+        }
+    }
+
     /// 引数の合計が本体を超えていないか。**超えていれば理由を返す**（#224）
     ///
     /// **式を分けてある。** 1つにまとめると型推論が通らなくなる
@@ -300,6 +342,14 @@ final class MealModel {
         errorMessage = nil
         isWorking = true
         defer { isWorking = false }
+
+        // **「全部」は合計そのもの**（ADR-0017）。送る直前に写し直す。
+        //
+        // `setCoversAll` でも写しているが、**押した時点の値しか取れない**。
+        // 「全部」にしてから PFC を打つのが自然な順なので、そのままだと 0 の
+        // まま送られ、固定部 = 合計 − 0 = 合計 になって**量が効かなくなる**（#344）。
+        // 合計を下げたときに「引数が合計を超えている」と誤って弾かれもする
+        syncCoversAllWithTotal()
 
         var components: [FoodItemComponent]?
         if !foodComponents.isEmpty {
@@ -565,6 +615,80 @@ final class MealModel {
         suggestions = []
     }
 
+    /// 写真から PFC を推定して下書きに入れる（要件 N-06 / #253）。
+    ///
+    /// **そのまま保存しない。** 下書きに入れるだけで、確認してから記録する。
+    /// 鍵が未設定なら 503 が返る —— 黙って失敗させず、理由を出す
+    func estimate(image: Data, note: String) async {
+        estimating = true
+        defer { estimating = false }
+
+        do {
+            let e = try await api.estimateMeal(image: image, note: note)
+            draft = MealDraft(estimate: e)
+            estimateNote = e.note
+        } catch {
+            // **やめたときは何も出さない。** 自分で止めたのに
+            // 「キャンセルされました」と出るのは雑音（#321）
+            guard !isCancellation(error) else { return }
+
+            estimateNote = nil
+            errorMessage = (error as? APIError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    /// リセットで消した下書き。**取り消せるように持つ**（#320）。
+    private var undoableDraft: MealDraft?
+
+    /// 消すものがあるか。**空のときは押せないようにする。**
+    /// 押せて何も起きないと、壊れているように見える
+    var canResetDraft: Bool { !draft.isEmpty }
+
+    /// 取り消せるか。
+    ///
+    /// **打ち直したあとは出さない。** そこで戻すと、打った内容が消える。
+    var canUndoReset: Bool { undoableDraft != nil && draft.isEmpty }
+
+    /// 入力を途中でやり直す（#320）。
+    ///
+    /// 消すのは**下書きだけ**。記録済みの行は触らない。
+    func resetDraft() {
+        guard !draft.isEmpty else { return }
+
+        undoableDraft = draft
+        draft = MealDraft()
+        estimateNote = nil
+    }
+
+    /// リセットを取り消す。
+    func undoResetDraft() {
+        guard let d = undoableDraft else { return }
+
+        draft = d
+        undoableDraft = nil
+    }
+
+    /// 自分で止めたか。
+    ///
+    /// `URLSession` は中断を `URLError.cancelled` で返す。Swift の
+    /// `CancellationError` とは別物なので、両方を見る
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if case .transport(let e) = error as? APIError,
+           (e as? URLError)?.code == .cancelled { return true }
+
+        return (error as? URLError)?.code == .cancelled
+    }
+
+    /// 推定をやめる（#321）。
+    ///
+    /// **走っている通信は呼び出し側が cancel する。** ここでは画面の状態だけ戻す。
+    /// 通信が詰まったときに、解析中の表示に閉じ込めないため。
+    func cancelEstimate() {
+        estimating = false
+        estimateNote = nil
+    }
+
     func record() async {
         guard !draft.isEmpty else { return }
         errorMessage = nil
@@ -576,8 +700,87 @@ final class MealModel {
             let created = try await api.createMeal(
                 draft.toInput(date: date, at: JST.timeString()))
             meals.append(created)
+            // 記録したら、それ以前のリセットは取り消せない
+            undoableDraft = nil
             // 続けて入れられるよう空に戻す。区分は据え置き
             draft = MealDraft()
+        } catch {
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? "記録できない"
+        }
+    }
+
+    // MARK: - ざっくり入力（要件 N-01 / #261）
+
+    /// 食事の量（#262）。**kcal は本人にも分からない。** 答えられる単位で聞く
+    enum RoughMealSize: String, CaseIterable, Sendable {
+        case none, light, normal, heavy
+
+        var label: String {
+            switch self {
+            case .none: "なし"
+            case .light: "軽め"
+            case .normal: "普通"
+            case .heavy: "がっつり"
+            }
+        }
+
+        var kcal: Int {
+            switch self {
+            case .none: 0
+            case .light: 300
+            case .normal: 600
+            case .heavy: 900
+            }
+        }
+    }
+
+    /// 酒1杯あたり。**ビール中ジョッキ / ハイボール / 日本酒1合**が概ねこのあたり。
+    /// どう決めても外れるので、**計算結果を手で直せる**ことの方を大事にする
+    static let kcalPerDrink = 150
+
+    /// 飲んだ杯数
+    var roughDrinks = 0 {
+        didSet { roughKcal = String(estimatedRoughKcal) }
+    }
+
+    /// 食べた量
+    var roughMealSize: RoughMealSize = .none {
+        didSet { roughKcal = String(estimatedRoughKcal) }
+    }
+
+    /// 杯数と食事の量から出した kcal
+    var estimatedRoughKcal: Int {
+        roughDrinks * Self.kcalPerDrink + roughMealSize.kcal
+    }
+
+    /// 送る kcal。**計算結果が入るが、手で直せる**
+    var roughKcal = "0"
+
+    func bumpDrinks(_ delta: Int) {
+        roughDrinks = max(0, roughDrinks + delta)
+    }
+
+    /// kcal だけで記録する。
+    ///
+    /// **PFC を送らない。** サーバが P 20% / F 30% / C 50% で按分する（#252）。
+    /// 1品ずつ記録できない日に、欠測にしないための入口。精度より記録が残ることを優先
+    func recordRough() async {
+        guard let kcal = Int(roughKcal.trimmingCharacters(in: .whitespaces)), kcal > 0 else {
+            errorMessage = "飲んだ杯数か食べた量を入れる"
+
+            return
+        }
+        errorMessage = nil
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            let created = try await api.createMeal(MealInput(
+                date: date, at: JST.timeString(), kcal: kcal, source: .rough))
+            meals.append(created)
+            roughDrinks = 0
+            roughMealSize = .none
+            roughKcal = "0"
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "記録できない"
         }

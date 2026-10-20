@@ -56,11 +56,20 @@ b := append(a[:1], 4)   // a も [1 4 3] に変わる
 | [http-server.md](http-server.md) | `ServeMux`、タイムアウト、グレースフルシャットダウン、`log/slog` |
 | [testing.md](testing.md) | `_test` パッケージ、`t.Context()`、インターフェースを使ったスタブ、`t.Parallel()` とトランザクションの相性 |
 | [tdd.md](tdd.md) | **TDD の実際の流れ**。Red の見方、層ごとのテスト方針、詰まったときの切り分け |
-| [database.md](database.md) | pgx、トランザクションでのテスト隔離、`DBTX` インターフェース、部分インデックスへの upsert |
-| [mcp.md](mcp.md) | MCP サーバ。ツールの説明文の書き方、読み取り専用 SQL の守り方 |
+| [toolchain.md](toolchain.md) | **Go のバージョンを上げるとき**。golangci-lint も一緒に上げる理由、govulncheck |
+| [database.md](database.md) | pgx、トランザクションでのテスト隔離、`DBTX` インターフェース、部分インデックスへの upsert、`having ... filter`、`union` で作る日付の系列 |
+| [time.md](time.md) | **時刻と「今日」**。`Truncate(24h)` が JST で9時に丸まる話、date 列に渡すロケーション、ソースを走査するガード |
+| [mcp.md](mcp.md) | MCP サーバ。ツールの説明文の書き方、読み取り専用 SQL の守り方、nil の依存はツールごと登録しない、書き込みは引き直して確かめる |
 | [interfaces.md](interfaces.md) | nil ポインタと interface、使う側での定義、共通化の判断 |
 | [numeric.md](numeric.md) | 定数と引数の切り分け、`*float64` で「未測定」を表す、従属変数のクランプ |
 | [routine-cycle.md](routine-cycle.md) | **巡回するルーティン**。状態を持たずに「今日は何日目か」を導く。`%` の符号 |
+| [replace-all.md](replace-all.md) | **全置換の PUT**。`Begin` の無い層で1文の CTE にする、`[]string` + `::uuid[]`、nil スライスと空配列、FK 違反を 422 にする |
+| [versioned-lookup.md](versioned-lookup.md) | **適用開始日つきの履歴を引く**。`date` 列に `time.Time` を渡す落とし穴、`on conflict (列)` の upsert、`Rows.Close` |
+| [streak-calendar.md](streak-calendar.md) | **期間の判定を「引く・突き合わせる」に分ける**。`*bool` で「未達」と「判定できない」を分ける、浮動小数の境界、`Rows` を同時に開けない |
+| [optional-query.md](optional-query.md) | **任意のクエリ**。`$n::date is null or ...` で SQL を1本に保つ、nil ポインタが NULL になる、不正な値は生成コードが 400 にする |
+| [rounding-invariant.md](rounding-invariant.md) | **丸めても壊れない不変条件を、丸め方で守る**。誤差を1か所に集める、有限入力は全数テスト、`math.Round` と Python の `round` の違い |
+| [constraint-violation.md](constraint-violation.md) | **制約違反を 500 にしない**。`errors.As` で `PgError` を SQLSTATE で判別、応答を作る1か所で受ける、detail は制約名だけ、実際に違反を起こすテスト |
+| [day-detail.md](day-detail.md) | **1日ぶんの要約**。判定を二重実装せず1日の範囲で既存関数を呼ぶ、`*bool` で「未達」と「判定できない」を分ける、必ず1行返る集計 |
 
 ## 想定しているトピック
 

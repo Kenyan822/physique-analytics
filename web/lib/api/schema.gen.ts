@@ -112,6 +112,32 @@ export interface paths {
         patch: operations["updateWorkoutSession"];
         trace?: never;
     };
+    "/v1/workout-sessions/{sessionId}/exercises": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * その日の種目リストを全置換する
+         * @description 並び順ごと全置換する（T-01 / #242）。追加・削除・並べ替えを個別の
+         *     エンドポイントに分けないのは、ドラッグ中の中間状態で順序が壊れるため。
+         *
+         *     セットを記録済みの種目をリストから外すと、記録が宙に浮くので 422 を返す。
+         *     同じ種目の重複、存在しない種目も 422。
+         */
+        put: operations["replaceSessionExercises"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/workout-sessions/{sessionId}/sets": {
         parameters: {
             query?: never;
@@ -589,13 +615,69 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 手で決めた摂取目標を返す（要件 N-05） */
+        /**
+         * いま（JST の今日）有効な、手で決めた摂取目標を返す（要件 N-05）
+         * @description 履歴（`/v1/targets/manual/entries`）のうち、今日に適用されている1件。
+         *     過去日の目標は `GET /v1/targets/{date}` がその日の履歴から引く
+         */
         get: operations["getManualTargets"];
-        /** 手で決めた摂取目標を保存する（要件 N-05） */
+        /**
+         * 今日からこの目標にする（要件 N-05）
+         * @description 履歴に `startsOn = 今日（JST）` の行を足す。**同じ日に何度送っても1行**
+         *     （上書き）。前の目標は履歴に残り、過去日はその値で評価される
+         */
         put: operations["putManualTargets"];
         post?: never;
-        /** 手で決めた摂取目標を消す。自動計算（A-02）に戻る */
+        /**
+         * 手動の目標をやめる。自動計算（A-02）に戻る
+         * @description **履歴ごと全部消える。** 1件だけ消すときは
+         *     `DELETE /v1/targets/manual/entries/{entryId}`
+         */
         delete: operations["deleteManualTargets"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/targets/manual/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 手動目標の履歴（適用開始日の新しい順） */
+        get: operations["listManualTargetEntries"];
+        put?: never;
+        /**
+         * 履歴に1件足す。未来の日付なら予約になる
+         * @description **同じ `startsOn` があれば上書き**する（`startsOn` は一意）
+         */
+        post: operations["createManualTargetEntry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/targets/manual/entries/{entryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entryId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * 履歴の1件を消す
+         * @description 消した期間は、1つ前の履歴の目標で評価される。**履歴が0件になった日は
+         *     自動計算（A-02）にフォールバックする**
+         */
+        delete: operations["deleteManualTargetEntry"];
         options?: never;
         head?: never;
         patch?: never;
@@ -938,6 +1020,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/days/{date}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description JST の日付（ADR-0013） */
+                date: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * 1日ぶんの要約（食事・筋トレ・体組成）
+         * @description 継続カレンダーで日をタップしたときの要約。**何往復もさせず1回で返す**。
+         *     **記録が無い日も 200**（`meals.consumed` は 0、`workout` と `body` は null）。
+         *
+         *     - `meals.goalMet` は `GET /v1/streaks` の `mealGoalMet` と**同じ判定**
+         *       （P・F・C すべてが目標の ±10% 以内）。目標は**その日に有効だったもの**。
+         *       **目標が引けない日は `target` と `goalMet` が null**（false ではない）
+         *     - `meals.shortfall` は**目標との素の差**（実績 − 目標）。負なら足りない。
+         *       許容幅の内外は見ない。目標が引けなければ null
+         */
+        get: operations["getDay"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/streaks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 日別の達成フラグ（食事の目標・筋トレ）
+         * @description 月カレンダーに印を出すための元データ。**記録が無い日も行として返す**
+         *     （カレンダーが歯抜けにならない）。
+         *
+         *     - `mealGoalMet`: P・F・C **すべて**がその日の目標の ±10% 以内なら true。
+         *       kcal は見ない（PFC から導けるので二重に判定しない）
+         *     - `trained`: その日に `workout_sets` が1件でもあれば true
+         *
+         *     **目標は「その日に有効だったもの」で判定する**（手動目標の履歴を
+         *     `starts_on <= 日付` で引く）。いまの目標で過去日を再計算すると、
+         *     目標を変えるたびにカレンダーが書き換わる。
+         *     **目標が引けない日は `mealGoalMet` が null。** 「未達」と「判定できない」を混ぜない。
+         */
+        get: operations["getStreaks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1015,8 +1157,20 @@ export interface components {
             /** Format: uuid */
             exerciseId: string;
             setNo: number;
-            /** @description kg 固定（データモデル参照） */
+            /**
+             * @description kg 固定（データモデル参照）。
+             *     `bodyweight` が立っているときは**体重に足す追加分**（加重）で、
+             *     自重だけなら 0。
+             */
             weightKg: number;
+            /**
+             * @description 自重の種目か（懸垂・ディップス・腕立て）。
+             *     **立っているときの挙上重量は「その日の体重 + weightKg」。**
+             *     `weightKg` に 0 を入れるだけだと、トン数も e1RM も 0 になり
+             *     何セットやってもボリュームに乗らない。
+             * @default false
+             */
+            bodyweight?: boolean;
             reps: number;
             /**
              * @description Reps In Reserve（あと何回できたか）。
@@ -1033,6 +1187,8 @@ export interface components {
             exerciseId: string;
             setNo: number;
             weightKg: number;
+            /** @default false */
+            bodyweight?: boolean;
             reps: number;
             rir?: number | null;
             /** Format: date-time */
@@ -1050,6 +1206,25 @@ export interface components {
             templateId?: string | null;
             note?: string | null;
             sets: components["schemas"]["WorkoutSet"][];
+            /**
+             * @description その日の種目リスト（並び順）。**空 = まだ触っていない**ので、
+             *     クライアントはルーティンの並びにフォールバックする（#242）。
+             */
+            exercises: components["schemas"]["SessionExercise"][];
+        };
+        SessionExercise: {
+            /** Format: uuid */
+            exerciseId: string;
+            exerciseName: string;
+            muscleGroup: components["schemas"]["MuscleGroup"];
+            itemOrder: number;
+        };
+        SessionExercises: {
+            items: components["schemas"]["SessionExercise"][];
+        };
+        SessionExercisesInput: {
+            /** @description 並び順がそのまま itemOrder（1 から連番）になる。重複は不可 */
+            exerciseIds: string[];
         };
         WorkoutSessionInput: {
             /**
@@ -1156,10 +1331,6 @@ export interface components {
             date: string;
             weightKg?: number | null;
             bodyfatPct?: number | null;
-            kcal?: number | null;
-            proteinG?: number | null;
-            fatG?: number | null;
-            carbG?: number | null;
             sleepH?: number | null;
             steps?: number | null;
             /** @description 主観的な疲労度（要件 B-06） */
@@ -1174,10 +1345,6 @@ export interface components {
             date: string;
             weightKg?: number | null;
             bodyfatPct?: number | null;
-            kcal?: number | null;
-            proteinG?: number | null;
-            fatG?: number | null;
-            carbG?: number | null;
             sleepH?: number | null;
             steps?: number | null;
             fatigue?: number | null;
@@ -1222,9 +1389,14 @@ export interface components {
          * @description 手入力か AI 推定か（docs/02-データモデル.md）。
          *     推定値の比率が高い週は、体重トレンドとの整合が取れない可能性があるため
          *     分析の確度を下げて扱う。
+         *
+         *     `rough` は飲み会・外食などの**ざっくり入力**（要件 N-01）。kcal だけ入れて
+         *     PFC を P 20% / F 30% / C 50%（kcal 比）で按分したもの。**自分で計った
+         *     `manual` と混ぜない** —— 混ぜると推定の良し悪しを後から検証できない。
+         *     精度より、記録が残ることを優先する入口。
          * @enum {string}
          */
-        MealSource: "manual" | "ai_estimated";
+        MealSource: "manual" | "ai_estimated" | "rough";
         Meal: components["schemas"]["Timestamps"] & {
             /** Format: uuid */
             id: string;
@@ -1274,7 +1446,11 @@ export interface components {
             /** @description 任意。空白だけなら「無し」として扱う */
             name?: string | null;
             qty?: string | null;
-            /** @description 省くと PFC から計算される（Atwater 係数 4/9/4） */
+            /**
+             * @description 省くと PFC から計算される（Atwater 係数 4/9/4）。
+             *     **`source: rough` で PFC を1つも送らないと、この kcal を P 20% / F 30% / C 50%
+             *     で按分して PFC を決める**（保存後に手で直せる）
+             */
             kcal?: number | null;
             proteinG?: number | null;
             fatG?: number | null;
@@ -1407,8 +1583,7 @@ export interface components {
             components?: components["schemas"]["FoodItemComponent"][];
         };
         /**
-         * @description 手で決めた摂取目標（要件 N-05）。**期間で1つ**しか持たない ——
-         *     フェーズ単位で変えるもので、日ごとに持つのは過剰。
+         * @description 手で決めた摂取目標（要件 N-05）。履歴のうち、ある日に適用される1件。
          *     これがあるときは自動計算（A-02）より優先する
          */
         ManualTargets: {
@@ -1417,8 +1592,38 @@ export interface components {
             carbG: number;
             /** @description PFC から計算した値（Atwater 4/9/4）。**送っても無視する** */
             readonly kcal?: number | null;
+            /**
+             * Format: date
+             * @description この目標の適用開始日。**送っても無視する**（PUT は今日になる）
+             */
+            readonly startsOn?: string;
             /** Format: date-time */
             readonly updatedAt?: string;
+        };
+        ManualTargetEntryInput: {
+            name?: string | null;
+            /**
+             * Format: date
+             * @description この日から適用（JST の日付）。**active フラグは持たない** —— 開始日が最新の行がいまの目標
+             */
+            startsOn: string;
+            proteinG: number;
+            fatG: number;
+            carbG: number;
+        };
+        ManualTargetEntry: {
+            /** Format: uuid */
+            id: string;
+            name?: string | null;
+            /** Format: date */
+            startsOn: string;
+            proteinG: number;
+            fatG: number;
+            carbG: number;
+            /** @description PFC から計算した値（Atwater 4/9/4） */
+            kcal: number;
+            /** Format: date-time */
+            createdAt: string;
         };
         DailyTargets: {
             /** Format: date */
@@ -1598,6 +1803,14 @@ export interface components {
             carbG?: number | null;
             /** @description low / medium / high。量が分からないときは low */
             confidence?: string | null;
+            /**
+             * @description **栄養成分表示から読んだ値か。** 見た目からの推定より確かなので、
+             *     直す必要があるかの判断に使う（#350）。
+             *     「100g あたり」の表示を1食分に換算できなかったときは、
+             *     qty にその旨が入り confidence が low になる。
+             * @default false
+             */
+            fromLabel?: boolean;
             /** @description 推定の根拠。直すときの手がかりになる */
             note?: string | null;
             /** @description 常に ai_estimated。記録するときもこれを保つ */
@@ -1651,6 +1864,58 @@ export interface components {
                 field: string;
                 message: string;
             }[];
+        };
+        DayDetail: {
+            /** Format: date */
+            date: string;
+            meals: components["schemas"]["DayMeals"];
+            /** @description その日に `workout_sets` が1件でもあれば。無ければ null */
+            workout: components["schemas"]["DayWorkout"] | null;
+            /** @description 体重・体脂肪率のどちらかがあれば。無ければ null */
+            body: components["schemas"]["DayBody"] | null;
+        };
+        DayMeals: {
+            consumed: components["schemas"]["Macros"];
+            /** @description その日に有効だった目標。引けなければ null */
+            target: components["schemas"]["Macros"] | null;
+            /** @description P・F・C すべてが目標の ±10% 以内なら true。**目標が引けなければ null** */
+            goalMet: boolean | null;
+            /** @description 実績 − 目標。負なら足りない。目標が引けなければ null */
+            shortfall: components["schemas"]["MacroDiff"] | null;
+        };
+        MacroDiff: {
+            proteinG: number;
+            fatG: number;
+            carbG: number;
+        };
+        DayWorkout: {
+            /** @description その日のセッションのテンプレート名。無ければ null */
+            templateName?: string | null;
+            /** @description 有効なルーティンの何日目か。ルーティンに無ければ null */
+            dayOrder?: number | null;
+            setCount: number;
+            exercises: components["schemas"]["DayWorkoutExercise"][];
+        };
+        DayWorkoutExercise: {
+            exerciseName: string;
+            setCount: number;
+            /** @description その日の最大重量（kg） */
+            topWeightKg: number;
+        };
+        DayBody: {
+            weightKg?: number | null;
+            bodyFatPct?: number | null;
+        };
+        StreakDay: {
+            /** Format: date */
+            date: string;
+            /**
+             * @description P・F・C すべてが当日の目標の ±10% 以内なら true。**目標が引けない日は null**
+             *     （false ではない）
+             */
+            mealGoalMet: boolean | null;
+            /** @description その日に `workout_sets` が1件でもある */
+            trained: boolean;
         };
     };
     responses: {
@@ -2036,6 +2301,34 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    replaceSessionExercises: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionExercisesInput"];
+            };
+        };
+        responses: {
+            /** @description 置換後のリスト */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionExercises"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
     createWorkoutSet: {
         parameters: {
             query?: never;
@@ -2115,7 +2408,14 @@ export interface operations {
     };
     getLastPerformance: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description この日**を含まず**、それより前で最新のセッションを返す（#257）。
+                 *     今日のセッションを開いている画面が、今日打った値を「前回」と
+                 *     取り違えないための指定。省略時は今日を含めて最新。
+                 */
+                before?: string;
+            };
             header?: never;
             path: {
                 exerciseId: components["parameters"]["ExerciseId"];
@@ -2135,15 +2435,16 @@ export interface operations {
                         exerciseId: string;
                         /**
                          * Format: date
-                         * @description 前回実施日。未実施なら null
+                         * @description 前回実施日。未実施（before 指定時は、それより前が無い）なら null
                          */
                         date?: string | null;
                         sets?: components["schemas"]["WorkoutSet"][];
-                        /** @description 前回の推定1RM（Epley + RIR補正） */
+                        /** @description 前回の推定1RM（Epley + RIR補正）。返したセッションのセットから計算する */
                         estimatedOneRm?: number | null;
                     };
                 };
             };
+            400: components["responses"]["BadRequest"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -3002,6 +3303,77 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
         };
     };
+    listManualTargetEntries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["ManualTargetEntry"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createManualTargetEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ManualTargetEntryInput"];
+            };
+        };
+        responses: {
+            /** @description 追加した */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManualTargetEntry"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    deleteManualTargetEntry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 消した */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     getDailyTargets: {
         parameters: {
             query?: never;
@@ -3594,6 +3966,59 @@ export interface operations {
                     };
                 };
             };
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    getDay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description JST の日付（ADR-0013） */
+                date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DayDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getStreaks: {
+        parameters: {
+            query: {
+                /** @description JST の日付（ADR-0013） */
+                from: string;
+                /** @description JST の日付。`from` から最大 366 日 */
+                to: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK。`from`〜`to` の全日を日付の昇順で返す */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["StreakDay"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             422: components["responses"]["ValidationFailed"];
         };
     };

@@ -11,11 +11,42 @@ struct PendingSet: Codable, Identifiable, Equatable, Sendable {
     let date: String
     let exerciseId: UUID
     let setNo: Int
-    let weightKg: Double
-    let reps: Int
+    /// 送信後に直せる（#247）。キューに積んだままのものは直さない
+    var weightKg: Double
+    /// 自重の種目か（#335）。**古い端末のキューには無い**ので既定を持つ
+    var bodyweight: Bool = false
+    var reps: Int
     var rir: Int?
     /// 積んだ時刻。順序の確認に使う
     let queuedAt: Date
+
+    // **合成の Codable は既定値を使わない。** 端末に残っている古いキューには
+    // bodyweight が無いので、decode が投げると未送信の記録が全部消える
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        date = try c.decode(String.self, forKey: .date)
+        exerciseId = try c.decode(UUID.self, forKey: .exerciseId)
+        setNo = try c.decode(Int.self, forKey: .setNo)
+        weightKg = try c.decode(Double.self, forKey: .weightKg)
+        bodyweight = try c.decodeIfPresent(Bool.self, forKey: .bodyweight) ?? false
+        reps = try c.decode(Int.self, forKey: .reps)
+        rir = try c.decodeIfPresent(Int.self, forKey: .rir)
+        queuedAt = try c.decode(Date.self, forKey: .queuedAt)
+    }
+
+    init(id: UUID, date: String, exerciseId: UUID, setNo: Int, weightKg: Double,
+         bodyweight: Bool = false, reps: Int, rir: Int? = nil, queuedAt: Date) {
+        self.id = id
+        self.date = date
+        self.exerciseId = exerciseId
+        self.setNo = setNo
+        self.weightKg = weightKg
+        self.bodyweight = bodyweight
+        self.reps = reps
+        self.rir = rir
+        self.queuedAt = queuedAt
+    }
 }
 
 /// 保存先。テストで差し替えられるようにする。

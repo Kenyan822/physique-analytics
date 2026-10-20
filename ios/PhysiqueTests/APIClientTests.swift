@@ -99,14 +99,16 @@ struct APIClientTests {
         do {
             _ = try await api.lastPerformance(exerciseId: UUID())
         } catch let e as APIError {
-            guard case let .http(status, problem) = e else {
+            guard case let .http(status, problem, _) = e else {
                 Issue.record("http ではない: \(e)")
                 return
             }
             #expect(status == 404)
             #expect(problem?.title == "種目が見つからない")
-            // メッセージだけ見ても何が起きたか分かる
-            #expect(e.errorDescription == "種目が見つからない")
+            // **どこで起きたかも出す。** detail だけだと、実機で
+            // 「invalid format」とだけ出て何のリクエストか分からなかった
+            #expect(e.errorDescription?.hasPrefix("種目が見つからない（/v1/exercises/") == true)
+            #expect(e.errorDescription?.hasSuffix("/last-performance / 404）") == true)
         }
     }
 
@@ -120,7 +122,7 @@ struct APIClientTests {
             _ = try await api.listExercises()
             Issue.record("エラーを期待したが返ってきた")
         } catch let e as APIError {
-            guard case let .http(status, problem) = e else {
+            guard case let .http(status, problem, _) = e else {
                 Issue.record("http ではない: \(e)")
                 return
             }

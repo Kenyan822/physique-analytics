@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// 食事の記録（要件 N-01 / N-02 / N-05）。
@@ -5,6 +6,8 @@ import SwiftUI
 /// **食事の直後や移動中に片手で触る。** 過去の記録から選べば入力が終わるのが
 /// 一番速い経路で、手打ちはその次。
 struct MealView: View {
+    /// 推移グラフに渡すために持つ。**MealModel の api は private なので使えない**
+    private let api: APIClient
     @State private var model: MealModel
     @State private var pickingDate = false
     @State private var editingTarget = false
@@ -15,7 +18,33 @@ struct MealView: View {
 
     /// 行き先は1つだけ。新規と編集の出し分けは `model.editingFoodID` が持つ
     private enum FoodEditorRoute: Hashable { case editor }
+
+    /// 写真から推定する流れ（#321）。
+    ///
+    /// **補足と解析中を1枚のシートで出し分ける。** 別々のモーダルにすると、
+    /// 補足シートを閉じるのと解析中を出すのが同じ瞬間になり、
+    /// SwiftUI が後から出す方を黙って捨てる（実機で解析中が出なかった）。
+    private enum PhotoFlow {
+        /// 補足を書いている。写真を持ったまま待つ
+        case note(Data)
+        /// 解析中。**閉じられないようにする**
+        case estimating
+    }
     @FocusState private var focus: Field?
+    /// 写真を選んでいる（#253）
+    @State private var pickingPhoto = false
+    @State private var photo: PhotosPickerItem?
+    /// カメラで撮っている（#321）
+    @State private var capturing = false
+    /// 写真から推定する流れ。**1枚のシートで出し分ける**（#321）
+    @State private var photoFlow: PhotoFlow?
+    /// 写真に添える自然言語の補足。**量を添えると精度が大きく上がる**
+    @State private var photoNote = ""
+    /// 解析中に止めるため、走っている処理を持つ
+    @State private var estimateTask: Task<Void, Never>?
+    /// ざっくり入力（#261）。**シートにする** —— 入力セクションに行を足すと
+    /// 記録ボタンがキーボードの下に落ちる（#202 / #253）
+    @State private var enteringRough = false
 
     /// 入力欄の並び。**キーボードの「次へ」がこの順に送る**
     private enum Field: Int, CaseIterable {
@@ -24,6 +53,7 @@ struct MealView: View {
     }
 
     init(api: APIClient, location: LocationSource = NoLocation()) {
+        self.api = api
         _model = State(initialValue: MealModel(
             api: api, location: location, places: FoodPlaceStore()
         ))
@@ -37,7 +67,19 @@ struct MealView: View {
                 recorded
             }
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .principal) { dateNav } }
+            .toolbar {
+                ToolbarItem(placement: .principal) { dateNav }
+                ToolbarItem(placement: .topBarTrailing) { unknownMacrosMenu }
+                // 推移を見る口（要件 N-05 / #308）。体組成と同じ位置に置く
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        MealChartView(api: api)
+                    } label: {
+                        Image(systemName: "chart.xyaxis.line")
+                    }
+                    .accessibilityIdentifier("mealChart")
+                }
+            }
             .dismissesKeyboardOnTap()
             .keyboardFocusBar(
                 focus: $focus, order: Field.allCases,
@@ -65,7 +107,305 @@ struct MealView: View {
             .task { await model.loadManualTarget() }
             .task { await model.loadFoodItems() }
             .refreshable { await model.load() }
+            // **カメラではなくライブラリから選ぶ。** 撮影は標準の UI に任せる
+            .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)
+            .sheet(isPresented: $enteringRough) { roughSheet }
+            .fullScreenCover(isPresented: $capturing) {
+                CameraPicker { data in
+                    capturing = false
+                    if let data { startNote(with: data) }
+                }
+                .ignoresSafeArea()
+            }
+            // **写真を選んだらすぐ送らない。** 補足を書いてもらう（#321）。
+            // 解析中も同じシートのまま中身だけ差し替える
+            .sheet(isPresented: Binding(
+                get: { photoFlow != nil },
+                set: { if !$0 { cancelPhotoFlow() } }
+            )) {
+                photoSheet
+            }
+            .onChange(of: photo) { _, item in
+                guard let item else { return }
+                Task {
+                    defer { photo = nil }
+                    guard let data = try? await item.loadTransferable(type: Data.self) else {
+                        return
+                    }
+                    startNote(with: data)
+                }
+            }
         }
+    }
+
+    /// 写真を受け取ったら、補足を書く画面に進む（#321）。
+    private func startNote(with data: Data) {
+        // 入力中の量があれば初期値にする。無ければ空
+        photoNote = model.draft.qty
+        photoFlow = .note(data)
+    }
+
+    /// 写真からの推定をやめる。**走っている通信も止める**（#321）
+    private func cancelPhotoFlow() {
+        estimateTask?.cancel()
+        estimateTask = nil
+        model.cancelEstimate()
+        photoFlow = nil
+    }
+
+    /// 補足と解析中を1枚で出し分ける（#321）。
+    ///
+    /// **NavigationStack ごと入れ替えない。** 中身だけ差し替える。
+    /// 裸の VStack をシートに置くと高さの箱が決まらず、ボタンが
+    /// 画面の下にはみ出して押せなかった（UI テストが検出した）。
+    private var photoSheet: some View {
+        NavigationStack {
+            Form {
+                if isEstimating {
+                    estimatingSections
+                } else {
+                    noteSections
+                }
+            }
+            .navigationTitle("写真から推定")
+            .navigationBarTitleDisplayMode(.inline)
+            // **閉じる口が要る。** 文字を打つと改行キーになり、
+            // 狭いシートではスクロールでも降ろせない
+            .keyboardDoneButton()
+            .toolbar {
+                // 解析中のやめるは中身の側に置く。ここに出すと2つになる
+                if !isEstimating {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("やめる") { photoFlow = nil }
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        // **解析中は下に引いて閉じられないようにする。** 閉じると裏が触れる。
+        // やめるのはボタンからだけにする
+        .interactiveDismissDisabled(isEstimating)
+    }
+
+    private var isEstimating: Bool {
+        if case .estimating = photoFlow { return true }
+
+        return false
+    }
+
+    /// 写真に添える補足（#321）。
+    ///
+    /// **量を添えると精度が大きく上がる。** 写真だけでは食器の大きさが
+    /// 分からず、量を推定しにくい（要件 N-06）。
+    @ViewBuilder
+    private var noteSections: some View {
+        Section {
+            TextField(
+                "鶏むね200g、白米は丼で300gくらい",
+                text: $photoNote, axis: .vertical
+            )
+            .lineLimit(3...6)
+            .accessibilityIdentifier("photoNote")
+        } header: {
+            Text("補足（任意）")
+        } footer: {
+            Text("量や調理法を書くと精度が大きく上がる。写真だけでは食器の大きさが分からない")
+        }
+
+        Section {
+            Button("推定する") { runEstimate() }
+                .accessibilityIdentifier("runEstimate")
+        }
+    }
+
+    /// 解析中に出す（#321）。**他の操作をさせない。**
+    ///
+    /// 待っている間に別の画面を触って戻ると、何が起きているか分からなくなる。
+    /// ただし**止める口は残す。** 通信が詰まったときに閉じ込めない。
+    @ViewBuilder
+    private var estimatingSections: some View {
+        Section {
+            HStack(spacing: 12) {
+                ProgressView()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("写真から推定しています")
+                        // **スタックに付けても引けない。** Text に付ける（#319 と同じ）
+                        .accessibilityIdentifier("estimatingCover")
+                    Text("10秒ほどかかります")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+
+        Section {
+            Button("やめる", role: .destructive) { cancelPhotoFlow() }
+                .accessibilityIdentifier("cancelEstimate")
+        }
+    }
+
+    private func runEstimate() {
+        guard case .note(let image) = photoFlow else { return }
+
+        // **シートは閉じない。** 中身を解析中に差し替える（#321）
+        photoFlow = .estimating
+
+        // **送る前に縮める。** 大きい画像は精度を上げず、時間とトークンだけ増える
+        let note = photoNote
+        estimateTask = Task {
+            await model.estimate(image: downscaleForEstimate(image), note: note)
+            estimateTask = nil
+            // やめたあとに戻ってきても、もう閉じている
+            photoFlow = nil
+        }
+    }
+
+    /// PFC が分からないときの入口（#262）。
+    ///
+    /// **Form に行を足さない。** 入力欄の近くに足すと記録ボタンが、
+    /// 下に足すとこれ自体が画面外に落ちる。どちらも実機と UI テストで踏んだ（#202）。
+    /// ツールバーなら行数に影響しない
+    private var unknownMacrosMenu: some View {
+        Menu {
+            // **その場で撮れるようにする**（#321）。
+            // シミュレータにはカメラが無いので出さない
+            if cameraIsAvailable {
+                Button {
+                    focus = nil
+                    capturing = true
+                } label: {
+                    Label("カメラで撮る", systemImage: "camera")
+                }
+                .disabled(model.estimating)
+                .accessibilityIdentifier("estimateFromCamera")
+            }
+
+            Button {
+                focus = nil
+                pickingPhoto = true
+            } label: {
+                Label("写真から選ぶ", systemImage: "photo")
+            }
+            .disabled(model.estimating)
+            .accessibilityIdentifier("estimateFromPhoto")
+
+            Button {
+                focus = nil
+                enteringRough = true
+            } label: {
+                Label("飲み会などをざっくり", systemImage: "wineglass")
+            }
+            .accessibilityIdentifier("enterRough")
+
+            // 途中でやり直す（#320）。
+            //
+            // **Form の中に置かない。** 記録ボタンはキーボードの下にあり、
+            // 打っている最中は押せない（記録はキーボード上のバーから押す）。
+            // やり直したくなるのは打っている最中なので、ツールバーに置く
+            Divider()
+
+            Button(role: .destructive) {
+                focus = nil
+                model.resetDraft()
+            } label: {
+                Label("入力をリセット", systemImage: "arrow.counterclockwise")
+            }
+            .disabled(!model.canResetDraft || model.isWorking)
+            .accessibilityIdentifier("resetDraft")
+
+            #if DEBUG
+            // **UI テスト専用。** 写真を選ぶ画面はシステムの UI で自動化できないが、
+            // 補足シートの「推定する」はキーボードの下に落ちやすい場所なので
+            // （#202 と同じ事故）、そこだけは見ておきたい
+            if UITestSupport.isActive {
+                Button("テスト用の写真") { startNote(with: Data([0xFF, 0xD8, 0xFF])) }
+                    .accessibilityIdentifier("estimateFromStubPhoto")
+            }
+            #endif
+        } label: {
+            if model.estimating {
+                ProgressView().controlSize(.mini)
+            } else {
+                Image(systemName: "sparkles")
+            }
+        }
+        .accessibilityIdentifier("unknownMacros")
+    }
+
+    /// ざっくり入力（要件 N-01 / #261 / #262）。
+    ///
+    /// **kcal を直接聞かない。** 飲み会の kcal は本人にも分からない。
+    /// 答えられるのは「何をどれだけ飲み食いしたか」の方
+    private var roughSheet: some View {
+        NavigationStack {
+            Form {
+                Section("飲んだ") {
+                    Stepper(value: Binding(
+                        get: { model.roughDrinks },
+                        set: { model.roughDrinks = max(0, $0) }
+                    ), in: 0...30) {
+                        HStack {
+                            Text("お酒")
+                            Spacer()
+                            Text("\(model.roughDrinks) 杯").monospacedDigit()
+                        }
+                    }
+                    .accessibilityIdentifier("roughDrinks")
+                }
+
+                Section("食べた") {
+                    Picker("量", selection: $model.roughMealSize) {
+                        ForEach(MealModel.RoughMealSize.allCases, id: \.self) { size in
+                            Text(size.label).tag(size)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("roughMealSize")
+                }
+
+                Section {
+                    LabeledContent("だいたい") {
+                        HStack(spacing: 4) {
+                            TextField("0", text: $model.roughKcal)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .accessibilityIdentifier("roughKcal")
+                            Text("kcal").foregroundStyle(.secondary)
+                        }
+                    }
+                } footer: {
+                    Text("お酒1杯を \(MealModel.kcalPerDrink)kcal として計算している。"
+                         + "**違うと思ったら直していい。** PFC は P20% / F30% / C50% "
+                         + "で振り分けて記録し、あとから直せる")
+                }
+
+                Section {
+                    Button {
+                        Task {
+                            await model.recordRough()
+                            if model.errorMessage == nil { enteringRough = false }
+                        }
+                    } label: {
+                        Text(model.isWorking ? "記録中…" : "記録")
+                            .bold().frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.isWorking)
+                    .accessibilityIdentifier("recordRough")
+
+                    if let e = model.errorMessage {
+                        Text(e).font(.caption).foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("ざっくり記録")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("閉じる") { enteringRough = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 
     // MARK: - 食品マスタ（#209）
@@ -465,26 +805,28 @@ struct MealView: View {
 
         Section {
             HStack {
-                Total(label: "カロリー", value: model.totals.kcal, remaining: model.remaining?.kcal)
+                Total(id: "mealTotalKcal", label: "カロリー",
+                      value: model.totals.kcal, remaining: model.remaining?.kcal)
                 Divider()
-                Total(label: "P", value: Int(model.totals.proteinG),
+                Total(id: "mealTotalP", label: "P", value: Int(model.totals.proteinG),
                       remaining: model.remaining.map { Int($0.proteinG) })
                 Divider()
-                Total(label: "F", value: Int(model.totals.fatG),
+                Total(id: "mealTotalF", label: "F", value: Int(model.totals.fatG),
                       remaining: model.remaining.map { Int($0.fatG) })
                 Divider()
-                Total(label: "C", value: Int(model.totals.carbG),
+                Total(id: "mealTotalC", label: "C", value: Int(model.totals.carbG),
                       remaining: model.remaining.map { Int($0.carbG) })
             }
+            // **読むだけの行。** ここを叩いたらキーボードを閉じる（#229）。
+            // 見出しの文字だけでは細すぎて当たらなかった（実機で出た）
+            .dismissesKeyboardWhenTapped()
 
             if model.totals.withoutMacros > 0 {
                 Text("PFC 未入力が \(model.totals.withoutMacros) 件。合計はその分少ない")
                     .font(.caption).foregroundStyle(.secondary)
             }
         } header: {
-            Text(model.remaining == nil ? "今日の合計" : "今日の合計 / 残り")
-                // **読むだけの場所。** ここを叩いたらキーボードを閉じる（#229）。
-                // 画面全体に付けるとコントロールからタップを奪う
+            Text(model.remaining == nil ? "今日の合計" : "今日の残り / 合計")
                 .dismissesKeyboardWhenTapped()
         }
     }
@@ -528,7 +870,8 @@ struct MealView: View {
                     .accessibilityIdentifier("draftName")
             }
 
-            // **PFC の下、記録の上。** 選ぶ → 確認 → 記録 の順で下に進む
+            // **PFC の下、記録の上。** 選ぶ → 確認 → 記録 の順で下に進む。
+            // **ここは1行だけ。** 行を増やすと記録ボタンがキーボードの下に落ちる（#202）
             Button {
                 focus = nil
                 showingFoodList = true
@@ -554,6 +897,20 @@ struct MealView: View {
             .buttonStyle(.borderedProminent)
             .disabled(model.draft.isEmpty || model.isWorking)
             .accessibilityIdentifier("recordButton")
+
+            // **消したあとだけ出る。** 常時1行増えるわけではない。
+            // 確認を挟むより、押してから戻せる方が速い
+            if model.canUndoReset {
+                Button("リセットを取り消す") { model.undoResetDraft() }
+                    .font(.callout)
+                    .accessibilityIdentifier("undoReset")
+            }
+
+            // **推定の根拠を出す。** 鵜呑みを防ぐ。出るのは推定した直後だけなので
+            // 常時 1 行増えるわけではない
+            if let note = model.estimateNote {
+                Text(note).font(.caption).foregroundStyle(.secondary)
+            }
 
             // **編集中のエラーはここに出さない。** 直しているのは下の行なのに、
             // 上の「記録する」に赤字が出ると、どこで何が起きたか分からない
@@ -736,6 +1093,8 @@ private struct Goal: View {
 }
 
 private struct Total: View {
+    /// 大きい方の数字に付ける。**UI テストから引くのはこれ1つ**（#334）
+    let id: String
     let label: String
     let value: Int
     let remaining: Int?
@@ -743,13 +1102,23 @@ private struct Total: View {
     var body: some View {
         VStack(spacing: 2) {
             Text(label).font(.caption2).foregroundStyle(.secondary)
-            Text("\(value)").font(.headline).monospacedDigit()
+
             if let r = remaining {
-                // 超えたら負のまま出す。あとどれだけ削るかが分かる
-                Text(r >= 0 ? "残 \(r)" : "超 \(-r)")
-                    .font(.caption2)
-                    .foregroundStyle(r >= 0 ? Color.secondary : Color.orange)
-                    .monospacedDigit()
+                // **大きく出すのは残り。** 「あと何を食べるか」を決めるのに
+                // 合計は要らない。超えたぶんは正の数で出して色で分ける
+                HStack(spacing: 1) {
+                    Text(r >= 0 ? "残" : "超").font(.caption2)
+                    Text("\(abs(r))").font(.headline).monospacedDigit()
+                        .accessibilityIdentifier(id)
+                }
+                .foregroundStyle(r >= 0 ? Color.primary : Color.orange)
+
+                Text("計 \(value)")
+                    .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
+            } else {
+                // 目標が無ければ残りを出せない。今までどおり合計だけ
+                Text("\(value)").font(.headline).monospacedDigit()
+                    .accessibilityIdentifier(id)
             }
         }
         .frame(maxWidth: .infinity)
@@ -770,7 +1139,7 @@ private struct Total: View {
 private enum EditorField: Hashable {
     case name
     case totalP, totalF, totalC
-    case compName(Int), compUnit(Int), compAmount(Int)
+    case compName(Int), compAmount(Int)
     case compP(Int), compF(Int), compC(Int)
 }
 
@@ -787,8 +1156,13 @@ private struct FoodEditorScreen: View {
     private var fieldOrder: [EditorField] {
         var out: [EditorField] = [.name, .totalP, .totalF, .totalC]
         for (i, c) in model.foodComponents.enumerated() {
-            out += [.compName(i), .compUnit(i), .compAmount(i)]
-            // 「全部」の引数は PFC 欄を出していないので飛ばす
+            // **出していない欄を並びに入れない。** 「次へ」で飛べない場所に
+            // 進もうとしてキーボードが固まる（#345）。
+            // 「全部」は名前を聞かず、単位は押して選ぶ形にした
+            if !c.coversAll {
+                out.append(.compName(i))
+            }
+            out.append(.compAmount(i))
             if !c.coversAll {
                 out += [.compP(i), .compF(i), .compC(i)]
             }
@@ -887,21 +1261,25 @@ private struct FoodEditorScreen: View {
     /// 引数1つの編集。
     private func componentEditor(_ c: Binding<FoodComponentDraft>, at i: Int) -> some View {
         VStack(spacing: 8) {
-            HStack(spacing: 8) {
+            // **「全部」は名前を聞かない**（#345）。合計そのものを表すので、
+            // 「鶏むね」のような名前を付ける意味が無い
+            if !c.coversAll.wrappedValue {
                 TextField("名前（鶏ひき肉 / 砂糖）", text: c.name)
                     .accessibilityIdentifier("componentName")
                     .focused($focus, equals: .compName(i))
-                Field(text: c.unit, width: 44, placeholder: "g")
-                    .focused($focus, equals: .compUnit(i))
             }
 
             // **量は1つだけ**（#224）。「あたり」と「いつもの量」を持つと
-            // 区別がつかないと言われたので統合した
+            // 区別がつかないと言われたので統合した。
+            //
+            // **単位は量の隣に置く**（#345）。名前の横に離して置いていたら、
+            // 量の欄が2つあるように見えると言われた
             HStack(spacing: 6) {
                 Field(text: c.amount, width: 56, placeholder: "200")
                     .accessibilityIdentifier("componentAmountInput")
                     .focused($focus, equals: .compAmount(i))
-                Text("\(c.unit.wrappedValue) ぶんの PFC")
+                UnitPicker(unit: c.unit)
+                Text("ぶんの PFC")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
             }
@@ -919,6 +1297,52 @@ private struct FoodEditorScreen: View {
     }
 }
 
+
+/// 単位の選択（#345）。
+///
+/// **枠だけの入力欄にしない。** `g` が入った四角を置いていたら、
+/// 「これは何」と2回聞かれた。押すと選べると分かる形にする。
+/// ただし**背景も色も足さない**。Form の行の中で浮く。
+///
+/// 自由入力も残す。「枚」「本」「カップ」まで並べると選ぶのが遅くなる
+private struct UnitPicker: View {
+    @Binding var unit: String
+    @State private var editing = false
+    @State private var typed = ""
+
+    /// よく使うものだけ。**多すぎると探す時間の方が長くなる**
+    private static let common = ["g", "ml", "個", "杯"]
+
+    var body: some View {
+        Menu {
+            ForEach(Self.common, id: \.self) { u in
+                Button(u) { unit = u }
+            }
+            Button("その他…") {
+                typed = unit
+                editing = true
+            }
+        } label: {
+            // **色も背景も足さない。** 四角で囲うと入力欄に見え、
+            // 色を変えると Form の行の中で浮く。矢印だけで足りる
+            HStack(spacing: 2) {
+                Text(unit.isEmpty ? "g" : unit)
+                Image(systemName: "chevron.down").font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .font(.callout)
+        }
+        .accessibilityIdentifier("componentUnit")
+        .alert("単位", isPresented: $editing) {
+            TextField("枚 / 本 / カップ", text: $typed)
+            Button("やめる", role: .cancel) {}
+            Button("使う") {
+                let t = typed.trimmingCharacters(in: .whitespaces)
+                if !t.isEmpty { unit = t }
+            }
+        }
+    }
+}
 
 /// 文章の中に置く小さな入力欄。**ラベルを持たない**（前後の文が説明する）
 private struct Field: View {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/Kenyan822/physique-analytics/api/gen/openapi"
@@ -228,6 +229,8 @@ func toSetInput(in openapi.WorkoutSetInput) repository.SetInput {
 		ExerciseID: in.ExerciseId,
 		SetNo:      in.SetNo,
 		WeightKg:   in.WeightKg,
+		// **既定は false。** 送ってこないクライアントは今までどおり
+		Bodyweight: in.Bodyweight != nil && *in.Bodyweight,
 		Reps:       in.Reps,
 		RIR:        in.Rir,
 	}
@@ -260,6 +263,43 @@ func setValidationFailed(field, message string) openapi.CreateWorkoutSet422Appli
 	}{{Field: field, Message: message}}
 
 	return openapi.CreateWorkoutSet422ApplicationProblemPlusJSONResponse{
+		ValidationFailedApplicationProblemPlusJSONResponse: openapi.ValidationFailedApplicationProblemPlusJSONResponse(p),
+	}
+}
+
+// ReplaceSessionExercises はその日の種目リストを並び順ごと全置換する。
+//
+// 追加・削除・並べ替えを個別に受けない。ドラッグ中の中間状態で順序が壊れるため（#242）。
+func (s *Server) ReplaceSessionExercises(ctx context.Context, req openapi.ReplaceSessionExercisesRequestObject) (openapi.ReplaceSessionExercisesResponseObject, error) {
+	// exerciseIds が無いのと空配列は別。無いのは送り忘れで、空配列は「全部外す」
+	if req.Body == nil || req.Body.ExerciseIds == nil {
+		return exercisesValidationFailed("exerciseIds が無い"), nil
+	}
+
+	items, err := s.workouts.ReplaceSessionExercises(ctx, req.SessionId, req.Body.ExerciseIds)
+	switch {
+	case repository.IsNotFound(err):
+		return openapi.ReplaceSessionExercises404ApplicationProblemPlusJSONResponse{
+			NotFoundApplicationProblemPlusJSONResponse: openapi.NotFoundApplicationProblemPlusJSONResponse(
+				problem(404, "セッションが見つからない", "")),
+		}, nil
+	case errors.Is(err, repository.ErrInvalid):
+		return exercisesValidationFailed(err.Error()), nil
+	case err != nil:
+		return nil, err
+	}
+
+	return openapi.ReplaceSessionExercises200JSONResponse{Items: items}, nil
+}
+
+func exercisesValidationFailed(message string) openapi.ReplaceSessionExercises422ApplicationProblemPlusJSONResponse {
+	p := problem(422, "入力が仕様に合わない", message)
+	p.Errors = &[]struct {
+		Field   string `json:"field"`
+		Message string `json:"message"`
+	}{{Field: "exerciseIds", Message: message}}
+
+	return openapi.ReplaceSessionExercises422ApplicationProblemPlusJSONResponse{
 		ValidationFailedApplicationProblemPlusJSONResponse: openapi.ValidationFailedApplicationProblemPlusJSONResponse(p),
 	}
 }

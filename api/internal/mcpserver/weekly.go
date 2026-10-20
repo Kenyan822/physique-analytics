@@ -244,7 +244,7 @@ func worstKeyExerciseSlope(ctx context.Context, d Deps, asof time.Time) (*float6
 
 func parseAsOf(s string) (time.Time, error) {
 	if s == "" {
-		return timeutil.Now().Truncate(24 * time.Hour), nil
+		return timeutil.Today(), nil
 	}
 
 	t, err := time.Parse(time.DateOnly, s)

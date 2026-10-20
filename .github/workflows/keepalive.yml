@@ -1,4 +1,4 @@
-# Supabase の自動停止を防ぐ。
+# Supabase の自動停止を防ぎ、**本番の死活監視も兼ねる**。
 #
 # Free プランは7日間プロジェクトへのアクセスがないと一時停止され、
 # 復旧はダッシュボードからの手動操作になる（docs/05-インフラ設計.md §2.1）。
@@ -10,9 +10,15 @@ name: keepalive
 
 on:
   schedule:
-    # 月・木の 03:00 UTC（JST 12:00）。最大の間隔は4日で、閾値7日に対して余裕がある。
-    # 週1回にすると、1回スキップされただけで閾値を超える
-    - cron: "0 3 * * 1,4"
+    # **6時間ごと。** 当初は月・木（閾値7日に対して間隔4日）だったが、
+    # それだと**落ちてから最大3.5日気づかない**。
+    #
+    # 実際、GCP の請求先アカウントが閉じて本番が止まったとき、
+    # 気づいたのは PM の「通信できない」という報告だった（#278）。
+    # 失敗すると GitHub が通知するので、監視として使う。
+    #
+    # 公開リポジトリなので Actions の実行時間は無料。curl 1回ぶんの価値はある
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -35,6 +41,9 @@ jobs:
             echo "attempt $i: HTTP $code"
             sleep 10
           done
-          echo "::error::/health が 200 を返さない。Supabase が停止している可能性がある"
+          echo "::error::/health が 200 を返さない"
+          echo "疑うところ: Supabase の自動停止 / GCP の請求先アカウント（#278）/ デプロイの失敗"
+          echo "  gcloud billing accounts describe <ID> の open を見る。"
+          echo "  projects describe の billingEnabled が true でも、請求先が閉じていれば止まる"
           cat /tmp/health.json || true
           exit 1

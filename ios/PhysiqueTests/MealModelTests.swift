@@ -420,8 +420,10 @@ struct FoodMasterPickTests {
         m.pickFood(m.foodItems[0])
 
         #expect(m.pickingFood?.name == "プロテイン")
-        // 既定値が入っている
-        #expect(m.foodAmounts["量"] == 30)
+        // **空で始まる**（#345）。触らなければ expand が登録時の量を使う
+        #expect(m.foodAmounts["量"] == nil)
+        m.confirmFoodPick()
+        #expect(m.draft.proteinG == "24")
     }
 
     @Test("量を変えると PFC が比例する")
@@ -748,6 +750,14 @@ struct FoodPartialTests {
       "createdAt":"2026-09-28T00:00:00Z","updatedAt":"2026-09-28T00:00:00Z"}]}
     """#
 
+    /// 固定部が残る項目。**「全部」ではない**ので 0 を打つと固定部だけになる
+    private let soboro = #"""
+    {"items":[{"id":"33333333-3333-4333-8333-333333333333","name":"そぼろ定食","proteinG":66,
+      "components":[{"name":"鶏むね","unit":"g","amount":200,
+        "proteinG":46,"fatG":0,"carbG":0}],"usedCount":0,
+      "createdAt":"2026-09-21T00:00:00Z","updatedAt":"2026-09-21T00:00:00Z"}]}
+    """#
+
     private func loaded(_ foods: String) async -> (MealModel, FakeTransport) {
         let (client, t) = api([
             emptyMeals, targets, (foods, 200),
@@ -772,8 +782,10 @@ struct FoodPartialTests {
         m.pickFood(m.foodItems[0])
 
         #expect(m.pickingFood != nil)
-        // 触らなければ登録時の量
-        #expect(m.foodAmounts["量"] == 30)
+        // **空で始まる**（#345）。触らなければ expand が登録時の量を使う
+        #expect(m.foodAmounts["量"] == nil)
+        m.confirmFoodPick()
+        #expect(m.draft.proteinG == "24")
     }
 
     @Test("量を変えると比例する")
@@ -799,6 +811,51 @@ struct FoodPartialTests {
         #expect(m.foodComponents[0].coversAll)
     }
 
+    /// #345。**打ち直すのに、まず消す手間が要った。** 空から打つ方が速い。
+    /// 登録値は「登録: 30g で P24」として画面に出ているので分からなくならない
+    @Test("**記録するときの量は空で始まる**")
+    func pickStartsBlank() async {
+        let (m, _) = await loaded(protein)
+        #expect(m.foodItems.count == 1)
+        guard let item = m.foodItems.first else { return }
+
+        m.pickFood(item)
+
+        // **空振りさせない。** 量を聞く画面まで来ていることを先に見る
+        #expect(m.pickingFood != nil)
+        #expect(m.foodAmountText["量"] ?? "" == "")
+    }
+
+    /// **空は「まだ打っていない」。** 0 に落とすと PFC が 0 になる
+    @Test("**空のまま確定すると登録どおりになる**")
+    func blankMeansRegistered() async {
+        let (m, _) = await loaded(protein)
+        #expect(m.foodItems.count == 1)
+        guard let item = m.foodItems.first else { return }
+        m.pickFood(item)
+        #expect(m.pickingFood != nil)
+
+        m.confirmFoodPick()
+
+        #expect(m.draft.proteinG == "24")
+    }
+
+    /// **0 と打ったら 0。**「今日は入れなかった」を表せる（ADR-0017）
+    @Test("**0 と打ったら 0 のまま**")
+    func explicitZeroStaysZero() async {
+        let (m, _) = await loaded(soboro)
+        #expect(m.foodItems.count == 1)
+        guard let item = m.foodItems.first else { return }
+        m.pickFood(item)
+        #expect(m.pickingFood != nil)
+
+        m.foodAmountText["鶏むね"] = "0"
+        m.confirmFoodPick()
+
+        // 固定部 66 − 46 = 20 だけ残る
+        #expect(m.draft.proteinG == "20")
+    }
+
     @Test("**「全部」を入れると引数は1つになる**")
     func coversAllForcesSingle() async {
         let (m, _) = await loaded(#"{"items":[]}"#)
@@ -815,6 +872,97 @@ struct FoodPartialTests {
         #expect(m.foodComponents[0].name == "量")
         // 合計そのものなので本体の PFC を写す
         #expect(m.foodComponents[0].proteinG == "24")
+    }
+
+    /// #344。**トグルを押した時点でしか写していなかった。**
+    /// 「全部」にしてから PFC を打つのが自然な順なのに、その値が送られない
+    @Test("**「全部」のあとで合計を打っても送る値に乗る**")
+    func coversAllFollowsTotal() async {
+        let (m, t) = await loaded(#"{"items":[]}"#)
+        m.beginRegisteringFood()
+        m.addFoodComponent()
+        m.foodComponents[0].name = "量"
+        m.foodComponents[0].amount = "30"
+        m.setCoversAll(true, at: 0)
+
+        // トグルのあとで打つ
+        m.foodDraft.proteinG = "21.1"
+        m.foodDraft.fatG = "1.8"
+        m.foodDraft.carbG = "4.7"
+
+        await m.saveFood(name: "プロテイン")
+
+        let req = try! #require(t.requests.first { $0.httpMethod == "POST" })
+        let body = try! JSONSerialization.jsonObject(with: req.httpBody!) as! [String: Any]
+        let cs = body["components"] as! [[String: Any]]
+
+        // 0 のまま送ると固定部が合計になり、**量を変えても効かなくなる**
+        #expect(cs[0]["proteinG"] as? Double == 21.1)
+        #expect(cs[0]["fatG"] as? Double == 1.8)
+        #expect(cs[0]["carbG"] as? Double == 4.7)
+    }
+
+    /// **合計を下げたときに誤って弾かれない。** 古い値が残っていると
+    /// 「引数が合計を超えている」になる
+    @Test("**「全部」のあとで合計を下げても登録できる**")
+    func coversAllAllowsLoweringTotal() async {
+        let (m, t) = await loaded(#"{"items":[]}"#)
+        m.beginRegisteringFood()
+        m.foodDraft.proteinG = "40"
+        m.addFoodComponent()
+        m.foodComponents[0].name = "量"
+        m.foodComponents[0].amount = "30"
+        m.setCoversAll(true, at: 0)
+
+        m.foodDraft.proteinG = "20"
+
+        await m.saveFood(name: "プロテイン")
+
+        #expect(m.errorMessage == nil)
+        #expect(t.requests.contains { $0.httpMethod == "POST" })
+    }
+
+    /// #345。**「全部」は合計そのものなので名前に意味が無い。**
+    /// 名前を必須にすると、意味の無い欄を埋めないと登録できない
+    @Test("**「全部」なら名前が無くても登録できる**")
+    func coversAllNeedsNoName() async {
+        let (m, t) = await loaded(#"{"items":[]}"#)
+        m.beginRegisteringFood()
+        m.foodDraft.proteinG = "24"
+        m.addFoodComponent()
+        m.foodComponents[0].amount = "30"
+        m.setCoversAll(true, at: 0)
+
+        await m.saveFood(name: "プロテイン")
+
+        #expect(m.errorMessage == nil)
+        // **try! で受けない。** 落ちると以降のテストが走らず、Red が1つしか見えない
+        guard let req = t.requests.first(where: { $0.httpMethod == "POST" }),
+              let data = req.httpBody,
+              let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let cs = body["components"] as? [[String: Any]], !cs.isEmpty else {
+            Issue.record("POST が飛んでいない")
+
+            return
+        }
+        #expect(cs[0]["name"] as? String == "量")
+    }
+
+    /// 「全部」でなければ名前は要る。何の引数か分からなくなる
+    @Test("「全部」でなければ名前は要る")
+    func partialStillNeedsName() async {
+        let (m, t) = await loaded(#"{"items":[]}"#)
+        m.beginRegisteringFood()
+        m.foodDraft.proteinG = "66"
+        m.addFoodComponent()
+        m.foodComponents[0].amount = "200"
+        m.foodComponents[0].proteinG = "46"
+        let before = t.requests.count
+
+        await m.saveFood(name: "そぼろ定食")
+
+        #expect(t.requests.count == before)
+        #expect(m.errorMessage != nil)
     }
 
     @Test("**引数が合計を超えたら送らない**")
@@ -876,12 +1024,13 @@ struct FoodAmountTextTests {
         return m
     }
 
-    @Test("選ぶと登録時の量が文字列で入る")
-    func startsWithRegistered() async {
+    /// #345 で**空で始める**ように変えた。登録値が入っていると、
+    /// 打ち直すのにまず消す手間が要る
+    @Test("選ぶと量の欄は空")
+    func startsBlank() async {
         let m = await picked()
 
-        // **「30.0」ではない。** 打ち直しづらい
-        #expect(m.foodAmountText["量"] == "30")
+        #expect(m.foodAmountText["量"] ?? "" == "")
     }
 
     @Test("**全部消せる**")
@@ -894,10 +1043,25 @@ struct FoodAmountTextTests {
         #expect(m.foodAmountText["量"] == "")
     }
 
-    @Test("消したら 0 として計算する")
-    func emptyIsZero() async {
+    /// **空は「まだ打っていない」。0 ではない**（ADR-0017 / #345）。
+    ///
+    /// 以前は空を 0 に落としていたが、ADR の「渡さなかった引数は登録時の量」と
+    /// 食い違っていた。空で始める形にしたので、そのまま確定できないと使えない
+    @Test("**空のままなら登録時の量で計算する**")
+    func emptyMeansRegistered() async {
         let m = await picked()
         m.foodAmountText["量"] = ""
+
+        m.confirmFoodPick()
+
+        #expect(m.draft.proteinG == "24")
+    }
+
+    /// **0 と打ったときだけ 0。**「今日は入れなかった」を表せる
+    @Test("**0 と打ったら 0**")
+    func explicitZero() async {
+        let m = await picked()
+        m.foodAmountText["量"] = "0"
 
         m.confirmFoodPick()
 
@@ -923,13 +1087,90 @@ struct FoodAmountTextTests {
         #expect(m.draft.proteinG == "36")
     }
 
-    @Test("読めない値は 0 にする")
-    func garbageIsZero() async {
+    /// 読めない値は**打っていない**のと同じに倒す。0 にすると、
+    /// 打ち間違えただけで「食べていない」ことになる
+    @Test("読めない値は登録時の量にする")
+    func garbageMeansRegistered() async {
         let m = await picked()
         m.foodAmountText["量"] = "だいたい"
 
         m.confirmFoodPick()
 
-        #expect(m.draft.proteinG == "0")
+        #expect(m.draft.proteinG == "24")
+    }
+}
+
+/// 入力を途中でやり直す（#320）。
+@Suite("食事の下書きのリセット")
+@MainActor
+struct MealDraftResetTests {
+    private func model() -> MealModel {
+        let (client, _) = api([emptyMeals, targets])
+
+        return MealModel(api: client, date: "2028-06-15")
+    }
+
+    @Test("まとめて消せる")
+    func resets() {
+        let m = model()
+        m.draft.proteinG = "30"
+        m.draft.name = "鶏むね"
+
+        m.resetDraft()
+
+        #expect(m.draft.isEmpty)
+    }
+
+    @Test("空なら何も起きない")
+    func noopWhenEmpty() {
+        let m = model()
+
+        // **空振りさせない。** 押せてしまうと「押したのに何も起きない」になる
+        #expect(!m.canResetDraft)
+        m.resetDraft()
+        #expect(!m.canUndoReset)
+    }
+
+    @Test("取り消すと戻る")
+    func undo() {
+        let m = model()
+        m.draft.proteinG = "30"
+        m.draft.name = "鶏むね"
+        m.resetDraft()
+
+        #expect(m.canUndoReset)
+        m.undoResetDraft()
+
+        #expect(m.draft.proteinG == "30")
+        #expect(m.draft.name == "鶏むね")
+        // 戻したあとはもう取り消せない
+        #expect(!m.canUndoReset)
+    }
+
+    @Test("打ち直したら取り消しは出ない")
+    func undoHiddenAfterTyping() {
+        let m = model()
+        m.draft.proteinG = "30"
+        m.resetDraft()
+        m.draft.proteinG = "40"
+
+        // **打ち直したあとに戻すと、打った内容が消える。** 出さない
+        #expect(!m.canUndoReset)
+    }
+
+    @Test("記録済みの行は消えない")
+    func keepsRecorded() async {
+        let (client, _) = api([
+            (#"{"items":[{"id":"11111111-1111-1111-1111-111111111111","date":"2028-06-15","name":"鶏むね","kcal":330}]}"#, 200),
+            targets,
+        ])
+        let m = MealModel(api: client, date: "2028-06-15")
+        await m.load()
+        m.draft.proteinG = "30"
+
+        m.resetDraft()
+
+        // 消すのは下書きだけ
+        #expect(m.meals.count == 1)
     }
 }

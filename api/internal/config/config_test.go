@@ -133,12 +133,30 @@ func TestLoad_推定は任意(t *testing.T) {
 	}
 
 	// **未設定でも起動する。** 推定だけが使えない状態になる
-	if cfg.VisionAPIKey != "" {
-		t.Errorf("VisionAPIKey = %q, want 空", cfg.VisionAPIKey)
+	if cfg.VisionProjectID != "" {
+		t.Errorf("VisionProjectID = %q, want 空", cfg.VisionProjectID)
 	}
 	// 既定モデルは要件のコスト試算に合わせる
 	if cfg.VisionModel == "" {
 		t.Error("VisionModel が空。既定を持たせる")
+	}
+}
+
+func TestLoad_推定のプロジェクトを読む(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load(lookup(map[string]string{
+		"DATABASE_URL":      "postgres://x",
+		"SUPABASE_JWKS_URL": "https://x/jwks.json",
+		// **鍵ではない。** Vertex はサービスアカウントで呼ぶ
+		"VISION_PROJECT_ID": "p-1",
+	}))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if cfg.VisionProjectID != "p-1" {
+		t.Errorf("VisionProjectID = %q, want p-1", cfg.VisionProjectID)
 	}
 }
 
