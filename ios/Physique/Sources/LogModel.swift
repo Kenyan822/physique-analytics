@@ -113,8 +113,13 @@ final class LogModel {
         // 閉じた種目の打ちかけは捨てる。開き直せば記録済みから組み直る
         let unsaved = drafts.filter { !$0.recorded && openExerciseIds.contains($0.exerciseId) }
 
+        // **開いている集合が正。** 並びだけ rows に合わせる。
+        // rows に無い種目を落とすと、行を組む前に開いた種目の入力が消える
+        let ordered = rows.map(\.exerciseId).filter(openExerciseIds.contains)
+        let rest = openExerciseIds.subtracting(ordered).sorted { $0.uuidString < $1.uuidString }
+
         var out: [SetDraft] = []
-        for ex in rows.map(\.exerciseId) where openExerciseIds.contains(ex) {
+        for ex in ordered + rest {
             out += sets(of: ex).map { s in
                 SetDraft(id: s.id, exerciseId: ex, setNo: s.setNo,
                          weightText: numberText(s.weightKg), repsText: String(s.reps),
@@ -291,8 +296,11 @@ final class LogModel {
                 muscleGroup: MuscleGroup(rawValue: $0.muscleGroup) ?? .chest,
                 target: $0.targetLabel)
         }
+        // **ルーティンを並べない**（#336）。実際にはやらない種目も並ぶので、
+        // その日やったものが埋もれる。空から始めて、やった種目だけ足す。
+        // ルーティンは「種目を足す」の一番上にまとまる
         guard !savedOrder.isEmpty else {
-            rows = fromRoutine
+            rows = []
 
             return
         }
@@ -526,6 +534,14 @@ final class LogModel {
         pickedOrder = day?.dayOrder
         rebuildRowsAndOpen()
         rebuildDrafts()
+    }
+
+    /// 今日のルーティンに入っている種目（#336）。
+    ///
+    /// **並べはしないが、選ぶときは一番上に出す。** 探す手間を増やさずに
+    /// 「今日やる想定のもの」を先に見せる
+    var routineExerciseIds: [UUID] {
+        (currentDay?.items ?? []).map(\.exerciseId)
     }
 
     /// その種目を今日やったか。行の印に使う
