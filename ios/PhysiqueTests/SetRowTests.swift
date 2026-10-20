@@ -61,6 +61,18 @@ private func model(_ sessions: String) async -> (LogModel, FakeTransport) {
 struct SessionExerciseListTests {
     /// #336 で**空から始める**ように変えた。実際にはやらない種目も並ぶと、
     /// その日やったものが埋もれる。ルーティンは「種目を足す」の一番上に出す
+    /// **記録のある種目は並べる**（#336 の抜け / 本番で 422 が出た）。
+    ///
+    /// セットを記録した日に session_exercises が空だと、空から始めてしまう。
+    /// そこで種目を足すと「その1件だけ」を送り、サーバが
+    /// 「セットを記録済みの種目は外せない」で弾く
+    @Test("**リストが空でも、記録のある種目は並ぶ**")
+    func keepsRecorded() async {
+        let (m, _) = await model(sessionWithSets)
+
+        #expect(m.rows.map(\.exerciseId) == [bench])
+    }
+
     @Test("**リストが空なら何も並べない**")
     func startsEmpty() async {
         let (m, _) = await model(emptySession)
