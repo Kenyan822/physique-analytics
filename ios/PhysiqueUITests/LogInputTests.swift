@@ -36,6 +36,13 @@ final class LogInputTests: XCTestCase {
         let row = rows.element(boundBy: index)
         XCTAssertTrue(row.isHittable, "ルーティンの種目が押せる位置にあること")
         row.tap()
+
+        // **シートが閉じきるまで待つ。** 続けて呼ぶと、閉じかけのシートの上で
+        // 「種目を足す」を押すことになり、2回目が効かない（CI でだけ出た）
+        XCTAssertTrue(
+            app.navigationBars["種目を足す"].waitForNonExistence(timeout: UITimeout.normal),
+            "シートが閉じること"
+        )
     }
 
     /// #336。**ルーティンは並べず、選ぶときに一番上に出す。**
