@@ -1293,7 +1293,12 @@ type WorkoutSessionInput struct {
 
 // WorkoutSet defines model for WorkoutSet.
 type WorkoutSet struct {
-	CreatedAt time.Time `json:"createdAt"`
+	// Bodyweight 自重の種目か（懸垂・ディップス・腕立て）。
+	// **立っているときの挙上重量は「その日の体重 + weightKg」。**
+	// `weightKg` に 0 を入れるだけだと、トン数も e1RM も 0 になり
+	// 何セットやってもボリュームに乗らない。
+	Bodyweight *bool     `json:"bodyweight,omitempty"`
+	CreatedAt  time.Time `json:"createdAt"`
 
 	// DeletedAt 論理削除。物理削除しない（ADR-0014）
 	DeletedAt  *time.Time         `json:"deletedAt,omitempty"`
@@ -1310,12 +1315,15 @@ type WorkoutSet struct {
 	// UpdatedAt 競合解決に使う（ADR-0014）
 	UpdatedAt time.Time `json:"updatedAt"`
 
-	// WeightKg kg 固定（データモデル参照）
+	// WeightKg kg 固定（データモデル参照）。
+	// `bodyweight` が立っているときは**体重に足す追加分**（加重）で、
+	// 自重だけなら 0。
 	WeightKg float32 `json:"weightKg"`
 }
 
 // WorkoutSetInput defines model for WorkoutSetInput.
 type WorkoutSetInput struct {
+	Bodyweight *bool               `json:"bodyweight,omitempty"`
 	ExerciseId openapi_types.UUID  `json:"exerciseId"`
 	Id         *openapi_types.UUID `json:"id,omitempty"`
 	Reps       int                 `json:"reps"`

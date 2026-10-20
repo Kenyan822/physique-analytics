@@ -1917,7 +1917,18 @@ components:
             weightKg:
               type: number
               minimum: 0
-              description: kg 固定（データモデル参照）
+              description: |
+                kg 固定（データモデル参照）。
+                `bodyweight` が立っているときは**体重に足す追加分**（加重）で、
+                自重だけなら 0。
+            bodyweight:
+              type: boolean
+              default: false
+              description: |
+                自重の種目か（懸垂・ディップス・腕立て）。
+                **立っているときの挙上重量は「その日の体重 + weightKg」。**
+                `weightKg` に 0 を入れるだけだと、トン数も e1RM も 0 になり
+                何セットやってもボリュームに乗らない。
             reps: { type: integer, minimum: 0 }
             rir:
               type: [integer, "null"]
@@ -1936,6 +1947,7 @@ components:
         exerciseId: { type: string, format: uuid }
         setNo: { type: integer, minimum: 1 }
         weightKg: { type: number, minimum: 0, maximum: 500 }
+        bodyweight: { type: boolean, default: false }
         reps: { type: integer, minimum: 0, maximum: 100 }
         rir: { type: [integer, "null"], minimum: 0, maximum: 10 }
         updatedAt: { type: string, format: date-time }

@@ -1157,8 +1157,20 @@ export interface components {
             /** Format: uuid */
             exerciseId: string;
             setNo: number;
-            /** @description kg 固定（データモデル参照） */
+            /**
+             * @description kg 固定（データモデル参照）。
+             *     `bodyweight` が立っているときは**体重に足す追加分**（加重）で、
+             *     自重だけなら 0。
+             */
             weightKg: number;
+            /**
+             * @description 自重の種目か（懸垂・ディップス・腕立て）。
+             *     **立っているときの挙上重量は「その日の体重 + weightKg」。**
+             *     `weightKg` に 0 を入れるだけだと、トン数も e1RM も 0 になり
+             *     何セットやってもボリュームに乗らない。
+             * @default false
+             */
+            bodyweight?: boolean;
             reps: number;
             /**
              * @description Reps In Reserve（あと何回できたか）。
@@ -1175,6 +1187,8 @@ export interface components {
             exerciseId: string;
             setNo: number;
             weightKg: number;
+            /** @default false */
+            bodyweight?: boolean;
             reps: number;
             rir?: number | null;
             /** Format: date-time */

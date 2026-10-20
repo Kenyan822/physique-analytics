@@ -31,6 +31,10 @@ type SetInput struct {
 	SetNo      int
 	WeightKg   float32
 
+	// Bodyweight は自重の種目か（#335）。立っているときの挙上重量は
+	// **その日の体重 + WeightKg**。WeightKg は加重のぶんになる
+	Bodyweight bool
+
 	Reps int
 
 	// RIR は nil を許す。過去データの取り込み（要件 I-01）では欠損がありうる。
@@ -80,12 +84,12 @@ type SessionFilter struct {
 
 const sessionColumns = `id, date, template_id, note, created_at, updated_at, deleted_at`
 
-const setColumns = `id, session_id, exercise_id, set_no, weight_kg, reps, rir,
+const setColumns = `id, session_id, exercise_id, set_no, weight_kg, bodyweight, reps, rir,
 	created_at, updated_at, deleted_at`
 
 // join するクエリでは列名が衝突するので別名を付けたものを使う
-const setColumnsPrefixed = `s.id, s.session_id, s.exercise_id, s.set_no, s.weight_kg, s.reps, s.rir,
-	s.created_at, s.updated_at, s.deleted_at`
+const setColumnsPrefixed = `s.id, s.session_id, s.exercise_id, s.set_no, s.weight_kg,
+	s.bodyweight, s.reps, s.rir, s.created_at, s.updated_at, s.deleted_at`
 
 // defaultSessionLimit は limit 未指定時の件数。
 const defaultSessionLimit = 50
@@ -292,11 +296,13 @@ func (r *Workout) CreateSet(ctx context.Context, sessionID uuid.UUID, in SetInpu
 func (r *Workout) UpdateSet(ctx context.Context, id uuid.UUID, in SetInput) (openapi.WorkoutSet, error) {
 	const q = `
 		update workout_sets
-		set exercise_id = $2, set_no = $3, weight_kg = $4, reps = $5, rir = $6, updated_at = $7
+		set exercise_id = $2, set_no = $3, weight_kg = $4, bodyweight = $5,
+		    reps = $6, rir = $7, updated_at = $8
 		where id = $1 and deleted_at is null
 		returning ` + setColumns
 
-	s, err := scanSet(r.db.QueryRow(ctx, q, id, in.ExerciseID, in.SetNo, in.WeightKg, in.Reps, in.RIR, timeutil.Now()))
+	s, err := scanSet(r.db.QueryRow(ctx, q, id, in.ExerciseID, in.SetNo, in.WeightKg,
+		in.Bodyweight, in.Reps, in.RIR, timeutil.Now()))
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return openapi.WorkoutSet{}, fmt.Errorf("セット %s: %w", id, ErrNotFound)
@@ -328,12 +334,14 @@ func (r *Workout) DeleteSet(ctx context.Context, id uuid.UUID) error {
 
 func (r *Workout) insertSet(ctx context.Context, sessionID uuid.UUID, in SetInput) (openapi.WorkoutSet, error) {
 	const q = `
-		insert into workout_sets (id, session_id, exercise_id, set_no, weight_kg, reps, rir)
-		values (coalesce($1, gen_random_uuid()), $2, $3, $4, $5, $6, $7)
+		insert into workout_sets
+			(id, session_id, exercise_id, set_no, weight_kg, bodyweight, reps, rir)
+		values (coalesce($1, gen_random_uuid()), $2, $3, $4, $5, $6, $7, $8)
 		on conflict (id) do nothing
 		returning ` + setColumns
 
-	s, err := scanSet(r.db.QueryRow(ctx, q, in.ID, sessionID, in.ExerciseID, in.SetNo, in.WeightKg, in.Reps, in.RIR))
+	s, err := scanSet(r.db.QueryRow(ctx, q, in.ID, sessionID, in.ExerciseID, in.SetNo,
+		in.WeightKg, in.Bodyweight, in.Reps, in.RIR))
 	switch {
 	case errors.Is(err, pgx.ErrNoRows) && in.ID != nil:
 		return r.getSet(ctx, *in.ID)
@@ -414,8 +422,8 @@ func scanSession(r row) (openapi.WorkoutSession, error) {
 
 func scanSet(r row) (openapi.WorkoutSet, error) {
 	var s openapi.WorkoutSet
-	err := r.Scan(&s.Id, &s.SessionId, &s.ExerciseId, &s.SetNo, &s.WeightKg, &s.Reps, &s.Rir,
-		&s.CreatedAt, &s.UpdatedAt, &s.DeletedAt)
+	err := r.Scan(&s.Id, &s.SessionId, &s.ExerciseId, &s.SetNo, &s.WeightKg, &s.Bodyweight,
+		&s.Reps, &s.Rir, &s.CreatedAt, &s.UpdatedAt, &s.DeletedAt)
 	if err != nil {
 		return openapi.WorkoutSet{}, err
 	}
@@ -484,8 +492,8 @@ func (r *Workout) LastPerformance(ctx context.Context, exerciseID uuid.UUID, bef
 			date time.Time
 			s    openapi.WorkoutSet
 		)
-		err := rows.Scan(&date, &s.Id, &s.SessionId, &s.ExerciseId, &s.SetNo, &s.WeightKg, &s.Reps, &s.Rir,
-			&s.CreatedAt, &s.UpdatedAt, &s.DeletedAt)
+		err := rows.Scan(&date, &s.Id, &s.SessionId, &s.ExerciseId, &s.SetNo, &s.WeightKg,
+			&s.Bodyweight, &s.Reps, &s.Rir, &s.CreatedAt, &s.UpdatedAt, &s.DeletedAt)
 		if err != nil {
 			return LastPerformanceResult{}, fmt.Errorf("前回値を読めない: %w", err)
 		}
