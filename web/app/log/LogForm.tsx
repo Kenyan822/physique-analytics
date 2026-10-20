@@ -9,6 +9,7 @@ import { ExercisePicker } from "./ExercisePicker";
 import { RestTimer } from "./RestTimer";
 import { clampReps, clampWeight, SetInput, type SetValue } from "./SetInput";
 import { nextRestSeconds } from "./rest";
+import { summarizeByExercise } from "./summary";
 import type { EditSetResult, LastPerformance, RecordSetResult } from "./actions";
 
 type Props = {
@@ -180,6 +181,7 @@ export function LogForm({
 
   const restSec = exercise ? nextRestSeconds(exercise) : 0;
   const todayTonnage = logged.reduce((sum, l) => sum + l.weightKg * l.reps, 0);
+  const perExercise = summarizeByExercise(logged);
 
   return (
     /*
@@ -261,6 +263,15 @@ export function LogForm({
               {logged.length} セット / {Math.round(todayTonnage).toLocaleString()} kg
             </span>
           </div>
+          {/* 種目ごとの小計。一覧を数え直さずに「この種目はあと何セットか」が分かる */}
+          <ul className="mb-3 flex flex-wrap gap-1.5" aria-label="種目ごとの小計">
+            {perExercise.map((p) => (
+              <li key={p.exerciseId} className="tnum rounded-lg bg-surface-2 px-2 py-1 text-xs">
+                <span className="text-muted">{byId.get(p.exerciseId)?.name ?? "?"}</span>{" "}
+                {p.sets} セット · {Math.round(p.tonnageKg).toLocaleString()} kg
+              </li>
+            ))}
+          </ul>
           <ul className="flex flex-col gap-1.5">
             {logged.map((s) => (
               <li
