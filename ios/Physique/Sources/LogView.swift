@@ -399,7 +399,10 @@ struct LogView: View {
                     .frame(width: 16, alignment: .trailing)
 
                 box(d, .weight, width: 68, pad: .decimalPad)
-                Text("kg").font(.footnote).foregroundStyle(.secondary)
+                // **自重のときは「+kg」。** 入れた数字は体重に足す加重分（#335）
+                Text(d.bodyweight ? "+kg" : "kg")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .frame(width: 26, alignment: .leading)
                 Text("×").font(.footnote).foregroundStyle(.tertiary).padding(.horizontal, 2)
                 box(d, .reps, width: 56, pad: .numberPad)
                 Text("回").font(.footnote).foregroundStyle(.secondary)
@@ -407,6 +410,25 @@ struct LogView: View {
                 box(d, .rir, width: 46, pad: .numberPad)
 
                 Spacer(minLength: 4)
+
+                // **自重の切り替え**（#335）。懸垂・ディップスは weight_kg に
+                // 入れる数字が無い。0 のままだとトン数も e1RM も 0 になる
+                Button {
+                    commitFocused()
+                    model.setBodyweight(!d.bodyweight, for: d.id)
+                } label: {
+                    Text("自重")
+                        .font(.caption)
+                        .foregroundStyle(d.bodyweight ? Color.white : Color.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(d.bodyweight ? Color.accentColor : Color(.secondarySystemBackground))
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("bodyweightToggle")
             }
             // **保存済みの印は出さない。** 欄から離れれば黙って保存される。
             // 未送信が溜まっていれば画面上部の「未送信 N 件」で分かる（#262）

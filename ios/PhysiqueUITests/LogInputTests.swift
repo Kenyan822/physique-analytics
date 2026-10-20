@@ -96,6 +96,25 @@ final class LogInputTests: XCTestCase {
         XCTAssertTrue(app.buttons["addSet"].isHittable, "セットを足すが押せること")
     }
 
+    /// #335。**懸垂・ディップスは重さに入れる数字が無い。**
+    /// 0 のままだとトン数も e1RM も 0 になる
+    func test_自重を選べる() {
+        let row = app.buttons["routineRow"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: UITimeout.slow), "種目が出ること")
+        row.tap()
+
+        let toggle = app.buttons["bodyweightToggle"].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: UITimeout.normal), "自重が出ること")
+        XCTAssertTrue(toggle.isHittable, "押せる位置にあること")
+
+        // **押した結果まで見る**（#217 の反省）。単位が「+kg」に変わる
+        toggle.tap()
+        XCTAssertTrue(
+            app.staticTexts["+kg"].firstMatch.waitForExistence(timeout: UITimeout.normal),
+            "自重にすると加重のぶんを入れる欄だと分かること"
+        )
+    }
+
     /// #256。**記録済みも入力中も同じ行**で、その場で直せるところまで。
     func test_セットが行で出てその場で直せる() {
         let row = app.buttons["routineRow"].firstMatch
