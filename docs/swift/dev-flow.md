@@ -229,7 +229,7 @@ CI（`ios (Swift)`）がやるのは2つ。
 
 | | 反映のされ方 |
 |---|---|
-| Web | `vercel deploy --prod`（Git 未接続。[#173](https://github.com/Kenyan822/physique-analytics/issues/173)） |
+| Web | **main マージで自動**（2026-10-20 に Git を接続。[#173](https://github.com/Kenyan822/physique-analytics/issues/173)） |
 | API | main マージで `deploy-api` が自動。マイグレーションも自動（[ADR-0016](../adr/0016-auto-migrate-on-deploy.md)） |
 | **iOS** | **無い。手元で再インストールする** |
 
