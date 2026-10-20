@@ -55,10 +55,13 @@ func (s *Server) EstimateMeal(ctx context.Context, req openapi.EstimateMealReque
 		}, nil
 	}
 
+	fromLabel := est.FromLabel
 	out := openapi.MealEstimate{
 		Name: est.Name,
 		Qty:  est.Qty,
 		Kcal: est.Kcal,
+		// 栄養成分表示から読んだか（#350）。推定より確かなので直す判断に使う
+		FromLabel: &fromLabel,
 		// 記録するときも ai_estimated を保つ（docs/02-データモデル.md）
 		Source: openapi.MealSourceAiEstimated,
 	}

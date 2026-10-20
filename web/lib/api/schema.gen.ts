@@ -1797,6 +1797,14 @@ export interface components {
             carbG?: number | null;
             /** @description low / medium / high。量が分からないときは low */
             confidence?: string | null;
+            /**
+             * @description **栄養成分表示から読んだ値か。** 見た目からの推定より確かなので、
+             *     直す必要があるかの判断に使う（#350）。
+             *     「100g あたり」の表示を1食分に換算できなかったときは、
+             *     qty にその旨が入り confidence が low になる。
+             * @default false
+             */
+            fromLabel?: boolean;
             /** @description 推定の根拠。直すときの手がかりになる */
             note?: string | null;
             /** @description 常に ai_estimated。記録するときもこれを保つ */

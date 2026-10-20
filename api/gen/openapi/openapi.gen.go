@@ -852,8 +852,14 @@ type MealEstimate struct {
 	// Confidence low / medium / high。量が分からないときは low
 	Confidence *string  `json:"confidence,omitempty"`
 	FatG       *float32 `json:"fatG,omitempty"`
-	Kcal       *int     `json:"kcal,omitempty"`
-	Name       string   `json:"name"`
+
+	// FromLabel **栄養成分表示から読んだ値か。** 見た目からの推定より確かなので、
+	// 直す必要があるかの判断に使う（#350）。
+	// 「100g あたり」の表示を1食分に換算できなかったときは、
+	// qty にその旨が入り confidence が low になる。
+	FromLabel *bool  `json:"fromLabel,omitempty"`
+	Kcal      *int   `json:"kcal,omitempty"`
+	Name      string `json:"name"`
 
 	// Note 推定の根拠。直すときの手がかりになる
 	Note     *string  `json:"note,omitempty"`
