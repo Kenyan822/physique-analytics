@@ -20,12 +20,20 @@
 private/                 ← .gitignore
 ├── config.json          個人の身体データ・計画設定
 ├── data/                実記録・写真・血液検査
-├── docs/                個人の3カ年計画・月次目標・栄養設計・大会準備
+├── learning/            サービス・概念の理解メモ
 └── reports/             生成された週次レポート
+
+analytics/               ← .gitignore（#327）
+├── plan/                個人の3カ年計画・栄養設計・大会準備
+├── physique-mcp         分析用 MCP のバイナリと起動スクリプト
+└── YYYY-MM-DD-*.md      分析と判断の記録
 
 data/sample/             ← コミットする（架空の記録）
 config.example.json      ← コミットする（設定の雛形）
 ```
+
+**月次目標の表は保存しない**（ADR-0015）。`GET /v1/plan/monthly-targets` で
+毎回計算するのが正。ファイルに落とすと、実測とずれたまま残る。
 
 分析スクリプトのデフォルトパスを `private/` に向け、デモ実行時のみ `--data-dir data/sample` で切り替える。
 
