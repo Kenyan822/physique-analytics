@@ -10,7 +10,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/oapi-codegen/runtime v1.7.0
-	golang.org/x/oauth2 v0.35.0
+	golang.org/x/oauth2 v0.37.0
 )
 
 require (
