@@ -179,7 +179,7 @@ struct EditSetTests {
     @Test("**セット番号は件数ではなく最大値 + 1**")
     func setNoFromMax() async {
         let (m, t) = await model(sessionWithSets)
-        m.selectedExerciseId = bench
+        m.openExerciseIds = [bench]
         t.responses = [(Data("{}".utf8), 204)]
 
         // 1セット目を消しても、次は 3（2 の次）。件数で決めると 2 と衝突する
@@ -187,7 +187,7 @@ struct EditSetTests {
 
         // 空行は自動で用意される（3）。さらに足すと 4
         #expect(m.drafts.map(\.setNo) == [2, 3])
-        m.addSetRow()
+        m.addSetRow(for: bench)
         #expect(m.drafts.map(\.setNo) == [2, 3, 4])
     }
 
@@ -199,7 +199,9 @@ struct EditSetTests {
 
         await m.updateSet(id: set1, weightKg: 85, reps: 6, rir: 1)
 
-        let req = try! #require(t.requests.last)
+        // **開いた種目の前回値を引く GET が後から飛ぶ**（#337）。
+        // last で掴むと、直したいリクエストを見失う
+        let req = try! #require(t.requests.last { $0.httpMethod == "PATCH" })
         #expect(req.httpMethod == "PATCH")
         #expect(req.url?.path == "/v1/workout-sets/\(set1.uuidString.lowercased())")
         // 画面も直る
@@ -214,7 +216,8 @@ struct EditSetTests {
 
         await m.deleteSet(id: set1)
 
-        let req = try! #require(t.requests.last)
+        // **前回値を引く GET が後から飛ぶ**（#337）ので last では掴めない
+        let req = try! #require(t.requests.last { $0.httpMethod == "DELETE" })
         #expect(req.httpMethod == "DELETE")
         #expect(m.sets(of: bench).map(\.setNo) == [2])
     }
@@ -248,8 +251,8 @@ struct CompactInputTests {
     @Test("RIR も文字列で持つ（空にできる）")
     func rirIsText() async {
         let (m, _) = await model(emptySession)
-        m.selectedExerciseId = bench
-        m.addSetRow()
+        m.openExerciseIds = [bench]
+        m.addSetRow(for: bench)
         let id = m.drafts.last!.id
 
         m.setRir("2", for: id)
@@ -263,8 +266,8 @@ struct CompactInputTests {
     @Test("読めない RIR は未入力あつかい")
     func badRir() async {
         let (m, _) = await model(emptySession)
-        m.selectedExerciseId = bench
-        m.addSetRow()
+        m.openExerciseIds = [bench]
+        m.addSetRow(for: bench)
         let id = m.drafts.last!.id
 
         m.setRir("あ", for: id)
@@ -275,8 +278,8 @@ struct CompactInputTests {
     @Test("**重量かレップが空なら保存しない**")
     func incompleteRow() async {
         let (m, _) = await model(emptySession)
-        m.selectedExerciseId = bench
-        m.addSetRow()
+        m.openExerciseIds = [bench]
+        m.addSetRow(for: bench)
         let id = m.drafts.last!.id
 
         m.setWeight("80", for: id); m.setReps("8", for: id)
@@ -294,9 +297,9 @@ struct CompactInputTests {
         let (m, t) = await model(emptySession)
         t.responses = [(Data(withLast.utf8), 200)]
 
-        await m.selectExercise(bench)
+        await m.loadLast(for: bench)
 
-        #expect(m.lastSummary == "10/1(木)  80×8 / 80×7")
+        #expect(m.lastSummary(of: bench) == "10/1(木)  80×8 / 80×7")
     }
 
     @Test("初回なら nil")
@@ -304,9 +307,9 @@ struct CompactInputTests {
         let (m, t) = await model(emptySession)
         t.responses = [(Data(#"{"exerciseId":"22222222-2222-2222-2222-222222222222"}"#.utf8), 200)]
 
-        await m.selectExercise(bench)
+        await m.loadLast(for: bench)
 
-        #expect(m.lastSummary == nil)
+        #expect(m.lastSummary(of: bench) == nil)
     }
 }
 
@@ -319,7 +322,7 @@ struct DraftRowTests {
     @Test("記録済みが行として出る")
     func drafts() async {
         let (m, _) = await model(sessionWithSets)
-        m.selectedExerciseId = bench
+        m.openExerciseIds = [bench]
 
         // 記録済み2行 + **常に打てる空行が1つ**
         #expect(m.drafts.map(\.setNo) == [1, 2, 3])
@@ -331,9 +334,9 @@ struct DraftRowTests {
     @Test("**＋で1行増える。直前の値を引き継ぐ**")
     func addsRow() async {
         let (m, _) = await model(sessionWithSets)
-        m.selectedExerciseId = bench
+        m.openExerciseIds = [bench]
 
-        m.addSetRow()
+        m.addSetRow(for: bench)
 
         #expect(m.drafts.map(\.setNo) == [1, 2, 3, 4])
         let added = m.drafts.last!
@@ -345,8 +348,8 @@ struct DraftRowTests {
     @Test("打った値を確定すると記録される")
     func commitsNew() async {
         let (m, t) = await model(sessionWithSets)
-        m.selectedExerciseId = bench
-        m.addSetRow()
+        m.openExerciseIds = [bench]
+        m.addSetRow(for: bench)
         let id = m.drafts.last!.id
         m.setWeight("85", for: id)
         m.setReps("5", for: id)
@@ -363,8 +366,8 @@ struct DraftRowTests {
     @Test("**空欄のままでは記録しない**")
     func skipsEmpty() async {
         let (m, t) = await model(sessionWithSets)
-        m.selectedExerciseId = bench
-        m.addSetRow()
+        m.openExerciseIds = [bench]
+        m.addSetRow(for: bench)
         let id = m.drafts.last!.id
         m.setWeight("", for: id)
         let n = t.requests.count
@@ -378,21 +381,21 @@ struct DraftRowTests {
     @Test("記録済みを直すと PATCH")
     func commitsExisting() async {
         let (m, t) = await model(sessionWithSets)
-        m.selectedExerciseId = bench
+        m.openExerciseIds = [bench]
         m.setWeight("85", for: set1)
         let patched = #"{"id":"77777777-0000-0000-0000-000000000001","sessionId":"55555555-5555-5555-5555-555555555555","exerciseId":"22222222-2222-2222-2222-222222222222","setNo":1,"weightKg":85,"reps":8,"rir":2}"#
         t.responses = [(Data(patched.utf8), 200)]
 
         await m.commitDraft(set1)
 
-        #expect(t.requests.last?.httpMethod == "PATCH")
+        #expect(t.requests.contains { $0.httpMethod == "PATCH" })
         #expect(m.sets(of: bench).first?.weightKg == 85)
     }
 
     @Test("変えていなければ送らない")
     func skipsUnchanged() async {
         let (m, t) = await model(sessionWithSets)
-        m.selectedExerciseId = bench
+        m.openExerciseIds = [bench]
         let n = t.requests.count
 
         await m.commitDraft(set1)
@@ -403,8 +406,8 @@ struct DraftRowTests {
     @Test("**まだ記録していない行は、消してもサーバを叩かない**")
     func deletesUnrecorded() async {
         let (m, t) = await model(sessionWithSets)
-        m.selectedExerciseId = bench
-        m.addSetRow()
+        m.openExerciseIds = [bench]
+        m.addSetRow(for: bench)
         let id = m.drafts.last!.id
         let n = t.requests.count
 
@@ -418,22 +421,22 @@ struct DraftRowTests {
     @Test("記録済みを消すと DELETE")
     func deletesRecorded() async {
         let (m, t) = await model(sessionWithSets)
-        m.selectedExerciseId = bench
+        m.openExerciseIds = [bench]
         t.responses = [(Data("{}".utf8), 204)]
 
         await m.deleteDraft(set1)
 
-        #expect(t.requests.last?.httpMethod == "DELETE")
+        #expect(t.requests.contains { $0.httpMethod == "DELETE" })
         #expect(m.drafts.filter(\.recorded).map(\.setNo) == [2])
     }
 
     @Test("種目を変えると行も入れ替わる")
     func switchesExercise() async {
         let (m, _) = await model(sessionWithSets)
-        m.selectedExerciseId = bench
+        m.openExerciseIds = [bench]
         #expect(m.drafts.count == 3)
 
-        m.selectedExerciseId = dips
+        m.openExerciseIds = [dips]
 
         // 記録は無いが、**打てる空行は1つある**
         #expect(m.drafts.filter(\.recorded).isEmpty)
@@ -450,7 +453,7 @@ struct LastBeforeTests {
         let (m, t) = await model(emptySession)
         t.responses = [(Data(#"{"exerciseId":"22222222-2222-2222-2222-222222222222"}"#.utf8), 200)]
 
-        await m.selectExercise(bench)
+        await m.loadLast(for: bench)
 
         let url = try! #require(t.requests.last?.url)
         #expect(url.path.hasSuffix("/last-performance"))
@@ -469,7 +472,7 @@ struct LastBeforeTests {
         ]
         await m.goToPreviousDay()
 
-        await m.selectExercise(bench)
+        await m.loadLast(for: bench)
 
         let url = try! #require(t.requests.last?.url)
         #expect(url.query?.contains("before=2026-10-07") == true)
@@ -485,7 +488,7 @@ struct SetNumberingTests {
     @Test("**消しても 1 から連番**")
     func renumbers() async {
         let (m, t) = await model(sessionWithSets)
-        m.selectedExerciseId = bench
+        m.openExerciseIds = [bench]
         #expect(m.drafts.map(\.displayNo) == [1, 2, 3])
         t.responses = [(Data("{}".utf8), 204)]
 
@@ -499,11 +502,11 @@ struct SetNumberingTests {
     @Test("足した行も連番の続きになる")
     func addKeepsSequence() async {
         let (m, t) = await model(sessionWithSets)
-        m.selectedExerciseId = bench
+        m.openExerciseIds = [bench]
         t.responses = [(Data("{}".utf8), 204)]
         await m.deleteDraft(set1)
 
-        m.addSetRow()
+        m.addSetRow(for: bench)
 
         #expect(m.drafts.map(\.displayNo) == [1, 2, 3])
         // 保存するときは衝突しない番号を使う

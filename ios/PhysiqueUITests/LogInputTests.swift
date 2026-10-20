@@ -26,25 +26,42 @@ final class LogInputTests: XCTestCase {
         let row = app.buttons["routineRow"].firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: UITimeout.slow), "今日の想定が出ること")
         XCTAssertTrue(row.isHittable, "押せる位置にあること")
-        row.tap()
 
-        // **その行の下に開く**（#232）。押せて、打てるところまで見る
+        // **既定で開いている**（#337）。足すたびにタップして開くのは手間
         let weight = app.textFields["weightInput"].firstMatch
-        XCTAssertTrue(weight.waitForExistence(timeout: UITimeout.normal), "押すと入力欄が開くこと")
+        XCTAssertTrue(weight.waitForExistence(timeout: UITimeout.normal), "最初から入力欄が開いていること")
         XCTAssertTrue(weight.isHittable, "重量が打てる位置にあること")
         XCTAssertTrue(app.textFields["repsInput"].firstMatch.isHittable, "レップが打てる位置にあること")
         XCTAssertTrue(app.textFields["rirInput"].firstMatch.isHittable, "RIR が打てる位置にあること")
 
-        let add = app.buttons["addSet"]
+        // **種目の数だけある**（#337）。識別子だけで引くと曖昧になる
+        let add = app.buttons.matching(identifier: "addSet").firstMatch
         XCTAssertTrue(add.exists, "セットを足すが出ること")
         XCTAssertTrue(add.isHittable, "押せる位置にあること")
 
-        // **同じ行をもう一度押したら閉じる**（トグル）
+        // **押したら閉じる**（トグル）。開いているものを閉じられること
+        // **`app.textFields["x"]` は要素1つ。** 件数は matching で数える
+        let allWeights = app.textFields.matching(identifier: "weightInput")
+        let before = allWeights.count
         row.tap()
-        XCTAssertFalse(
-            app.textFields["weightInput"].firstMatch.waitForExistence(timeout: 2),
-            "もう一度押すと閉じること"
-        )
+        XCTAssertLessThan(allWeights.count, before, "押すとその種目の入力欄が閉じること")
+    }
+
+    /// #337。**1つ開くと他が閉じる作りをやめた。**
+    /// ジムではスーパーセットや種目間の確認で行き来する
+    func test_複数の種目の入力欄が同時に開いている() {
+        let rows = app.buttons.matching(identifier: "routineRow")
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: UITimeout.slow), "種目が出ること")
+        XCTAssertGreaterThan(rows.count, 1, "2つ以上の種目が並んでいること")
+
+        // 既定で全部開いているので、入力欄も種目の数だけある
+        let weights = app.textFields.matching(identifier: "weightInput")
+        XCTAssertTrue(weights.firstMatch.waitForExistence(timeout: UITimeout.normal))
+        XCTAssertGreaterThan(weights.count, 1, "2つ以上の入力欄が同時に出ていること")
+
+        // **どちらも押せること。** 出ているだけでは足りない（#202）
+        XCTAssertTrue(weights.element(boundBy: 0).isHittable, "1つ目が押せること")
+        XCTAssertTrue(weights.element(boundBy: 1).isHittable, "2つ目が押せること")
     }
 
     func test_種目を足す場所からカテゴリ別に選べる() {
@@ -89,11 +106,20 @@ final class LogInputTests: XCTestCase {
         XCTAssertTrue(lat.isHittable, "押せる位置にあること")
         lat.tap()
 
-        // **押した結果まで見る**（#217 の反省）。行が増え、その下が開く
-        let weight = app.textFields["weightInput"]
-        XCTAssertTrue(weight.waitForExistence(timeout: UITimeout.normal), "足すと入力欄が開くこと")
-        XCTAssertTrue(weight.isHittable, "打てる位置にあること")
-        XCTAssertTrue(app.buttons["addSet"].isHittable, "セットを足すが押せること")
+        // **押した結果まで見る**（#217 の反省）。行が増え、その下が開く。
+        // 足した種目は末尾に入り、全種目が開いているので画面外から始まる（#337）
+        let weights = app.textFields.matching(identifier: "weightInput")
+        XCTAssertTrue(weights.firstMatch.waitForExistence(timeout: UITimeout.normal), "入力欄が出ること")
+        let added = weights.element(boundBy: weights.count - 1)
+        XCTAssertTrue(added.exists, "足した種目の入力欄があること")
+
+        // **届くことまで見る**（#202）。スクロールして届かないなら使えない
+        var tries = 0
+        while !added.isHittable, tries < 6 {
+            app.swipeUp()
+            tries += 1
+        }
+        XCTAssertTrue(added.isHittable, "スクロールすれば打てる位置に来ること")
     }
 
     /// #256。**記録済みも入力中も同じ行**で、その場で直せるところまで。

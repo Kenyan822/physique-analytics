@@ -62,9 +62,9 @@ struct LogView: View {
                 Task { await model.commitDraft(old.set) }
             }
             .task { await model.load() }
-            .onChange(of: model.selectedExerciseId) { _, id in
-                Task { await model.selectExercise(id) }
-            }
+            // **開いている種目の前回値を引く。** モデルの didSet から
+            // Task を投げると順序が読めない（#337）
+            .task(id: model.openExerciseIds) { await model.loadLastForOpen() }
             // **カテゴリ別に全種目。** 今日の想定に無いものをその日だけ足す（#232）
             .sheet(isPresented: $addingExercise) { addExerciseSheet }
             .sheet(isPresented: $changingDay) { changeDaySheet }
@@ -326,8 +326,8 @@ struct LogView: View {
 
                 // **その行の下に開く。** 画面の一番下に入力欄があると、
                 // どの種目を打っているのか分からなくなる（#232）
-                if model.selectedExerciseId == row.exerciseId {
-                    lastLine
+                if model.openExerciseIds.contains(row.exerciseId) {
+                    lastLine(for: row.exerciseId)
                     setRows(for: row.exerciseId)
                 }
             }
@@ -378,7 +378,7 @@ struct LogView: View {
 
             Spacer()
 
-            if model.selectedExerciseId == row.exerciseId {
+            if model.openExerciseIds.contains(row.exerciseId) {
                 Image(systemName: "chevron.down")
                     .font(.caption).foregroundStyle(.tertiary)
             }
@@ -392,7 +392,8 @@ struct LogView: View {
     /// 保存する。ジムで「記録を押し忘れて1セット消えた」が起きないようにする。
     @ViewBuilder
     private func setRows(for exerciseId: UUID) -> some View {
-        ForEach(model.drafts) { d in
+        // **自分の種目の行だけ**（#337）。複数の種目が同時に開いている
+        ForEach(model.drafts(of: exerciseId)) { d in
             HStack(spacing: 4) {
                 Text("\(d.displayNo)")
                     .font(.caption).foregroundStyle(.secondary)
@@ -421,7 +422,7 @@ struct LogView: View {
 
         Button {
             commitFocused()
-            model.addSetRow()
+            model.addSetRow(for: exerciseId)
         } label: {
             Label("セットを足す", systemImage: "plus")
                 .font(.callout)
@@ -482,10 +483,10 @@ struct LogView: View {
 
     /// 前回この種目をやったセッション（#251）。**超えられるかをその場で決める**
     @ViewBuilder
-    private var lastLine: some View {
-        if model.loadingLast {
+    private func lastLine(for exerciseId: UUID) -> some View {
+        if model.loadingLast.contains(exerciseId) {
             line("前回", "取得中…")
-        } else if let summary = model.lastSummary {
+        } else if let summary = model.lastSummary(of: exerciseId) {
             line("前回", summary)
         } else {
             line("前回", "この種目は初回")
