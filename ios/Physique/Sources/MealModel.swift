@@ -145,9 +145,13 @@ final class MealModel {
     /// 直前の値に戻る。「1.」の途中でも丸められる（MealDraft と同じ理由）
     var foodAmountText: [String: String] = [:]
 
-    /// 計算に渡す形。**空欄と読めない値は 0**（「今日は入れなかった」）
+    /// 計算に渡す形。
+    ///
+    /// **空欄はキーごと渡さない**（#345）。`expand` は渡さなかった引数を
+    /// 「登録時の量」として扱うので、0 に落とすと PFC が 0 になってしまう。
+    /// **「0 と打った」（今日は入れなかった）とは別物。**
     var foodAmounts: [String: Double] {
-        foodAmountText.mapValues { Double($0.trimmingCharacters(in: .whitespaces)) ?? 0 }
+        foodAmountText.compactMapValues { Double($0.trimmingCharacters(in: .whitespaces)) }
     }
     /// 登録するときの入力。**いまの記録の入力とは別に持つ** ——
     /// 「これから食べるもの」と「登録しておきたいもの」は必ずしも同じではない
@@ -206,8 +210,10 @@ final class MealModel {
         }
 
         pickingFood = item
-        // 触らなければ登録したときの量
-        foodAmountText = item.defaultAmounts.mapValues { numberText($0) }
+        // **空で始める**（#345）。登録値が入っていると、打ち直すのにまず消す
+        // 手間が要る。登録値は「登録: 30g で P24」として画面に出ている。
+        // 空のまま確定すれば `expand` が登録時の量で計算する
+        foodAmountText = [:]
     }
 
     func confirmFoodPick() {
@@ -281,6 +287,18 @@ final class MealModel {
         foodComponents[index].coversAll = false
     }
 
+    /// 「全部」の引数に、いまの合計を写す。
+    ///
+    /// **送る直前に呼ぶ。** 入力中に毎回書き戻すと、合計を打ちかけの
+    /// 1文字ごとに引数が動いて落ち着かない
+    private func syncCoversAllWithTotal() {
+        for i in foodComponents.indices where foodComponents[i].coversAll {
+            foodComponents[i].proteinG = foodDraft.proteinG
+            foodComponents[i].fatG = foodDraft.fatG
+            foodComponents[i].carbG = foodDraft.carbG
+        }
+    }
+
     /// 引数の合計が本体を超えていないか。**超えていれば理由を返す**（#224）
     ///
     /// **式を分けてある。** 1つにまとめると型推論が通らなくなる
@@ -324,6 +342,14 @@ final class MealModel {
         errorMessage = nil
         isWorking = true
         defer { isWorking = false }
+
+        // **「全部」は合計そのもの**（ADR-0017）。送る直前に写し直す。
+        //
+        // `setCoversAll` でも写しているが、**押した時点の値しか取れない**。
+        // 「全部」にしてから PFC を打つのが自然な順なので、そのままだと 0 の
+        // まま送られ、固定部 = 合計 − 0 = 合計 になって**量が効かなくなる**（#344）。
+        // 合計を下げたときに「引数が合計を超えている」と誤って弾かれもする
+        syncCoversAllWithTotal()
 
         var components: [FoodItemComponent]?
         if !foodComponents.isEmpty {
