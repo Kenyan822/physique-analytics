@@ -34,10 +34,6 @@ type DailyInput struct {
 	Date         openapi_types.Date
 	WeightKg     *float32
 	BodyfatPct   *float32
-	Kcal         *int
-	ProteinG     *int
-	FatG         *int
-	CarbG        *int
 	SleepH       *float32
 	Steps        *int
 	Fatigue      *int
@@ -60,7 +56,7 @@ type MeasurementInput struct {
 	CalfRCm      *float32
 }
 
-const dailyColumns = `id, date, weight_kg, bodyfat_pct, kcal, protein_g, fat_g, carb_g,
+const dailyColumns = `id, date, weight_kg, bodyfat_pct,
 	sleep_h, steps, fatigue, hrv_ms, resting_hr, deep_sleep_min, note,
 	created_at, updated_at, deleted_at`
 
@@ -121,16 +117,12 @@ func (r *Body) PutDaily(ctx context.Context, in DailyInput) (openapi.DailyMetric
 	// null で潰れる。朝に入れた体重が夜の食事入力で消えることになる
 	const q = `
 		insert into daily_metrics
-			(date, weight_kg, bodyfat_pct, kcal, protein_g, fat_g, carb_g,
+			(date, weight_kg, bodyfat_pct,
 			 sleep_h, steps, fatigue, hrv_ms, resting_hr, deep_sleep_min, note)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		on conflict (date) where deleted_at is null do update set
 			weight_kg      = coalesce(excluded.weight_kg, daily_metrics.weight_kg),
 			bodyfat_pct    = coalesce(excluded.bodyfat_pct, daily_metrics.bodyfat_pct),
-			kcal           = coalesce(excluded.kcal, daily_metrics.kcal),
-			protein_g      = coalesce(excluded.protein_g, daily_metrics.protein_g),
-			fat_g          = coalesce(excluded.fat_g, daily_metrics.fat_g),
-			carb_g         = coalesce(excluded.carb_g, daily_metrics.carb_g),
 			sleep_h        = coalesce(excluded.sleep_h, daily_metrics.sleep_h),
 			steps          = coalesce(excluded.steps, daily_metrics.steps),
 			fatigue        = coalesce(excluded.fatigue, daily_metrics.fatigue),
@@ -138,11 +130,11 @@ func (r *Body) PutDaily(ctx context.Context, in DailyInput) (openapi.DailyMetric
 			resting_hr     = coalesce(excluded.resting_hr, daily_metrics.resting_hr),
 			deep_sleep_min = coalesce(excluded.deep_sleep_min, daily_metrics.deep_sleep_min),
 			note           = coalesce(excluded.note, daily_metrics.note),
-			updated_at     = $15
+			updated_at     = $11
 		returning ` + dailyColumns
 
 	d, err := scanDaily(r.db.QueryRow(ctx, q,
-		in.Date.Time, in.WeightKg, in.BodyfatPct, in.Kcal, in.ProteinG, in.FatG, in.CarbG,
+		in.Date.Time, in.WeightKg, in.BodyfatPct,
 		in.SleepH, in.Steps, in.Fatigue, in.HrvMs, in.RestingHr, in.DeepSleepMin, in.Note,
 		timeutil.Now(),
 	))
@@ -249,7 +241,7 @@ func (r *Body) LatestMeasurement(ctx context.Context) (openapi.BodyMeasurement, 
 func scanDaily(row pgx.Row) (openapi.DailyMetrics, error) {
 	var d openapi.DailyMetrics
 	err := row.Scan(
-		&d.Id, &d.Date.Time, &d.WeightKg, &d.BodyfatPct, &d.Kcal, &d.ProteinG, &d.FatG, &d.CarbG,
+		&d.Id, &d.Date.Time, &d.WeightKg, &d.BodyfatPct,
 		&d.SleepH, &d.Steps, &d.Fatigue, &d.HrvMs, &d.RestingHr, &d.DeepSleepMin, &d.Note,
 		&d.CreatedAt, &d.UpdatedAt, &d.DeletedAt,
 	)

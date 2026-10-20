@@ -145,10 +145,6 @@ func validateDailyInput(in openapi.DailyMetricsInput) (field, message string) {
 		lo, hi       int
 		minExclusive bool
 	}{
-		{field: "kcal", v: in.Kcal, lo: 0, hi: 20000},
-		{field: "proteinG", v: in.ProteinG, lo: 0, hi: 1000},
-		{field: "fatG", v: in.FatG, lo: 0, hi: 1000},
-		{field: "carbG", v: in.CarbG, lo: 0, hi: 2000},
 		{field: "steps", v: in.Steps, lo: 0, hi: 200000},
 		{field: "fatigue", v: in.Fatigue, lo: 1, hi: 5},
 		{field: "hrvMs", v: in.HrvMs, lo: 0, hi: 500, minExclusive: true},
@@ -248,10 +244,6 @@ func toDailyInput(in openapi.DailyMetricsInput) repository.DailyInput {
 		Date:         in.Date,
 		WeightKg:     in.WeightKg,
 		BodyfatPct:   in.BodyfatPct,
-		Kcal:         in.Kcal,
-		ProteinG:     in.ProteinG,
-		FatG:         in.FatG,
-		CarbG:        in.CarbG,
 		SleepH:       in.SleepH,
 		Steps:        in.Steps,
 		Fatigue:      in.Fatigue,

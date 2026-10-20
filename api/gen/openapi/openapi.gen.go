@@ -487,7 +487,6 @@ type ContestInput struct {
 // DailyMetrics defines model for DailyMetrics.
 type DailyMetrics struct {
 	BodyfatPct *float32  `json:"bodyfatPct,omitempty"`
-	CarbG      *int      `json:"carbG,omitempty"`
 	CreatedAt  time.Time `json:"createdAt"`
 
 	// Date JST の日付（ADR-0013）。1日1行
@@ -496,15 +495,12 @@ type DailyMetrics struct {
 
 	// DeletedAt 論理削除。物理削除しない（ADR-0014）
 	DeletedAt *time.Time `json:"deletedAt,omitempty"`
-	FatG      *int       `json:"fatG,omitempty"`
 
 	// Fatigue 主観的な疲労度（要件 B-06）
 	Fatigue   *int               `json:"fatigue,omitempty"`
 	HrvMs     *int               `json:"hrvMs,omitempty"`
 	Id        openapi_types.UUID `json:"id"`
-	Kcal      *int               `json:"kcal,omitempty"`
 	Note      *string            `json:"note,omitempty"`
-	ProteinG  *int               `json:"proteinG,omitempty"`
 	RestingHr *int               `json:"restingHr,omitempty"`
 	SleepH    *float32           `json:"sleepH,omitempty"`
 	Steps     *int               `json:"steps,omitempty"`
@@ -517,15 +513,11 @@ type DailyMetrics struct {
 // DailyMetricsInput defines model for DailyMetricsInput.
 type DailyMetricsInput struct {
 	BodyfatPct   *float32           `json:"bodyfatPct,omitempty"`
-	CarbG        *int               `json:"carbG,omitempty"`
 	Date         openapi_types.Date `json:"date"`
 	DeepSleepMin *int               `json:"deepSleepMin,omitempty"`
-	FatG         *int               `json:"fatG,omitempty"`
 	Fatigue      *int               `json:"fatigue,omitempty"`
 	HrvMs        *int               `json:"hrvMs,omitempty"`
-	Kcal         *int               `json:"kcal,omitempty"`
 	Note         *string            `json:"note,omitempty"`
-	ProteinG     *int               `json:"proteinG,omitempty"`
 	RestingHr    *int               `json:"restingHr,omitempty"`
 	SleepH       *float32           `json:"sleepH,omitempty"`
 	Steps        *int               `json:"steps,omitempty"`

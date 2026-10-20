@@ -1331,10 +1331,6 @@ export interface components {
             date: string;
             weightKg?: number | null;
             bodyfatPct?: number | null;
-            kcal?: number | null;
-            proteinG?: number | null;
-            fatG?: number | null;
-            carbG?: number | null;
             sleepH?: number | null;
             steps?: number | null;
             /** @description 主観的な疲労度（要件 B-06） */
@@ -1349,10 +1345,6 @@ export interface components {
             date: string;
             weightKg?: number | null;
             bodyfatPct?: number | null;
-            kcal?: number | null;
-            proteinG?: number | null;
-            fatG?: number | null;
-            carbG?: number | null;
             sleepH?: number | null;
             steps?: number | null;
             fatigue?: number | null;
