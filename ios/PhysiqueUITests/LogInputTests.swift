@@ -165,9 +165,8 @@ final class LogInputTests: XCTestCase {
     /// #335。**懸垂・ディップスは重さに入れる数字が無い。**
     /// 0 のままだとトン数も e1RM も 0 になる
     func test_自重を選べる() {
-        let row = app.buttons["routineRow"].firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: UITimeout.slow), "種目が出ること")
-        row.tap()
+        // **空から始まる**（#336）。足した行はもう開いている（#337）
+        addFromRoutine(0)
 
         let toggle = app.buttons["bodyweightToggle"].firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: UITimeout.normal), "自重が出ること")
