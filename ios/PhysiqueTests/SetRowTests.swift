@@ -59,11 +59,15 @@ private func model(_ sessions: String) async -> (LogModel, FakeTransport) {
 @Suite("その日の種目リスト")
 @MainActor
 struct SessionExerciseListTests {
-    @Test("**リストが空ならルーティンの並びを使う**")
-    func fallsBackToRoutine() async {
+    /// #336 で**空から始める**ように変えた。実際にはやらない種目も並ぶと、
+    /// その日やったものが埋もれる。ルーティンは「種目を足す」の一番上に出す
+    @Test("**リストが空なら何も並べない**")
+    func startsEmpty() async {
         let (m, _) = await model(emptySession)
 
-        #expect(m.rows.map(\.exerciseId) == [bench, dips])
+        #expect(m.rows.isEmpty)
+        // 選ぶときに上に出すぶんは持っている
+        #expect(m.routineExerciseIds == [bench, dips])
     }
 
     @Test("**リストがあればそちらが正**（ルーティンより優先）")
@@ -76,7 +80,10 @@ struct SessionExerciseListTests {
     @Test("並べ替えるとサーバに全置換で送る")
     func reorderSaves() async {
         let (m, t) = await model(emptySession)
-        t.responses = [(Data(#"{"items":[]}"#.utf8), 200)]
+        t.responses = Array(repeating: (Data(#"{"items":[]}"#.utf8), 200), count: 3)
+        // **空から始まる**（#336）ので、並べ替える前に足す
+        await m.addExercise(bench)
+        await m.addExercise(dips)
 
         await m.moveRows(from: IndexSet(integer: 1), to: 0)
 
@@ -92,7 +99,9 @@ struct SessionExerciseListTests {
     @Test("種目を足すと末尾に入る")
     func addsToEnd() async {
         let (m, t) = await model(emptySession)
-        t.responses = [(Data(#"{"items":[]}"#.utf8), 200)]
+        t.responses = Array(repeating: (Data(#"{"items":[]}"#.utf8), 200), count: 3)
+        await m.addExercise(bench)
+        await m.addExercise(dips)
 
         await m.addExercise(lat)
 
@@ -102,7 +111,9 @@ struct SessionExerciseListTests {
     @Test("既にある種目は二重に足さない")
     func noDuplicate() async {
         let (m, t) = await model(emptySession)
-        t.responses = [(Data(#"{"items":[]}"#.utf8), 200)]
+        t.responses = Array(repeating: (Data(#"{"items":[]}"#.utf8), 200), count: 3)
+        await m.addExercise(bench)
+        await m.addExercise(dips)
 
         await m.addExercise(bench)
 
@@ -112,7 +123,9 @@ struct SessionExerciseListTests {
     @Test("種目を消せる")
     func removes() async {
         let (m, t) = await model(emptySession)
-        t.responses = [(Data(#"{"items":[]}"#.utf8), 200)]
+        t.responses = Array(repeating: (Data(#"{"items":[]}"#.utf8), 200), count: 3)
+        await m.addExercise(bench)
+        await m.addExercise(dips)
 
         await m.removeRows(IndexSet(integer: 0))
 
@@ -124,7 +137,7 @@ struct SessionExerciseListTests {
         let (m, t) = await model(sessionWithList)
         #expect(m.rows.map(\.exerciseId) == [dips, bench])
 
-        // 前日はまだ触っていない日＝ルーティンの並び
+        // 前日はまだ触っていない日。**空から始まる**（#336）
         t.responses = [
             (Data(exercises.utf8), 200),
             (Data(#"{"items":[]}"#.utf8), 200),
@@ -132,12 +145,16 @@ struct SessionExerciseListTests {
         ]
         await m.goToPreviousDay()
 
-        #expect(m.rows.map(\.exerciseId) == [bench, dips])
+        #expect(m.rows.isEmpty)
     }
 
     @Test("**サーバが拒否したら画面も元に戻す**")
     func revertsOnFailure() async {
         let (m, t) = await model(emptySession)
+        t.responses = Array(repeating: (Data(#"{"items":[]}"#.utf8), 200), count: 2)
+        await m.addExercise(bench)
+        await m.addExercise(dips)
+
         // セットのある種目を外そうとした、など（#242 の 422）
         let rejected = #"{"type":"about:blank","title":"外せない","status":422,"detail":"記録のある種目は外せない"}"#
         t.responses = [(Data(rejected.utf8), 422)]

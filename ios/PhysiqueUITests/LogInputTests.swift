@@ -21,10 +21,46 @@ final class LogInputTests: XCTestCase {
         tab.tap()
     }
 
-    func test_今日の想定が並んで入力まで開ける() {
-        // **最初から並んでいること。** 以前は別画面で50種目から選んでいた
+
+    /// 「種目を足す」からルーティンの n 番目を足す（#336）。
+    ///
+    /// **空から始まる**ので、入力まわりを見るテストは先にこれを呼ぶ
+    private func addFromRoutine(_ index: Int) {
+        let add = app.buttons["addExercise"]
+        XCTAssertTrue(add.waitForExistence(timeout: UITimeout.slow), "種目を足すが出ること")
+        XCTAssertTrue(add.isHittable, "押せる位置にあること")
+        add.tap()
+
+        let rows = app.buttons.matching(identifier: "pickExercise")
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: UITimeout.normal), "一覧が開くこと")
+        let row = rows.element(boundBy: index)
+        XCTAssertTrue(row.isHittable, "ルーティンの種目が押せる位置にあること")
+        row.tap()
+    }
+
+    /// #336。**ルーティンは並べず、選ぶときに一番上に出す。**
+    /// 実際にはやらない種目が並ぶと、その日やったものが埋もれる
+    func test_ルーティンは並ばず選ぶときに上に出る() {
+        XCTAssertFalse(
+            app.buttons["routineRow"].waitForExistence(timeout: 2),
+            "最初は何も並んでいないこと"
+        )
+
+        let add = app.buttons["addExercise"]
+        XCTAssertTrue(add.waitForExistence(timeout: UITimeout.slow), "種目を足すが出ること")
+        add.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["今日のルーティン"].waitForExistence(timeout: UITimeout.normal),
+            "一番上に今日のルーティンが出ること"
+        )
+    }
+
+    func test_足した種目が並んで入力まで開ける() {
+        addFromRoutine(0)
+
         let row = app.buttons["routineRow"].firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: UITimeout.slow), "今日の想定が出ること")
+        XCTAssertTrue(row.waitForExistence(timeout: UITimeout.slow), "足した種目が並ぶこと")
         XCTAssertTrue(row.isHittable, "押せる位置にあること")
 
         // **既定で開いている**（#337）。足すたびにタップして開くのは手間
@@ -50,6 +86,10 @@ final class LogInputTests: XCTestCase {
     /// #337。**1つ開くと他が閉じる作りをやめた。**
     /// ジムではスーパーセットや種目間の確認で行き来する
     func test_複数の種目の入力欄が同時に開いている() {
+        // **足しても一覧からは消えない。** 別の index を選ぶ
+        addFromRoutine(0)
+        addFromRoutine(1)
+
         let rows = app.buttons.matching(identifier: "routineRow")
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: UITimeout.slow), "種目が出ること")
         XCTAssertGreaterThan(rows.count, 1, "2つ以上の種目が並んでいること")
@@ -124,10 +164,12 @@ final class LogInputTests: XCTestCase {
 
     /// #256。**記録済みも入力中も同じ行**で、その場で直せるところまで。
     func test_セットが行で出てその場で直せる() {
-        let row = app.buttons["routineRow"].firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: UITimeout.slow), "今日の想定が出ること")
-        row.tap()
+        addFromRoutine(0)
 
+        let row = app.buttons["routineRow"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: UITimeout.slow), "足した種目が並ぶこと")
+
+        // **押さない。足した時点で開いている**（#337）。押すと閉じる。
         // 開いた時点で1行ある（前回値が入る）
         let weight = app.textFields["weightInput"].firstMatch
         XCTAssertTrue(weight.waitForExistence(timeout: UITimeout.normal), "入力行が出ること")

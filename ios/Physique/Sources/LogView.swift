@@ -128,8 +128,29 @@ struct LogView: View {
             List {
                 // **大分類は6つ**（#288）。13の見出しが並ぶと目的の種目まで遠い。
                 // `MuscleGroup` 自体は13のまま —— 分析がそれを前提にしている
+                // **今日のルーティンを一番上に**（#336）。並べはしないが、
+                // 探す手間を増やさずに「今日やる想定のもの」を先に見せる
+                let hits = ExerciseFilter.apply(model.exercises, query: exerciseQuery)
+                let routine = model.routineExerciseIds.compactMap { id in
+                    hits.first { $0.id == id }
+                }
+                if !routine.isEmpty {
+                    Section {
+                        ForEach(routine) { e in exerciseRow(e) }
+                    } header: {
+                        Text("今日のルーティン")
+                    } footer: {
+                        Text("足してもルーティンは変わらない")
+                            .font(.caption2)
+                    }
+                }
+
+                // **下の分類からは外す。** 同じ種目が2回出ると、
+                // どちらを押したか分からなくなる
+                let routineIds = Set(routine.map(\.id))
                 ForEach(MuscleArea.allCases, id: \.self) { area in
-                    let items = ExerciseFilter.apply(model.exercises, query: exerciseQuery)
+                    let items = hits
+                        .filter { !routineIds.contains($0.id) }
                         .filter { MuscleArea.of($0.muscleGroup) == area }
                     if !items.isEmpty {
                         Section(area.label) {
@@ -194,6 +215,8 @@ struct LogView: View {
         // **名前で引けるようにする。** 付けないとラベルが行の中身
         // （名前・部位）を繋いだ1つの文字列になり、UI テストから引けない
         .accessibilityLabel(e.name)
+        // 並び順で引く用（#336）。名前を知らなくても「上から n 番目」を押せる
+        .accessibilityIdentifier("pickExercise")
         // **論理削除。** 記録は残る（#264）
         .swipeActions {
             Button("消す", role: .destructive) {
