@@ -83,6 +83,9 @@ type Estimate struct {
 	CarbG    *float64 `json:"carbG,omitempty"`
 	// Confidence は low / medium / high。量が分からないときは low になる
 	Confidence string `json:"confidence,omitempty"`
+	// FromLabel は**栄養成分表示から読んだ**か（#350）。
+	// 推定より確かなので、記録の確度を見るときに効く
+	FromLabel bool `json:"fromLabel,omitempty"`
 	// Note は推定の根拠。ユーザーが直すときの手がかりになる
 	Note string `json:"note,omitempty"`
 }
@@ -120,18 +123,31 @@ var estimateSchema = map[string]any{
 		"carbG":    map[string]any{"type": []string{"number", "null"}},
 		"confidence": map[string]any{
 			"type": "string", "enum": []string{"low", "medium", "high"},
-			"description": "量が判断できなければ low",
+			"description": "量が判断できなければ low。栄養成分表示から読めたら high",
+		},
+		"fromLabel": map[string]any{
+			"type":        "boolean",
+			"description": "栄養成分表示から読んだ値なら true。見た目からの推定なら false",
 		},
 		"note": map[string]any{"type": "string", "description": "推定の根拠を1文で"},
 	},
-	"required": []string{"name", "confidence", "note"},
+	"required": []string{"name", "confidence", "fromLabel", "note"},
 }
 
 // prompt は LLM への指示。
 //
 // **出力の形は estimateSchema が縛る。** ここには形から読み取れない前提だけ書く。
-const prompt = `この写真の食事の栄養素を推定してください。
+const prompt = `この写真の食事の栄養素を求めてください。
 
+**栄養成分表示が写っているなら、そこに書かれている値を読んでください。**
+見た目から推定する必要はありません。
+
+- 表示から読んだときは fromLabel を true、confidence を high にしてください
+- 「100g あたり」の表示なら、**内容量を見て1食分に換算**してください。
+  内容量が読み取れない場合は換算せず、qty に「100g あたり」と書き、
+  confidence を low にしてください
+- 「1袋あたり」「1本あたり」の表示はそのまま使えます
+- 表示が無いときは見た目から推定し、fromLabel を false にしてください
 - 量が判断できない場合は confidence を low にしてください
 - 日本の一般的な食事量を前提にしてください
 - 分からない項目は null にしてください`

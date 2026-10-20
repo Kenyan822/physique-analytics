@@ -104,6 +104,74 @@ func TestEstimate_応答をPFCにする(t *testing.T) {
 	}
 }
 
+// **栄養成分表示が写っていれば読む**（#350）。推定より正確なので、
+// 読んだのか推定したのかを呼び出し側が区別できるようにする
+func TestEstimate_表示から読んだことが分かる(t *testing.T) {
+	t.Parallel()
+
+	body := geminiBody(t, `{"name":"プロテインバー","qty":"1本","kcal":201,"proteinG":15.9,`+
+		`"fatG":8.1,"carbG":16.2,"confidence":"high","fromLabel":true,"note":"栄養成分表示から"}`)
+	c := vision.NewClient(vision.Config{ProjectID: "p-1", Model: "gemini-3.8-flash"},
+		&http.Client{Transport: &fakeTransport{status: 200, body: body}})
+
+	got, err := c.Estimate(context.Background(), vision.Request{
+		Image: []byte{0x89, 0x50}, MimeType: "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("Estimate: %v", err)
+	}
+
+	if !got.FromLabel {
+		t.Error("FromLabel = false, want true")
+	}
+	if got.Confidence != "high" {
+		t.Errorf("Confidence = %q, want high", got.Confidence)
+	}
+}
+
+// 見た目からの推定は false のまま。**既定で true にしない**
+func TestEstimate_推定は表示から読んだことにしない(t *testing.T) {
+	t.Parallel()
+
+	body := geminiBody(t, `{"name":"定食","confidence":"low","fromLabel":false,"note":"見た目から"}`)
+	c := vision.NewClient(vision.Config{ProjectID: "p-1", Model: "gemini-3.8-flash"},
+		&http.Client{Transport: &fakeTransport{status: 200, body: body}})
+
+	got, err := c.Estimate(context.Background(), vision.Request{
+		Image: []byte{0x89, 0x50}, MimeType: "image/jpeg",
+	})
+	if err != nil {
+		t.Fatalf("Estimate: %v", err)
+	}
+
+	if got.FromLabel {
+		t.Error("FromLabel = true, want false")
+	}
+}
+
+// **プロンプトに「100g あたりは換算する」が入っていること。**
+// 「1袋あたり」と取り違えると、記録が数倍ずれる
+func TestEstimate_換算の指示を送っている(t *testing.T) {
+	t.Parallel()
+
+	tr := &fakeTransport{status: 200, body: geminiBody(t, `{"name":"x"}`)}
+	c := vision.NewClient(vision.Config{ProjectID: "p-1", Model: "gemini-3.8-flash"},
+		&http.Client{Transport: tr})
+
+	if _, err := c.Estimate(context.Background(), vision.Request{
+		Image: []byte{0x89, 0x50}, MimeType: "image/jpeg",
+	}); err != nil {
+		t.Fatalf("Estimate: %v", err)
+	}
+
+	sent := tr.gotRaw
+	for _, want := range []string{"栄養成分表示", "100g あたり", "1食分に換算"} {
+		if !strings.Contains(sent, want) {
+			t.Errorf("プロンプトに %q が無い", want)
+		}
+	}
+}
+
 func TestEstimate_リクエストの形(t *testing.T) {
 	t.Parallel()
 
