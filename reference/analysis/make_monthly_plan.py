@@ -6,7 +6,12 @@
 
     python3 reference/analysis/make_monthly_plan.py                          # private/config.json を使う
     python3 reference/analysis/make_monthly_plan.py --config config.example.json \
-        --out-docs /tmp/plan.md --out-csv /tmp/plan.csv            # 雛形で試す
+        --out-csv /tmp/plan.csv                                    # 雛形で試す
+
+**既定では md を書かない**（ADR-0015 / #328）。表をファイルに落とすと、
+実測とずれたまま残って「正」に見える。月次目標は
+`GET /v1/plan/monthly-targets` で毎回計算するのが正。
+手元で読みたいときだけ `--out-docs` を渡す。
 
 P1 完了時点と各大会後の実測 LBM を起点に、以降は必ず再計算する。
 月次目標は固定値ではなく、実測を起点に引き直すもの。
@@ -66,7 +71,11 @@ def month_labels(start_y: int = 2026, start_m: int = 9, n: int = 37) -> list[str
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="private/config.json")
-    ap.add_argument("--out-docs", default="private/docs/02-月次目標.md")
+    # **既定では md を書かない**（ADR-0015 / #328）。
+    # 表をファイルに落とすと、実測とずれたまま残って「正」に見える。
+    # 月次目標は GET /v1/plan/monthly-targets で毎回計算するのが正。
+    # 渡されたときだけ書く
+    ap.add_argument("--out-docs", default=None)
     ap.add_argument("--out-csv", default="private/data/monthly_plan.csv")
     a = ap.parse_args()
 
@@ -137,16 +146,21 @@ def main() -> None:
           "差分は神経系適応・技術・レバレッジ最適化によるもので、見た目には現れない。",
           "挙上重量はオーバーロードが効いている証拠として追う指標であり、見た目の目標そのものではない。", ""]
 
-    out_docs, out_csv = Path(a.out_docs), Path(a.out_csv)
-    out_docs.parent.mkdir(parents=True, exist_ok=True)
+    out_csv = Path(a.out_csv)
     out_csv.parent.mkdir(parents=True, exist_ok=True)
-    out_docs.write_text("\n".join(L) + "\n", encoding="utf-8")
+
+    out_docs = Path(a.out_docs) if a.out_docs else None
+    if out_docs is not None:
+        out_docs.parent.mkdir(parents=True, exist_ok=True)
+        out_docs.write_text("\n".join(L) + "\n", encoding="utf-8")
+
     out_csv.write_text(
         "month,phase,weight_kg,bodyfat_pct,lbm_kg,ffmi,bench_e1rm,squat_e1rm\n"
         + "".join(f"{r['month']},{r['phase']},{r['weight']:.1f},{r['bf']:.1f},"
                  f"{r['lbm']:.1f},{r['ffmi']:.1f},{r['bench']:.0f},{r['squat']:.0f}\n" for r in rows),
         encoding="utf-8")
-    print(f"生成: {out_docs} / {out_csv} ({len(rows)}ヶ月分)")
+    made = f"{out_docs} / {out_csv}" if out_docs is not None else str(out_csv)
+    print(f"生成: {made} ({len(rows)}ヶ月分)")
     print(f"最終: {f['weight']:.1f}kg / BF{f['bf']:.1f}% / LBM {f['lbm']:.1f}kg / FFMI {f['ffmi']:.1f}")
 
 
