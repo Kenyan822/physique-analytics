@@ -7,7 +7,11 @@ struct StreakView: View {
     @State private var model: StreakModel
 
     private static let weekdays = ["日", "月", "火", "水", "木", "金", "土"]
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 7)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 7)
+
+    /// セルの高さ。**Apple のタップ領域の目安が 44pt。**
+    /// 34pt は押せるが窮屈で、腕を伸ばした距離だと日付が読めない（#339）
+    private static let cellHeight: CGFloat = 44
 
     init(api: APIClient = APIClient(baseURL: AppConfig.apiBaseURL)) {
         _model = State(initialValue: StreakModel(api: api))
@@ -58,21 +62,34 @@ struct StreakView: View {
 
     /// 食事と同じ形（#193）。中央上部に置き、左右で1ヶ月ずつ
     private var monthNav: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 12) {
             Button { Task { await model.goToPreviousMonth() } } label: {
-                Image(systemName: "chevron.left")
+                navIcon("chevron.left", enabled: true)
             }
+            .buttonStyle(.plain)
             .accessibilityIdentifier("prevMonth")
 
             Text(model.monthLabel).font(.headline)
 
             // **未来には進めない。** 記録のしようがない月を見ても意味が無い
             Button { Task { await model.goToNextMonth() } } label: {
-                Image(systemName: "chevron.right")
+                navIcon("chevron.right", enabled: model.canGoNext)
             }
+            .buttonStyle(.plain)
             .disabled(!model.canGoNext)
             .accessibilityIdentifier("nextMonth")
         }
+    }
+
+    /// 月を移す矢印。**裸の chevron は押せる場所に見えない**（#339）。
+    /// 背景を敷いて、進めないときは薄くする
+    private func navIcon(_ name: String, enabled: Bool) -> some View {
+        Image(systemName: name)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(enabled ? Color.primary : Color.secondary.opacity(0.4))
+            .frame(width: 44, height: 36)
+            .background(.quaternary.opacity(enabled ? 1 : 0.4),
+                        in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func streakCount(
@@ -90,9 +107,11 @@ struct StreakView: View {
     private var calendar: some View {
         LazyVGrid(columns: columns, spacing: 6) {
             ForEach(Self.weekdays, id: \.self) { w in
-                Text(w).font(.caption2).foregroundStyle(.secondary)
+                Text(w).font(.footnote).foregroundStyle(.secondary)
             }
-            ForEach(0..<model.leadingBlanks, id: \.self) { _ in Color.clear.frame(height: 34) }
+            ForEach(0..<model.leadingBlanks, id: \.self) { _ in
+                Color.clear.frame(height: Self.cellHeight)
+            }
             ForEach(1...model.daysInMonth, id: \.self) { n in
                 cell(n)
             }
@@ -114,15 +133,16 @@ struct StreakView: View {
     }
 
     private func cellBody(_ n: Int, _ d: StreakDay?) -> some View {
-        VStack(spacing: 2) {
-            Text("\(n)").font(.caption2).monospacedDigit()
-            HStack(spacing: 2) {
+        VStack(spacing: 3) {
+            Text("\(n)").font(.subheadline).monospacedDigit()
+            HStack(spacing: 3) {
                 // **判定できない日は薄いグレー。** 未達と見分けられるようにする
                 dot(met: d?.mealGoalMet, on: .orange)
                 dot(met: d?.trained, on: .blue)
             }
         }
-        .frame(height: 34)
+        .frame(maxWidth: .infinity)
+        .frame(height: Self.cellHeight)
         .contentShape(Rectangle())
     }
 
@@ -203,9 +223,9 @@ struct StreakView: View {
     @ViewBuilder
     private func dot(met: Bool?, on color: Color) -> some View {
         switch met {
-        case true: Circle().fill(color).frame(width: 6, height: 6)
-        case false: Circle().strokeBorder(color.opacity(0.4), lineWidth: 1).frame(width: 6, height: 6)
-        case nil: Circle().fill(Color.secondary.opacity(0.15)).frame(width: 6, height: 6)
+        case true: Circle().fill(color).frame(width: 8, height: 8)
+        case false: Circle().strokeBorder(color.opacity(0.5), lineWidth: 1.5).frame(width: 8, height: 8)
+        case nil: Circle().fill(Color.secondary.opacity(0.15)).frame(width: 8, height: 8)
         }
     }
 

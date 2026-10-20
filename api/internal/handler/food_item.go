@@ -240,6 +240,19 @@ func normalizeFoodItem(in openapi.FoodItemInput) openapi.FoodItemInput {
 		cs := make([]openapi.FoodItemComponent, 0, len(*in.Components))
 		for _, c := range *in.Components {
 			c.Name = strings.TrimSpace(c.Name)
+			// **「全部」の引数は合計そのもの**（ADR-0017）。ここで埋める。
+			//
+			// クライアントは PFC 欄を出していない（合計と同じなので入れる
+			// 意味が無い）。送られてこないぶんを 0 のまま保存すると
+			// 固定部 = 合計 − 0 = 合計 になり、**量を変えても効かなくなる**（#344）。
+			//
+			// **計算側（foodmaster.Expand）を特別扱いしない。** 保存された値が
+			// 正しくないと、「登録: 30g で P24」のような表示まで 0 になる
+			if c.CoversAll != nil && *c.CoversAll {
+				c.ProteinG = in.ProteinG
+				c.FatG = in.FatG
+				c.CarbG = in.CarbG
+			}
 			cs = append(cs, c)
 		}
 		out.Components = &cs

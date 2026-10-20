@@ -70,7 +70,11 @@ final class StreakModel {
 
     // MARK: - 連続日数
 
-    /// 食事の目標を満たした連続日数。**今日から遡る。**
+    /// 食事の目標を満たした連続日数。**昨日までを数え、今日は達成していれば足す。**
+    ///
+    /// **今日では切らない**（#348）。一日の途中は当たり前に未達なので、
+    /// 今日から遡ると食べ終わるまで 0 に見える。続けること自体が目的の
+    /// 表示なので、それでは効き目が無い。
     ///
     /// **判定できない日（nil）では切らない。** 目標を決める前の日や、
     /// 自動計算もできない日が挟まっただけで途切れるのは実態に合わない
@@ -80,8 +84,9 @@ final class StreakModel {
     var trainedStreak: Int { streak { $0.trained } }
 
     private func streak(_ met: (StreakDay) -> Bool?) -> Int {
-        var n = 0
-        var cursor = today
+        // **今日は足すだけ。切る判定には使わない**（#348）
+        var n = days[today].flatMap(met) == true ? 1 : 0
+        var cursor = JST.shift(today, days: -1)
 
         while let d = days[cursor] {
             switch met(d) {

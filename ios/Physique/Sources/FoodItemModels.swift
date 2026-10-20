@@ -124,9 +124,16 @@ struct FoodComponentDraft: Identifiable, Hashable, Sendable {
     /// 合計そのものを表すか。**立つと引数は1つだけ**
     var coversAll = false
 
+    /// 「全部」のときの既定の名前。**合計そのものなので名前に意味が無い**（#345）
+    static let wholeName = "量"
+
     /// 送れる形にする。**読めなければ nil**
     func toComponent() -> FoodItemComponent? {
-        let n = name.trimmingCharacters(in: .whitespaces)
+        // **「全部」は名前を聞かない。** 合計そのものを表すので、
+        // 「鶏むね」のような名前を付ける意味が無い（#345）
+        let n = coversAll
+            ? Self.wholeName
+            : name.trimmingCharacters(in: .whitespaces)
         guard !n.isEmpty, let a = positive(amount) else { return nil }
 
         return FoodItemComponent(
@@ -141,7 +148,9 @@ struct FoodComponentDraft: Identifiable, Hashable, Sendable {
 
     /// 何が足りないかを返す。**「登録できない」だけだと直しようがない**
     func problem() -> String {
-        if name.trimmingCharacters(in: .whitespaces).isEmpty { return "引数の名前を入れる" }
+        if !coversAll, name.trimmingCharacters(in: .whitespaces).isEmpty {
+            return "引数の名前を入れる"
+        }
         if positive(amount) == nil { return "量は 0 より大きい数にする" }
 
         return "引数の入力を見直す"

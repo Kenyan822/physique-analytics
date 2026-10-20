@@ -229,6 +229,8 @@ func toSetInput(in openapi.WorkoutSetInput) repository.SetInput {
 		ExerciseID: in.ExerciseId,
 		SetNo:      in.SetNo,
 		WeightKg:   in.WeightKg,
+		// **既定は false。** 送ってこないクライアントは今までどおり
+		Bodyweight: in.Bodyweight != nil && *in.Bodyweight,
 		Reps:       in.Reps,
 		RIR:        in.Rir,
 	}
