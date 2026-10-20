@@ -25,7 +25,7 @@ Go 側は [docs/go/](../go/)。
 | [auth.md](auth.md) | **起動からトークンが `Authorization` に載るまで**。Keychain と自動更新 |
 | [food-master.md](food-master.md) | **食品マスタ**。Go と Swift が同じ計算を持つ理由、一致の固定、`init` を本体に書くと合成が消える話 |
 | [location.md](location.md) | **位置情報**。端末内だけで並べ替える仕組み、CoreLocation を `async` にする、`sorted` が安定でない話 |
-| [offline.md](offline.md) | `PendingQueue`。電波が切れても記録が消えない仕組み（要件 T-07） |
+| [offline.md](offline.md) | `PendingQueue`。電波が切れても記録が消えない仕組み（要件 T-07）、画面の状態がそのまま送信の中身になる罠 |
 | [build-config.md](build-config.md) | xcconfig → `Info.plist` → `AppConfig`。署名と bundle ID |
 | [testing.md](testing.md) | Swift Testing、偽物の注入、タイムゾーン依存の落とし方 |
 | [ui-layout.md](ui-layout.md) | **レイアウトとタップ領域**。`.roundedBorder` の枠が大きくならない話、44pt、横幅の数え方 |
